@@ -52,16 +52,10 @@ export default function Sidebar({ userRole }) {
   const resolvedNavConfig = navConfig.map((entry) => {
     if (entry.section !== "Integration") return entry;
 
-    const seenTypes = new Map();
-    integrationConnections.forEach((c) => {
-      const key = (c.type || "Unknown").trim();
-      if (!seenTypes.has(key)) seenTypes.set(key, c);
-    });
-
     return {
       ...entry,
-      items: Array.from(seenTypes.entries()).map(([type, conn]) => ({
-        label: type,
+      items: integrationConnections.map((conn) => ({
+        label: conn.serverName || conn.type || "Unknown Connection",
         page: `integration/${conn.id || conn._id}`,
         icon: entry.icon
       }))
