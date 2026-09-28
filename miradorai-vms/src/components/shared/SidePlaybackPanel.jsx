@@ -6,10 +6,10 @@ import { useWebSocket } from "../../hooks/useWebSocket";
 import { useAuth } from "../../context/AuthContext";
 import { logUIAction } from "../../hooks/useActivityLogger";
 import { formatEventName } from "../../pages/liveview/LiveViewPage";
+import { createPortal } from "react-dom";
 import "./SidePlaybackPanel.css";
 
 const API = import.meta.env.VITE_API_URL || "";
-
 function getToken() {
   return (
     localStorage.getItem("miradorai_token") ||
@@ -167,7 +167,7 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
         if (!readerId) return; // no reader_id registered for this camera yet
         const res = await fetch(`/external-ai-api/getalert?readerIds=${encodeURIComponent(readerId)}&page=1&size=500`, {
           headers: {
-            "Authorization": "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ7XCJpZFwiOlwiN2MxYzVhMzYtOGM0ZS00YzdlLTlkNmEtMWE3ZjFlOWQyYTQxXCIsXCJlbWFpbFwiOlwiYWRtaW5AbWlyYWRvci5haVwiLFwidGVuYW50SWRcIjpcIjZhNWVkMmE0LWI2MTQtNDY3My1iOWUzLTFiYTEwNzM4M2VmZVwiLFwiZmlyc3ROYW1lXCI6XCJBZG1pblwiLFwibGFzdE5hbWVcIjpudWxsfSIsImlhdCI6MTc4NDY5OTc0OX0.70FwbJjKRihC_YRN3w2icZKgWxld_zKFjrMoRVDyYMQ",
+            "Authorization": localStorage.getItem('miradorai_sso_token') || '',
             "Content-Type": "application/json"
           }
         });
@@ -709,7 +709,7 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
         a.click();
         document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
-        showToast("Download started! (.ts file — plays in VLC and most players)");
+        showToast(`Video downloaded for ${camera?.name || cameraIp || "camera"}.`);
         logUIAction(user, "Video Downloaded", "download", { filename: a.download, file_type: "alert_ts" });
       } else {
         // Not HLS — a direct fetch+blob is safe as-is.
@@ -725,7 +725,7 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
         a.click();
         document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
-        showToast("Download started!");
+        showToast(`Video downloaded for ${camera?.name || cameraIp || "camera"}.`);
         logUIAction(user, "Video Downloaded", "download", { filename: a.download, file_type: "alert" });
       }
     } catch (err) {
@@ -758,7 +758,7 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
       a.click();
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
-      showToast("Download started!");
+      showToast(`Video downloaded for ${camera?.name || cameraIp || "camera"}.`);
       logUIAction(user, "Video Downloaded", "download", { filename, file_type: "archive" });
     } catch (err) {
       console.error("Download error:", err);
@@ -799,6 +799,13 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
   };
 
   // ── Group files by hour ─────────────────────────────────────────
+function formatEventTimestamp(value) {
+  if (!value) return "";
+  const match = String(value).match(/(?:T|\s)(\d{2}[:\-]\d{2}[:\-]\d{2})/);
+  const time = (match?.[1] || String(value).match(/\d{2}[:\-]\d{2}[:\-]\d{2}/)?.[0] || "").replace(/-/g, ":");
+  const date = String(value).match(/(\d{4}[-/]\d{2}[-/]\d{2})/)?.[1]?.replace(/\//g, "-");
+  return time && date ? `${time} (${date})` : time || date || String(value);
+}
   const groupedFiles = useMemo(() => {
     const groups = files.reduce((acc, f) => {
       const h = String(extractHour(f)).padStart(2, "0");
@@ -817,38 +824,50 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
     
     return groups;
   }, [files]);
+  const eventTimestamp = formatEventTimestamp(playingAlert?.time || playingAlert?.received_at);
 
   return (
     <div className="side-playback-panel">
       {/* Toast Notification */}
-      {toast && (
+      {toast && createPortal(
         <div className={`side-playback-toast ${toast.type === "error" ? "toast-error" : ""}`}>
-          <span>{toast.msg}</span>
-        </div>
+          {toast.type === "error" ? (
+            <span className="side-playback-toast__icon side-playback-toast__icon--error">!</span>
+          ) : (
+            <span className="side-playback-toast__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <circle cx="12" cy="12" r="9" />
+                <path d="m8 12 2.5 2.5L16 9" />
+              </svg>
+            </span>
+          )}
+          <div className="side-playback-toast__content">
+            <strong>{toast.type === "error" ? "ERROR" : "SUCCESS"}</strong>
+            <span>{toast.msg}</span>
+          </div>
+          <div className="side-playback-toast__progress" aria-hidden="true" />
+        </div>,
+        document.body
       )}
 
       {/* Header */}
       <div className="side-playback-header">
         <div className="side-playback-header__info">
           <span className="side-playback-title">{camera?.name || "Camera Playback"}</span>
-          <span className="side-playback-subtitle">{cameraIp}</span>
+          <span className="side-playback-subtitle">
+            {cameraIp}
+            {playingAlert && eventTimestamp && (
+              <span style={{ marginLeft: "8px", fontWeight: "600", color: "var(--teal)" }}>
+                {eventTimestamp}
+              </span>
+            )}
+          </span>
         </div>
         <button className="side-playback-close-btn" onClick={onClose} title="Close playback panel">✕</button>
       </div>
 
       {/* Video Viewport */}
       <div className="side-playback-video-container">
-        {playingFile && (
-          <div className="side-playback-hud-top">
-            <span className="side-playback-hud-badge">Playback</span>
-          </div>
-        )}
-        {playingAlert && (
-          <div className="side-playback-hud-top">
-            <span className="side-playback-hud-badge">Event Clip</span>
-          </div>
-        )}
-
         <div
           ref={playerWrap}
           {...handlers}
@@ -985,9 +1004,11 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
               </svg>
             </button>
 
-            <button className="side-playback-btn" onClick={handleDownloadVideo} disabled={!playingFile && !playingAlert} title="Download Video">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="13" height="13">
-                <path d="M12 15V3m0 12l-4-4m4 4l4-4M2 17l.621 2.485A2 2 0 0 0 4.561 21h14.878a2 2 0 0 0 1.94-1.515L22 17" />
+            <button className="side-playback-btn side-playback-download-btn" onClick={handleDownloadVideo} disabled={!videoUrl || (!playingFile && !playingAlert)} title="Download Video" aria-label="Download video">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
             </button>
           </div>
@@ -1132,7 +1153,10 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
                 
 
                 return (
-                  <div key={i} className="side-playback-alert-row">
+                  <div
+                    key={i}
+                    className={`side-playback-alert-row ${playingAlert === alert ? "is-playing" : ""}`}
+                  >
                     {(alert.liveSnapshot || alertThumbnailUrl) && (
                       <div className="side-playback-alert-thumb-wrap" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                         {alert.liveSnapshot && (
@@ -1166,23 +1190,22 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
                       </div>
                     )}
                     <div className="side-playback-alert-info">
-                      {alert.isExternal ? (
-                        <>
-                          <span className="side-playback-alert-type" style={{ display: "block", fontWeight: "bold" }}>
-                            {alert.eventType || "AI Event"}
-                          </span>
-                          {alert.personName && (
-                            <span className="side-playback-alert-person" style={{ display: "block", fontSize: "11.5px", color: "var(--text-secondary)", marginTop: "2px" }}>
-                              👤 {alert.personName}
-                            </span>
-                          )}
-                        </>
-                      ) : (
-                        <span className="side-playback-alert-type">{formatEventName(alert.type || "Active Alert")}</span>
-                      )}
-                      <span className="side-playback-alert-time" style={{ display: "block", marginTop: "3px" }}>
-                        {timeOnly || "—"} {dateOnly && <span style={{ color: "var(--teal)", marginLeft: "6px" }}>({dateOnly})</span>}
-                      </span>
+                      <div className="side-playback-alert-event">
+                        {alert.isExternal ? (
+                          <>
+                            <span className="side-playback-alert-type">{alert.eventType || "AI Event"}</span>
+                            {alert.personName && (
+                              <span className="side-playback-alert-person">👤 {alert.personName}</span>
+                            )}
+                          </>
+                        ) : (
+                          <span className="side-playback-alert-type">{formatEventName(alert.type || "Active Alert")}</span>
+                        )}
+                      </div>
+                      <div className="side-playback-alert-time">
+                        <span>{timeOnly || "—"}</span>
+                        {dateOnly && <span className="side-playback-alert-date">({dateOnly})</span>}
+                      </div>
                     </div>
                     <button className="m-btn m-btn--primary" style={{ padding: "4px 10px", fontSize: "11.5px" }} onClick={() => playAlert(alert)}>
                       <svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10" style={{ marginRight: "4px" }}>

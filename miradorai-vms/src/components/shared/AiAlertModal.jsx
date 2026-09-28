@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 /**
  * AiAlertModal
  * Restructured per wireframe:
@@ -9,9 +10,50 @@ import React, { useState, useEffect } from 'react';
  *  - Footer: Alert ID
  *  - Whole modal animates in/out (scale + fade), timeline progress animates, active state pulses.
  *
- * Optional new props: onPrev, onNext — pass handlers to enable the header nav arrows
+ * Optional new props: onPrev, onNext - pass handlers to enable the header nav arrows
  * (used when browsing between alerts from LiveView without closing the modal).
  */
+
+const ImageFallback = ({ paths, alt, style }) => {
+  const [idx, setIdx] = useState(0);
+  const [failed, setFailed] = useState(false);
+
+  // Reset only when the actual image list changes
+  useEffect(() => {
+    setIdx(0);
+    setFailed(false);
+  }, [paths?.join('|')]);
+
+  if (failed || !paths || paths.length === 0) {
+    return (
+      <span
+        style={{
+          color: 'var(--text-secondary, #64748b)',
+          fontSize: '12px',
+        }}
+      >
+        No {alt} Available
+      </span>
+    );
+  }
+
+  return (
+    <img
+      src={paths[idx]}
+      alt={alt}
+      style={style}
+      draggable={false}
+      onError={() => {
+        if (idx < paths.length - 1) {
+          setIdx((prev) => prev + 1);
+        } else {
+          setFailed(true);
+        }
+      }}
+    />
+  );
+};
+
 const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
   const [status, setStatus] = useState(alert?.status || 'Active');
   const [showConfirm, setShowConfirm] = useState(null);
@@ -19,29 +61,11 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
   const [aiIp, setAiIp] = useState('');
   const [mounted, setMounted] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [isDownloadingFrame, setIsDownloadingFrame] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const frameContainerRef = useRef(null);
 
-  const ImageFallback = ({ paths, alt, style }) => {
-    const [idx, setIdx] = useState(0);
-    const [failed, setFailed] = useState(false);
-    
-    if (failed || !paths || paths.length === 0) {
-      return <span style={{ color: 'var(--text-secondary, #64748b)', fontSize: '12px' }}>No {alt} Available</span>;
-    }
-    return (
-      <img 
-        src={paths[idx]} 
-        alt={alt} 
-        style={style} 
-        onError={(e) => {
-          if (idx < paths.length - 1) {
-            setIdx(idx + 1);
-          } else {
-            setFailed(true);
-          }
-        }} 
-      />
-    );
-  };
+
 
   const API = import.meta.env.VITE_API_URL || '';
   function getAuthHeaders() {
@@ -73,7 +97,7 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
     setStatus(alert?.status || 'Active');
   }, [alert]);
 
-  // Entrance animation — use a tiny timeout to ensure the CSS transition runs reliably after initial paint
+  // Entrance animation - use a tiny timeout to ensure the CSS transition runs reliably after initial paint
   useEffect(() => {
     setClosing(false);
     setMounted(false);
@@ -89,19 +113,27 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
 
   if (!alert) return null;
 
-  // All data from DB — nothing hardcoded
+  // All data from DB - nothing hardcoded
   const raw = alert.rawData || alert.raw || alert || {};
 
   const eventType    = raw.type          || alert.type          || 'AI Event';
-  const feature       = raw.feature       || '—';
-  const readerName   = raw.readerName    || raw.readername      || raw.reader_name || raw.readerIp || '—';
-  const readerIp      = raw.readerIp      || (alert.ip || '').replace(/_/g, '.') || '—';
+  const feature       = raw.feature       || '-';
+  const readerName   = raw.readerName    || raw.readername      || raw.reader_name || raw.readerIp || '-';
+  const readerIp      = raw.readerIp      || (alert.ip || '').replace(/_/g, '.') || '-';
   const dtRaw          = raw.detectionTime || raw.detection_time  || alert.received_at || '';
   const alertId        = alert.id          || raw.id              || alert._id || '';
-  const employeeName= raw.employeeName  || raw.employee_name   || '—';
-  const location      = raw.locationName  || raw.location        || '—';
-  const zone           = raw.zoneName      || raw.zone            || '—';
-  const label           = raw.label         || raw.subType         || '—';
+  const employeeName= raw.employeeName  || raw.employee_name   || '-';
+  const location      = raw.locationName  || raw.location        || '-';
+  const zone           = raw.zoneName      || raw.zone            || '-';
+  const label           = raw.label         || raw.subType         || '-';
+
+  const isExternalAi = 
+    alert.isExternal === true || 
+    alert.source === 'external_ai' || 
+    alert.source === 'AI_WEBHOOK' ||
+    raw.source === 'external_ai' ||
+    raw.source === 'AI_WEBHOOK' ||
+    raw.isExternal === true;
 
   // Detection Image:
   // Prefer imageLocation from the external AI alert.
@@ -168,7 +200,7 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
     ...(fallbackSnapshotUrl ? [fallbackSnapshotUrl] : [])
   ];
 
-  // Frame URL — looks for framelocation/frameLocation/frame_location key
+  // Frame URL - looks for framelocation/frameLocation/frame_location key
   const findLocKey = (obj, patterns) => {
     if (!obj) return null;
     const key = Object.keys(obj).find(k => patterns.includes(k.toLowerCase().replace(/_/g, '')));
@@ -202,8 +234,8 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
     return '';
   })();
 
-  const isAck = status.includes('Acknowledged');
   const isRes = status.includes('Resolved');
+  const isAck = status.includes('Acknowledged') || isRes;
 
   const handleAcknowledge = () => setShowConfirm('Acknowledged');
   const handleResolve = () => setShowConfirm('Resolved');
@@ -213,7 +245,7 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
     try {
       let newStatus = showConfirm;
       if (showConfirm === 'Resolved' && status.includes('Acknowledged')) {
-        newStatus = 'Acknowledged & Resolved';
+        newStatus = 'Resolved';
       }
       const id = alert.id || alert._id || alert.alert_id;
       if (id) {
@@ -225,7 +257,7 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
       }
       if (showConfirm === 'Acknowledged') {
         const tzOffset = (new Date()).getTimezoneOffset() * 60000; alert.acknowledged_at = (new Date(Date.now() - tzOffset)).toISOString().slice(0, -1);
-        alert.acknowledge_note = note;
+        alert.acknowlege_note = note;
       } else if (showConfirm === 'Resolved') {
         const tzOffset = (new Date()).getTimezoneOffset() * 60000; alert.resolved_at = (new Date(Date.now() - tzOffset)).toISOString().slice(0, -1);
         alert.resolve_note = note;
@@ -238,28 +270,406 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
       console.error("Failed to update status", err);
     }
   };
-  const handleDownload = () => {
-    const url = (framePaths && framePaths.length > 0) ? framePaths[0] : ((thumbPaths && thumbPaths.length > 0) ? thumbPaths[0] : null);
-    if (!url) return;
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `alert-${alertId || 'image'}.jpg`;
-    a.target = '_blank';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+  const loadImageAsBase64 = async (urls) => {
+    if (!urls || urls.length === 0) return null;
+    for (const url of urls) {
+      if (!url) continue;
+      try {
+        const res = await fetch(url, { headers: getAuthHeaders(), mode: 'cors' });
+        if (res.ok) {
+          const blob = await res.blob();
+          const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          if (base64) {
+            const dims = await new Promise((resolve) => {
+              const img = new Image();
+              img.onload = () => resolve({ width: img.naturalWidth || 800, height: img.naturalHeight || 600 });
+              img.onerror = () => resolve({ width: 800, height: 600 });
+              img.src = base64;
+            });
+            return { dataUrl: base64, ...dims };
+          }
+        }
+      } catch (e) {
+        try {
+          const result = await new Promise((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+              try {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth || 800;
+                canvas.height = img.naturalHeight || 600;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+                resolve({ dataUrl, width: canvas.width, height: canvas.height });
+              } catch (err) {
+                reject(err);
+              }
+            };
+            img.onerror = reject;
+            img.src = url;
+          });
+          if (result?.dataUrl) return result;
+        } catch (err2) {}
+      }
+    }
+    return null;
   };
+
+  const fitImageInBox = (imgW, imgH, boxX, boxY, boxW, boxH) => {
+    const iRatio = (imgW || 1) / (imgH || 1);
+    const bRatio = boxW / boxH;
+    let w, h;
+    if (iRatio > bRatio) {
+      w = boxW;
+      h = boxW / iRatio;
+    } else {
+      h = boxH;
+      w = boxH * iRatio;
+    }
+    const x = boxX + (boxW - w) / 2;
+    const y = boxY + (boxH - h) / 2;
+    return { x, y, width: w, height: h };
+  };
+
+  const handleDownloadFrame = async () => {
+    if (isDownloadingFrame) return;
+    setIsDownloadingFrame(true);
+    try {
+      const urls = framePaths?.length > 0 ? framePaths : thumbPaths;
+      const fileName = `Detection_Frame_${alertId || Date.now()}.jpg`;
+      let downloaded = false;
+      for (const url of (urls || [])) {
+        if (!url) continue;
+        try {
+          const response = await fetch(url, { headers: getAuthHeaders(), mode: 'cors' });
+          if (response.ok) {
+            const blob = await response.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+            downloaded = true;
+            break;
+          }
+        } catch (err) {}
+      }
+      if (!downloaded && urls?.length > 0) {
+        const a = document.createElement('a');
+        a.href = urls[0];
+        a.download = fileName;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+    } catch (error) {
+      console.error('Detection frame download failed:', error);
+    } finally {
+      setIsDownloadingFrame(false);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (isDownloadingPdf) return;
+    setIsDownloadingPdf(true);
+    try {
+      // 1. Fetch images as Base64 in parallel
+      const [frameImg, cropImg] = await Promise.all([
+        loadImageAsBase64(framePaths),
+        loadImageAsBase64(thumbPaths)
+      ]);
+
+      // 2. Initialize jsPDF Document (A4 portrait: 210 x 297 mm)
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageWidth = 210;
+      const pageHeight = 297;
+      const margin = 14;
+      const contentWidth = pageWidth - margin * 2; // 182mm
+
+      // Background fill
+      doc.setFillColor(255, 255, 255);
+      doc.rect(0, 0, pageWidth, pageHeight, 'F');
+
+      // --- HEADER BANNER ---
+      doc.setFillColor(15, 23, 42); // slate-900
+      doc.roundedRect(margin, 12, contentWidth, 26, 3, 3, 'F');
+
+      // Header Brand text
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.text('MIRADOR AI SECURITY SYSTEM', margin + 6, 21);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(148, 163, 184); // slate-400
+      doc.text('INCIDENT & AI DETECTION REPORT', margin + 6, 27);
+      doc.setFontSize(8);
+      doc.text(`ID: ${alertId || 'N/A'}`, margin + 6, 33);
+
+      // Status pill badge on right
+      let statusColor = [249, 115, 22]; // Orange for Active
+      if (isRes) statusColor = [16, 185, 129]; // Emerald for Resolved
+      else if (isAck) statusColor = [59, 130, 246]; // Blue for Acknowledged
+
+      doc.setFillColor(statusColor[0], statusColor[1], statusColor[2]);
+      doc.roundedRect(pageWidth - margin - 42, 17, 36, 7.5, 3.75, 3.75, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.text(status.toUpperCase(), pageWidth - margin - 24, 22, { align: 'center' });
+
+      // Timestamp under badge
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184);
+      const generatedAt = new Date().toLocaleString();
+      doc.text(`Generated: ${generatedAt}`, pageWidth - margin - 6, 32, { align: 'right' });
+
+      // Accent colored stripe under header
+      doc.setFillColor(statusColor[0], statusColor[1], statusColor[2]);
+      doc.rect(margin, 38, contentWidth, 1.2, 'F');
+
+      // --- SECTION 1: INCIDENT OVERVIEW & METADATA ---
+      const metaTitleY = 44;
+      doc.setFillColor(59, 130, 246); // Blue accent
+      doc.roundedRect(margin, metaTitleY, 3, 6, 1, 1, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(15, 23, 42);
+      doc.text('INCIDENT OVERVIEW & METADATA', margin + 6, metaTitleY + 4.6);
+
+      doc.autoTable({
+        startY: metaTitleY + 7,
+        margin: { left: margin, right: margin },
+        theme: 'grid',
+        styles: {
+          font: 'helvetica',
+          fontSize: 8,
+          cellPadding: { top: 2.8, bottom: 2.8, left: 4, right: 4 },
+          textColor: [30, 41, 59],
+          lineColor: [226, 232, 240],
+          lineWidth: 0.15,
+        },
+        columnStyles: {
+          0: { fontStyle: 'bold', textColor: [100, 116, 139], fillColor: [248, 250, 252], width: 30 },
+          1: { fontStyle: 'bold', textColor: [15, 23, 42], width: 61 },
+          2: { fontStyle: 'bold', textColor: [100, 116, 139], fillColor: [248, 250, 252], width: 30 },
+          3: { fontStyle: 'bold', textColor: [15, 23, 42], width: 61 },
+        },
+        body: [
+          ['Feature / Type', `${feature} (${eventType})`, 'Target / Label', label || '-'],
+          ['Camera Name', readerName || '-', 'Reader IP', readerIp || '-'],
+          ['Location', location || '-', 'Zone', zone || '-'],
+          ['Detection Time', displayDate || '-', 'Employee Name', employeeName || '-'],
+          ['Alert ID', alertId || '-', 'Current Status', status || '-'],
+        ]
+      });
+
+      const endMetaY = doc.lastAutoTable.finalY + 6;
+
+      // --- SECTION 2: VISUAL EVIDENCE & CAPTURES ---
+      const imgSectionY = endMetaY;
+      doc.setFillColor(16, 185, 129); // Emerald accent
+      doc.roundedRect(margin, imgSectionY, 3, 6, 1, 1, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(15, 23, 42);
+      doc.text('VISUAL EVIDENCE & CAPTURES', margin + 6, imgSectionY + 4.6);
+
+      const cardsY = imgSectionY + 7;
+      const cardHeight = 72;
+      const leftCardW = isExternalAi ? 108 : 182;
+      const rightCardW = 70;
+      const gap = 4;
+
+      // Left Box: Detection Frame
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(margin, cardsY, leftCardW, cardHeight, 2, 2, 'FD');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(71, 85, 105);
+      doc.text('DETECTION FRAME (SCENE OVERVIEW)', margin + 4, cardsY + 5);
+
+      const frameBoxX = margin + 4;
+      const frameBoxY = cardsY + 7.5;
+      const frameBoxW = leftCardW - 8;
+      const frameBoxH = cardHeight - 11.5;
+
+      doc.setFillColor(15, 23, 42);
+      doc.roundedRect(frameBoxX, frameBoxY, frameBoxW, frameBoxH, 1.5, 1.5, 'F');
+
+      if (frameImg?.dataUrl) {
+        try {
+          const fit = fitImageInBox(frameImg.width, frameImg.height, frameBoxX, frameBoxY, frameBoxW, frameBoxH);
+          doc.addImage(frameImg.dataUrl, 'JPEG', fit.x, fit.y, fit.width, fit.height);
+        } catch (e) {
+          doc.setTextColor(148, 163, 184);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7.5);
+          doc.text('Unable to render image', frameBoxX + frameBoxW / 2, frameBoxY + frameBoxH / 2, { align: 'center' });
+        }
+      } else {
+        doc.setTextColor(148, 163, 184);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.text('No Detection Frame Available', frameBoxX + frameBoxW / 2, frameBoxY + frameBoxH / 2, { align: 'center' });
+      }
+
+      // Right Box: Detection Crop
+      if (isExternalAi) {
+        const rightCardX = margin + leftCardW + gap;
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(226, 232, 240);
+        doc.roundedRect(rightCardX, cardsY, rightCardW, cardHeight, 2, 2, 'FD');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(71, 85, 105);
+        doc.text('DETECTION CROP (TARGET)', rightCardX + 4, cardsY + 5);
+
+        const cropBoxX = rightCardX + 4;
+        const cropBoxY = cardsY + 7.5;
+        const cropBoxW = rightCardW - 8;
+        const cropBoxH = cardHeight - 11.5;
+
+        doc.setFillColor(15, 23, 42);
+        doc.roundedRect(cropBoxX, cropBoxY, cropBoxW, cropBoxH, 1.5, 1.5, 'F');
+
+        if (cropImg?.dataUrl) {
+          try {
+            const fit = fitImageInBox(cropImg.width, cropImg.height, cropBoxX, cropBoxY, cropBoxW, cropBoxH);
+            doc.addImage(cropImg.dataUrl, 'JPEG', fit.x, fit.y, fit.width, fit.height);
+          } catch (e) {
+            doc.setTextColor(148, 163, 184);
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7.5);
+            doc.text('Unable to render image', cropBoxX + cropBoxW / 2, cropBoxY + cropBoxH / 2, { align: 'center' });
+          }
+        } else {
+          doc.setTextColor(148, 163, 184);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7.5);
+          doc.text('No Target Crop Available', cropBoxX + cropBoxW / 2, cropBoxY + cropBoxH / 2, { align: 'center' });
+        }
+      }
+
+      // --- SECTION 3: INCIDENT TIMELINE & ACTION LOG ---
+      const timeSectionY = cardsY + cardHeight + 6;
+      doc.setFillColor(249, 115, 22); // Orange accent
+      doc.roundedRect(margin, timeSectionY, 3, 6, 1, 1, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(15, 23, 42);
+      doc.text('INCIDENT TIMELINE & ACTION LOG', margin + 6, timeSectionY + 4.6);
+
+      const ackTime = alert.acknowledged_at ? alert.acknowledged_at.replace('T', ' ').slice(0, 19) : (isAck ? 'Acknowledged' : 'Pending');
+      const resTime = alert.resolved_at ? alert.resolved_at.replace('T', ' ').slice(0, 19) : (isRes ? 'Resolved' : 'Pending');
+      const ackNote = alert.acknowlege_note || (isAck ? 'Acknowledged by security operator' : 'Pending Operator Review');
+      const resNote = alert.resolve_note || (isRes ? 'Resolved by security operator' : 'Action Pending');
+
+      doc.autoTable({
+        startY: timeSectionY + 7,
+        margin: { left: margin, right: margin },
+        theme: 'grid',
+        styles: {
+          font: 'helvetica',
+          fontSize: 8,
+          cellPadding: { top: 2.8, bottom: 2.8, left: 4, right: 4 },
+          textColor: [51, 65, 85],
+          lineColor: [226, 232, 240],
+          lineWidth: 0.15,
+        },
+        headStyles: {
+          fillColor: [30, 41, 59],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          fontSize: 8,
+        },
+        head: [['Milestone', 'Timestamp', 'Status / Action', 'Remarks / Operator Notes']],
+        body: [
+          ['1. Alarm Triggered', displayDate || '-', 'Triggered', `Rule: ${feature} | Target: ${label}`],
+          ['2. Acknowledged', ackTime, isAck ? 'Acknowledged' : 'Pending', ackNote],
+          ['3. Resolved', resTime, isRes ? 'Resolved' : 'Pending', resNote],
+        ],
+        columnStyles: {
+          0: { fontStyle: 'bold', width: 34 },
+          1: { width: 38 },
+          2: { width: 30 },
+          3: { width: 80 },
+        }
+      });
+
+      // --- FOOTER ---
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.3);
+      doc.line(margin, 283, pageWidth - margin, 283);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(148, 163, 184);
+      doc.text('Mirador AI Security System • Automated Intelligence Audit • Confidential & Proprietary', margin, 288);
+      doc.text(`REF: ${alertId || 'N/A'}   |   Page 1 of 1`, pageWidth - margin, 288, { align: 'right' });
+
+      // Save PDF file
+      const safeFeature = (feature || 'Incident').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const safeId = (alertId || 'report').slice(0, 8);
+      doc.save(`MiradorAI_Report_${safeFeature}_${safeId}.pdf`);
+
+    } catch (err) {
+      console.error('PDF report generation failed:', err);
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
+
+const handleFullscreen = async () => {
+  const element = frameContainerRef.current;
+
+  if (!element) return;
+
+  try {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+      return;
+    }
+
+    if (element.requestFullscreen) {
+      await element.requestFullscreen();
+    } else if (element.webkitRequestFullscreen) {
+      element.webkitRequestFullscreen();
+    } else {
+      console.warn('Fullscreen API is not supported by this browser.');
+    }
+  } catch (error) {
+    console.error('Fullscreen failed:', error);
+  }
+};
 
   const Row = ({ label: lbl, value: val, isStatus, isLabel }) => (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 0', borderBottom: '1px solid var(--border-light, #f1f5f9)' }}>
       <span style={{ color: 'var(--text-secondary, #64748b)', fontSize: '13px', fontWeight: 500 }}>{lbl}</span>
       {isStatus ? (
-        <span style={{
-          background: isRes ? 'rgba(16, 185, 129, 0.14)' : isAck ? 'rgba(59, 130, 246, 0.14)' : 'rgba(249, 115, 22, 0.14)',
-          color: isRes ? '#10b981' : isAck ? '#3b82f6' : '#f97316',
+        <span 
+          className={!isAck && !isRes ? "aam-pulse" : ""}
+          style={{
+          background: isRes ? 'rgba(16, 185, 129, 0.14)' : isAck ? 'rgba(59, 130, 246, 0.14)' : 'rgba(239, 68, 68, 0.14)',
+          color: isRes ? '#10b981' : isAck ? '#3b82f6' : '#ef4444',
           padding: '3px 12px', borderRadius: '999px', fontWeight: 600, fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px', border: '1px solid currentColor'
         }}>
-          {!isAck && !isRes && <span className="aam-livedot" style={{ width: 6, height: 6, borderRadius: '50%', background: '#f97316', display: 'inline-block' }} />}
+          {!isAck && !isRes && <span className="aam-livedot" style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />}
           {status}
         </span>
       ) : isLabel ? (
@@ -313,9 +723,9 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
     >
       <style>{`
         @keyframes aamPulseRed {
-          0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0.55); }
-          70%  { box-shadow: 0 0 0 9px rgba(239,68,68,0); }
-          100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+          0%   { box-shadow: 0 0 0 2px var(--bg-elevated, #ffffff), 0 0 0 2px rgba(239,68,68,0.7); }
+          70%  { box-shadow: 0 0 0 2px var(--bg-elevated, #ffffff), 0 0 0 10px rgba(239,68,68,0); }
+          100% { box-shadow: 0 0 0 2px var(--bg-elevated, #ffffff), 0 0 0 2px rgba(239,68,68,0); }
         }
         @keyframes aamPop {
           0%   { transform: scale(0); }
@@ -328,7 +738,8 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
         }
         .aam-livedot { animation: aamLiveDot 1.6s ease-in-out infinite; }
         .aam-pulse { animation: aamPulseRed 1.8s infinite; }
-        .aam-pop { animation: aamPop 380ms cubic-bezier(0.34,1.56,0.64,1); }
+        .aam-pop { animation: aamPop 380ms cubic-bezier(0.34,1.56,0.64,1); box-shadow: 0 0 0 2px var(--bg-elevated, #ffffff); }
+        .aam-pulse.aam-pop { animation: aamPop 380ms cubic-bezier(0.34,1.56,0.64,1), aamPulseRed 1.8s infinite; }
         .aam-btn { transition: transform 150ms ease, filter 150ms ease, box-shadow 150ms ease; }
         .aam-btn:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.06); }
         .aam-btn:active:not(:disabled) { transform: translateY(0); filter: brightness(0.94); }
@@ -338,6 +749,8 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
         .aam-scroll::-webkit-scrollbar { width: 8px; }
         .aam-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
         .aam-progress { transition: width 900ms cubic-bezier(0.22, 1, 0.36, 1); }
+        @keyframes aamSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .aam-spinner { animation: aamSpin 0.9s linear infinite; }
       `}</style>
 
       <div
@@ -353,16 +766,12 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
           transition: `transform ${ANIM_MS + 80}ms cubic-bezier(0.16,1,0.3,1), opacity ${ANIM_MS}ms ease`
         }}
       >
-        {/* HEADER — nav / title / actions */}
+        {/* HEADER - nav / title / actions */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 20px', borderBottom: '1px solid var(--border-light, #cbd5e1)', background: 'var(--bg-surface, #e2e8f0)', borderTopLeftRadius: '14px', borderTopRightRadius: '14px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <NavArrow dir="prev" onClick={onPrev} />
-              <NavArrow dir="next" onClick={onNext} />
-            </div>
             <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" strokeWidth="2" fill="none" style={{ flexShrink: 0 }}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
             <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {feature !== '—' ? feature : 'Intrusion'} - {label !== '—' ? (label.charAt(0).toUpperCase() + label.slice(1)) : 'Person'}
+              {feature !== '-' ? feature : 'Intrusion'} - {label !== '-' ? (label.charAt(0).toUpperCase() + label.slice(1)) : 'Person'}
             </h3>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
@@ -378,10 +787,38 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
                 Resolve
               </button>
             )}
-            <button className="aam-btn aam-headicon" onClick={handleDownload} title="Download" style={{ width: 30, height: 30, borderRadius: '8px', background: 'rgba(148,163,184,0.1)', border: '1px solid rgba(148,163,184,0.35)', color: 'var(--text-secondary, #cbd5e1)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" strokeWidth="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            <button
+              className="aam-btn aam-headicon"
+              onClick={handleDownloadPdf}
+              disabled={isDownloadingPdf}
+              title={isDownloadingPdf ? "Generating PDF Report..." : "Download Incident PDF Report"}
+              aria-label="Download Incident PDF Report"
+              style={{
+                width: 30,
+                height: 30,
+                borderRadius: '8px',
+                background: isDownloadingPdf ? 'rgba(59, 130, 246, 0.2)' : 'rgba(148,163,184,0.1)',
+                border: '1px solid rgba(148,163,184,0.35)',
+                color: isDownloadingPdf ? '#3b82f6' : 'var(--text-secondary, #cbd5e1)',
+                cursor: isDownloadingPdf ? 'wait' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              {isDownloadingPdf ? (
+                <svg className="aam-spinner" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" strokeWidth="2.5" fill="none">
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" strokeWidth="2" fill="none">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+              )}
             </button>
-            <button className="aam-btn aam-headicon" onClick={handleRequestClose} title="Close" style={{ width: 30, height: 30, borderRadius: '8px', background: 'transparent', border: 'none', color: 'var(--text-secondary, #cbd5e1)', cursor: 'pointer', fontSize: '19px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+            <button className="aam-btn aam-headicon" onClick={handleRequestClose} title="Close" style={{ width: 30, height: 30, borderRadius: '8px', background: 'transparent', border: 'none', color: 'var(--text-secondary, #cbd5e1)', cursor: 'pointer', fontSize: '19px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>X</button>
           </div>
         </div>
 
@@ -395,7 +832,8 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
               {[
                 { key: 'trigger', active: true, done: true, color: '#ef4444', label: 'Alarm Triggered', time: timeOnly, icon: <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>, iconExtra: <><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></> },
                 { key: 'ack', active: isAck, done: isAck, color: '#3b82f6', label: isAck ? 'Acknowledged' : 'Not Acknowledged', time: isAck && alert.acknowledged_at ? alert.acknowledged_at.split('T')[1]?.slice(0,8) : '', icon: <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>, iconExtra: <circle cx="12" cy="12" r="3"></circle> },
-                { key: 'resolve', active: isRes, done: isRes, color: '#10b981', label: isRes ? 'Resolved' : 'Active', time: isRes && alert.resolved_at ? alert.resolved_at.split('T')[1]?.slice(0,8) : '', icon: <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>, iconExtra: <polyline points="22 4 12 14.01 9 11.01"></polyline> },
+                { key: 'resolve', active: isRes, done: isRes, color: '#10b981', label: isRes ? 'Resolved' : 'Not Resolved', time: isRes && alert.resolved_at ? alert.resolved_at.split('T')[1]?.slice(0,8) : '', icon: <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>, iconExtra: <polyline points="22 4 12 14.01 9 11.01"></polyline> },
+
               ].map((step, idx) => (
                 <div key={step.key} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 2, flex: 1, minWidth: 0 }}>
                   <div
@@ -405,8 +843,7 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
                       width: '28px', height: '28px', borderRadius: '50%',
                       background: step.done ? step.color : 'var(--bg-surface, #ffffff)',
                       border: step.done ? 'none' : '1px solid var(--border-light, #cbd5e1)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '6px',
-                      boxShadow: '0 0 0 2px var(--bg-elevated, #ffffff)'
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '6px'
                     }}
                   >
                     <svg viewBox="0 0 24 24" width="13" height="13" stroke={step.done ? '#fff' : 'var(--text-secondary, #94a3b8)'} strokeWidth="2" fill="none">{step.icon}{step.iconExtra}</svg>
@@ -414,6 +851,9 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
                   <span style={{ fontWeight: 600, fontSize: '11.5px', color: 'var(--text-primary, #0f172a)', textAlign: 'center' }}>{step.label}</span>
                   {(idx === 0 ? displayDate?.split(' ')[1] : step.time) && (
                     <span style={{ fontSize: '10px', color: 'var(--text-secondary, #64748b)', marginTop: '2px' }}>{idx === 0 ? timeOnly : step.time}</span>
+                  )}
+                  {step.key === 'resolve' && !step.done && !isAck && (
+                    <span className="aam-livedot" style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', display: 'inline-block', marginTop: '4px' }} title="Alert is currently active" />
                   )}
                 </div>
               ))}
@@ -443,7 +883,7 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
         ) : (
           <div style={{ display: 'flex', gap: '16px', padding: '16px', flexWrap: 'wrap', flex: 1 }}>
 
-            {/* LEFT — Detection Summary (big panel, per wireframe) */}
+            {/* LEFT - Detection Summary (big panel, per wireframe) */}
             <div className="aam-card" style={{ flex: '1 1 320px', background: 'var(--bg-surface, #ffffff)', borderRadius: '10px', padding: '18px 20px', border: '1px solid var(--border-light, #e2e8f0)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
                 <svg viewBox="0 0 24 24" width="17" height="17" stroke="#3b82f6" strokeWidth="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
@@ -458,19 +898,33 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
                 <Row label="Zone" value={zone} />
                 <Row label="Feature" value={feature} />
                 <Row label="Label" value={label} isLabel />
-                {employeeName !== '—' && <Row label="Employee" value={employeeName} />}
-                {readerIp !== '—' && <Row label="Reader IP" value={readerIp} />}
+                {employeeName !== '-' && <Row label="Employee" value={employeeName} />}
+                {readerIp !== '-' && <Row label="Reader IP" value={readerIp} />}
               </div>
             </div>
 
-            {/* RIGHT — Detection Frame + Detection Image stacked, per wireframe */}
+            {/* RIGHT - Detection Frame + Detection Image stacked, per wireframe */}
             <div style={{ flex: '1.4 1 380px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div className="aam-card" style={{ background: 'var(--bg-surface, #ffffff)', borderRadius: '10px', padding: '14px 16px', border: '1px solid var(--border-light, #e2e8f0)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', flex: '1.3', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
                   <svg viewBox="0 0 24 24" width="16" height="16" stroke="#10b981" strokeWidth="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
                   <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary, #0f172a)' }}>Detection Frame</span>
                 </div>
-                <div style={{ width: '100%', flex: 1, minHeight: '180px', background: '#000', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginBottom: '10px' }}>
+                <div
+                  ref={frameContainerRef}
+                  style={{
+                    width: '100%',
+                    flex: 1,
+                    minHeight: '180px',
+                    background: '#000',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    overflow: 'hidden',
+                    marginBottom: '10px',
+                  }}
+                >
                   <ImageFallback 
                     paths={framePaths} 
                     alt="Detection Frame" 
@@ -479,34 +933,104 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ display: 'flex', gap: '8px' }}>
-                    <button className="aam-btn" onClick={handleDownload} title="Download Frame" style={{ background: 'var(--bg-elevated, #f1f5f9)', border: 'none', borderRadius: '4px', padding: '4px 6px', color: 'var(--text-secondary, #475569)', cursor: 'pointer', display: 'flex' }}><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></button>
-                    <button className="aam-btn" style={{ background: 'var(--bg-elevated, #f1f5f9)', border: 'none', borderRadius: '4px', padding: '4px 6px', color: 'var(--text-secondary, #475569)', cursor: 'pointer', display: 'flex' }}><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2" fill="none"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg></button>
+                    <button
+                      className="aam-btn"
+                      onClick={handleFullscreen}
+                      title="Fullscreen"
+                      aria-label="Fullscreen detection frame"
+                      style={{
+                        background: 'var(--bg-elevated, #f1f5f9)',
+                        border: 'none',
+                        borderRadius: '4px',
+                        padding: '4px 6px',
+                        color: 'var(--text-secondary, #475569)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                      }}
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="14"
+                        height="14"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        fill="none"
+                      >
+                        <polyline points="15 3 21 3 21 9" />
+                        <polyline points="9 21 3 21 3 15" />
+                        <line x1="21" y1="3" x2="14" y2="10" />
+                        <line x1="3" y1="21" x2="10" y2="14" />
+                      </svg>
+                    </button>
+                    <button
+                      className="aam-btn"
+                      onClick={handleDownloadFrame}
+                      disabled={isDownloadingFrame}
+                      title={isDownloadingFrame ? "Downloading Frame..." : "Download Detection Frame Image"}
+                      aria-label="Download detection frame image"
+                      style={{
+                        background: 'var(--bg-elevated, #f1f5f9)',
+                        border: 'none',
+                        borderRadius: '4px',
+                        padding: '4px 6px',
+                        color: isDownloadingFrame ? 'var(--blue, #3b82f6)' : 'var(--text-secondary, #475569)',
+                        cursor: isDownloadingFrame ? 'wait' : 'pointer',
+                        display: 'flex',
+                        opacity: isDownloadingFrame ? 0.7 : 1,
+                      }}
+                    >
+                      {isDownloadingFrame ? (
+                        <svg className="aam-spinner" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2.5" fill="none">
+                          <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
+                        </svg>
+                      ) : (
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="14"
+                          height="14"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          fill="none"
+                        >
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <polyline points="7 10 12 15 17 10" />
+                          <line x1="12" y1="15" x2="12" y2="3" />
+                        </svg>
+                      )}
+                    </button>
                   </div>
                   <span style={{ fontSize: '11px', color: 'var(--text-secondary, #64748b)', fontWeight: 500 }}>1 / 1</span>
                 </div>
               </div>
 
-              <div className="aam-card" style={{ background: 'var(--bg-surface, #ffffff)', borderRadius: '10px', padding: '14px 16px', border: '1px solid var(--border-light, #e2e8f0)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', flex: '1' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-                  <svg viewBox="0 0 24 24" width="16" height="16" stroke="#eab308" strokeWidth="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-                  <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary, #0f172a)' }}>Detection Image</span>
+              {isExternalAi && (
+                <div className="aam-card" style={{ background: 'var(--bg-surface, #ffffff)', borderRadius: '10px', padding: '14px 16px', border: '1px solid var(--border-light, #e2e8f0)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', flex: '1' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="#eab308" strokeWidth="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                    <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary, #0f172a)' }}>Detection Image</span>
+                  </div>
+                  <div style={{ width: '100%', height: '150px', background: '#000', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                    <ImageFallback 
+                      paths={thumbPaths} 
+                      alt="Detection Image" 
+                      style={{ width: '100%', height: '100%', objectFit: 'contain' }} 
+                    />
+                  </div>
                 </div>
-                <div style={{ width: '100%', height: '150px', background: '#000', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                  <ImageFallback 
-                    paths={thumbPaths} 
-                    alt="Detection Image" 
-                    style={{ width: '100%', height: '100%', objectFit: 'contain' }} 
-                  />
-                </div>
-              </div>
+              )}
             </div>
           </div>
         )}
 
         {/* FOOTER */}
         {!showConfirm && (
-          <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border-light, #cbd5e1)', display: 'flex', justifyContent: 'center', alignItems: 'center', background: 'transparent', borderBottomLeftRadius: '14px', borderBottomRightRadius: '14px' }}>
-            <span style={{ fontSize: '13px', color: 'var(--text-secondary, #475569)', fontFamily: 'monospace' }}>ID: {alertId}</span>
+          <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border-light, #cbd5e1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'transparent', borderBottomLeftRadius: '14px', borderBottomRightRadius: '14px', position: 'relative' }}>
+            <div style={{ flex: 1 }}></div>
+            <span style={{ fontSize: '13px', color: 'var(--text-secondary, #475569)', fontFamily: 'monospace', position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>ID: {alertId}</span>
+            <div style={{ display: 'flex', gap: '6px', flex: 1, justifyContent: 'flex-end' }}>
+              <NavArrow dir="prev" onClick={onPrev} />
+              <NavArrow dir="next" onClick={onNext} />
+            </div>
           </div>
         )}
 
