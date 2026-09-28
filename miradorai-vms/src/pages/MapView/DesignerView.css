@@ -23,7 +23,7 @@
   flex-shrink: 0;
   flex-wrap: nowrap;
   position: relative;
-  z-index: 10;
+  z-index: 10000;
 }
 
 .dv-back-btn {
@@ -1239,8 +1239,17 @@
 .dv-ctx-item--automate:hover { background:#2a1f45; }
 .dv-ctx-sep { height:0.5px; background:#1e2d3e; margin:3px 0; }
 
-/* Automate modal */
-/* .dv-automate-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:9998; }
+/* Automate & Calibrate modal overlay */
+.dv-automate-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 99999;
+}
 .dv-automate-modal { background:#161d2a; border:0.5px solid #2e3d55; border-radius:12px; width:430px; max-width:95vw; }
 .dv-automate-header { display:flex; align-items:center; gap:10px; padding:16px 18px 12px; border-bottom:0.5px solid #1e2d3e; }
 .dv-automate-header__icon { width:32px; height:32px; border-radius:8px; background:#7c3aed22; border:0.5px solid #7c3aed55; display:flex; align-items:center; justify-content:center; color:#a78bfa; font-size:20px; flex-shrink:0; }
@@ -1264,7 +1273,7 @@
 .dv-automate-footer { display:flex; gap:8px; justify-content:flex-end; padding:12px 18px; border-top:0.5px solid #1e2d3e; }
 .dv-automate-cancel { padding:7px 16px; border-radius:6px; border:0.5px solid #2e3d55; background:none; color:#7a8499; font-size:16px; cursor:pointer; }
 .dv-automate-run { padding:7px 18px; border-radius:6px; border:none; background:#7c3aed; color:#fff; font-size:16px; font-weight:600; cursor:pointer; }
-.dv-automate-run:hover { background:#6d28d9; } */ 
+.dv-automate-run:hover { background:#6d28d9; } 
 
 /* ── Floating DORI Legend Overlay ── */
 .dv-dori-legend {
@@ -1588,9 +1597,11 @@
   gap: 8px;
   padding: 10px 14px;
   border-bottom: 1.5px solid rgba(16, 185, 129, 0.2) !important;
-  background: rgba(13, 17, 23, 0.7) !important;
+  background: rgba(13, 17, 23, 0.95) !important;
   backdrop-filter: blur(12px) !important;
   flex-shrink: 0;
+  position: relative !important;
+  z-index: 10000 !important;
 }
 
 .dv-tbtn {
@@ -2037,6 +2048,11 @@
 .dv-icon-btn__chevron.open {
   transform: rotate(180deg);
   opacity: 1;
+}
+
+.dv-icon-drop-wrap {
+  position: relative;
+  display: inline-flex;
 }
 
 /* ── Floating Dropdown Panel ── */

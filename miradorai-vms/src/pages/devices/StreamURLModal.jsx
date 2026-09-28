@@ -396,9 +396,7 @@ export default function StreamURLModal({
                 if (items.length === 0) {
                   if (input.trim()) {
                     setAlertMsg("Please click the '+ Add' button to add your entered Stream URL first!");
-                  } else {
-                    setAlertMsg("Stream URL is a mandatory field. Please enter and add at least one Stream URL!");
-                  }
+                  } 
                   setError("Add at least one stream URL");
                   return;
                 }

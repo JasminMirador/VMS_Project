@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from app.core.database import mongo_client
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, validator
 from typing import List, Optional, Any, Dict
 from app.core.security import verify_token
 import os
@@ -29,11 +29,17 @@ class ZonePoint(BaseModel):
     y: float
 
 
+from app.core.validation import validate_name
+
 class Zone(BaseModel):
     id:      str
     name:    str
     color:   str
     polygon: List[ZonePoint]
+    
+    @validator("name", pre=True)
+    def val_name(cls, v):
+        return validate_name(v)
 
 
 class DesignerSaveRequest(BaseModel):
@@ -41,23 +47,35 @@ class DesignerSaveRequest(BaseModel):
     floor_id:    Optional[str]              = "floor_1"
     placed:      Optional[List[PlacedCamera]] = []
     zones:       Optional[List[Zone]]         = []
-    floor_plan:  Optional[str]              = None
+    floor_plan:  Optional[str]              = Field(None, max_length=5_242_880)
     ppm:         Optional[float]            = 22.0
     slides:      Optional[List[Any]]        = None
     active_slide_id: Optional[str]          = None
+
+    @validator('floor_plan')
+    def validate_floor_plan(cls, v):
+        if v is not None and not v.startswith('data:image/'):
+            raise ValueError('Invalid image format. Must be a base64 data URL starting with data:image/')
+        return v
 
 
 class FloorPlanRequest(BaseModel):
     map_id:     Optional[str] = "default"
     floor_id:   Optional[str] = "floor_1"
-    floor_plan: str
+    floor_plan: str = Field(..., max_length=5_242_880)
+
+    @validator('floor_plan')
+    def validate_floor_plan(cls, v):
+        if v is not None and not v.startswith('data:image/'):
+            raise ValueError('Invalid image format. Must be a base64 data URL starting with data:image/')
+        return v
 
 
 class ZoneDetectRequest(BaseModel):
     map_id:     Optional[str] = "default"
     floor_id:   Optional[str] = "floor_1"
     source:     Optional[str] = "designer"
-    floor_plan: Optional[str] = None
+    floor_plan: Optional[str] = Field(None, max_length=5_242_880)
 
 
 

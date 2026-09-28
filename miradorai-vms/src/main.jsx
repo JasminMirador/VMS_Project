@@ -25,11 +25,15 @@ window.fetch = async (...args) => {
   // Handle unauthorized responses globally
   if (response.status === 401 && !resource.includes('/api/auth/')) {
     console.warn("Unauthorized API call:", resource);
-    // Auto-redirect to login screen on 401 (Fallback for concurrent login)
+    const hadToken = Boolean(localStorage.getItem('miradorai_token'));
     localStorage.removeItem('miradorai_user');
     localStorage.removeItem('miradorai_token');
     localStorage.removeItem('miradorai_session_id');
-    window.location.href = '/';
+
+    // Only force redirect if there was an active token and user is on a protected route
+    if (hadToken && window.location.pathname !== '/' && window.location.pathname !== '/login') {
+      window.location.href = '/';
+    }
   }
 
   return response;

@@ -3,6 +3,8 @@ import { useAuth } from "../../context/AuthContext";
 import { QRCodeCanvas } from "qrcode.react";
 import "./ProfilePage.css";
 
+import { encryptPassword, getPublicKey } from "../../utils/crypto";
+
 export default function ProfilePage() {
   const { user } = useAuth();
   const [oldPassword, setOldPassword] = useState("");
@@ -34,14 +36,19 @@ export default function ProfilePage() {
 
     setIsLoading(true);
     try {
+      const pubKey = await getPublicKey(""); // Assuming API is same origin or use config
+      const encryptedOld = await encryptPassword(oldPassword, pubKey);
+      const encryptedNew = await encryptPassword(newPassword, pubKey);
+      const encryptedConfirm = await encryptPassword(confirmPassword, pubKey);
+
       const res = await fetch("/api/auth/change-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: user?.email,
-          old_password: oldPassword,
-          new_password: newPassword,
-          confirm_password: confirmPassword
+          old_password: encryptedOld,
+          new_password: encryptedNew,
+          confirm_password: encryptedConfirm
         })
       });
       const data = await res.json();

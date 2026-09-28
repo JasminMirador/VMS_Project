@@ -344,12 +344,19 @@ export default function TopBar({
         });
         if (res.ok) {
           const data = await res.json();
-          const hasAi = data.find(i => i.isActive && (i.type.toLowerCase().includes('ai') || i.serverName.toLowerCase().includes('ai') || i.serverIp));
+          const hasAi = data.find(i => i.isActive && (i.type?.toLowerCase().includes('ai') || i.serverName?.toLowerCase().includes('ai') || i.serverIp));
           setIsAiActive(!!hasAi);
         }
       } catch (err) {}
     };
     fetchAiStatus();
+
+    window.addEventListener("integrationsUpdated", fetchAiStatus);
+    window.addEventListener("storage", fetchAiStatus);
+    return () => {
+      window.removeEventListener("integrationsUpdated", fetchAiStatus);
+      window.removeEventListener("storage", fetchAiStatus);
+    };
   }, []);
 
   // Fetch supervisor password status on mount (admin only)

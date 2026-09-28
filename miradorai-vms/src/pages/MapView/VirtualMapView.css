@@ -29,21 +29,6 @@
 .vt-thumb--online  { border-color: #1D9E7588; }
 .vt-thumb--offline { border-color: #44444488; opacity: 0.82; }
 
-/* Connector line from thumbnail bottom to camera dot */
-.vt-thumb__connector {
-  position:         absolute;
-  bottom:           -28px;
-  left:             50%;
-  transform:        translateX(-50%);
-  width:            2px;
-  height:           28px;
-  background:       linear-gradient(to bottom, #1D9E7599, transparent);
-  pointer-events:   none;
-}
-.vt-thumb--offline .vt-thumb__connector {
-  background: linear-gradient(to bottom, #66666699, transparent);
-}
-
 /* Feed area */
 .vt-thumb__feed {
   flex:       1;

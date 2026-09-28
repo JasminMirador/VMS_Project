@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
 from typing import Optional
+from pydantic import BaseModel
 import re, asyncio, os
 from datetime import datetime, timedelta
 from app.schemas.auth import SignupRequest, LoginRequest, ForgotPasswordRequest, SupervisorPasswordRequest, SupervisorVerifyRequest, ResetPasswordRequest, AdminCreateUserRequest, AdminUpdateUserRequest, ChangePasswordRequest, MFASetupResponse, MFAVerifyRequest
@@ -46,14 +47,47 @@ def get_captcha():
         "image_base64": f"data:image/png;base64,{b64}"
     }
 
+from app.core.security import PRIVATE_KEY
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
+import base64
+
+_private_key_obj = load_pem_private_key(PRIVATE_KEY.encode('utf-8'), password=None)
+
+def decrypt_password(encrypted_b64: str) -> str:
+    try:
+        if len(encrypted_b64) < 100:  # heuristic to check if it's already plaintext (e.g. legacy/testing)
+            return encrypted_b64
+        encrypted_bytes = base64.b64decode(encrypted_b64)
+        decrypted_bytes = _private_key_obj.decrypt(
+            encrypted_bytes,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None
+            )
+        )
+        return decrypted_bytes.decode('utf-8')
+    except Exception:
+        # Fallback to plain if decryption fails (so we don't break existing plain requests while transitioning)
+        return encrypted_b64
+
+import hashlib
+import bcrypt
+
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    try:
-        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
-    except Exception:
-        return False
+    if hashed_password.startswith("$2b$") or hashed_password.startswith("$2a$"):
+        try:
+            return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+        except Exception:
+            return False
+    else:
+        # Fallback for sha256 hashes generated during the temporary client-side hashing period
+        return hashlib.sha256(plain_password.encode("utf-8")).hexdigest() == hashed_password
 
 def validate_password_complexity(password: str, email: str = ""):
     if len(password) < 12 or not re.search(r"[A-Z]", password) or not re.search(r"[a-z]", password) or not re.search(r"[0-9]", password) or not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
@@ -74,12 +108,16 @@ def auth_signup(req: SignupRequest):
     email_regex = r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
     if not re.match(email_regex, req.email):
         raise HTTPException(status_code=400, detail="Invalid email format")
-    validate_password_complexity(req.password, req.email)
+
+    plain_password = decrypt_password(req.password)
+    validate_password_complexity(plain_password, req.email)
+
     if req.role not in ("admin", "client", "operator"):
         raise HTTPException(status_code=400, detail="Role must be 'admin', 'client', or 'operator'")
     if users_col.find_one({"email": req.email, "is_deleted": {"$ne": True}}):
         raise HTTPException(status_code=400, detail="Email already registered")
-    hashed_password = hash_password(req.password)
+    
+    hashed_password = hash_password(plain_password)
     user_doc = {
         "email":     req.email,
         "password":  hashed_password,
@@ -161,7 +199,10 @@ async def auth_login(request: Request, req: LoginRequest, background_tasks: Back
         if _db is not None:
             _db["captchas"].delete_one({"_id": req.captcha_id})
 
-    if not verify_password(req.password, user["password"]):
+    plain_password = decrypt_password(req.password)
+    
+    print("DEBUG VERIFY:", plain_password, user["password"], verify_password(plain_password, user["password"]))
+    if not verify_password(plain_password, user["password"]):
         failed_attempts = user.get("failed_attempts", 0) + 1
         update_doc = {"failed_attempts": failed_attempts}
         requires_captcha = failed_attempts >= 3
@@ -270,13 +311,17 @@ async def auth_login(request: Request, req: LoginRequest, background_tasks: Back
         {
             "email": user["email"],
             "role": user["role"],
-            "password": req.password
+            "password": plain_password
         }
     )
     
     return {
         "success": True,
         "token": token,
+        "jwt": token,
+        "logged_status": "IN",
+        # "loggedOutTime": None,
+        # "crudPermissions": ["READ", "WRITE", "DELETE", "DOWNLOAD"] if user["role"] == "admin" else ["READ"],
         "session_id": session_id,
         "has_active_session": has_active_session,
         "user": {
@@ -454,7 +499,8 @@ async def list_users(background_tasks: BackgroundTasks, user=Depends(require_adm
     return {"success": True, "users": all_users}
 
 @router.post("/users")
-async def create_user(req: AdminCreateUserRequest, background_tasks: BackgroundTasks, user=Depends(require_admin)):
+@limiter.limit("5/minute")
+async def create_user(request: Request, req: AdminCreateUserRequest, background_tasks: BackgroundTasks, user=Depends(require_admin)):
     if users_col is None:
         raise HTTPException(status_code=500, detail="Database not connected")
     if not req.email or not req.password:
@@ -462,7 +508,7 @@ async def create_user(req: AdminCreateUserRequest, background_tasks: BackgroundT
     email_regex = r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
     if not re.match(email_regex, req.email):
         raise HTTPException(status_code=400, detail="Invalid email format")
-    validate_password_complexity(req.password, req.email)
+
     if req.role not in ("admin", "client", "operator"):
         raise HTTPException(status_code=400, detail="Role must be 'admin', 'client', or 'operator'")
     if users_col.find_one({"email": req.email, "is_deleted": {"$ne": True}}):
@@ -471,7 +517,10 @@ async def create_user(req: AdminCreateUserRequest, background_tasks: BackgroundT
     # If the email was previously soft-deleted, remove it to prevent DuplicateKeyError on the unique index
     users_col.delete_many({"email": req.email, "is_deleted": True})
     
-    hashed_password = hash_password(req.password)
+    plain_password = decrypt_password(req.password)
+    validate_password_complexity(plain_password, req.email)
+    
+    hashed_password = hash_password(plain_password)
     user_doc = {
         "email":     req.email,
         "password":  hashed_password,
@@ -494,7 +543,7 @@ async def create_user(req: AdminCreateUserRequest, background_tasks: BackgroundT
         {
             "email": req.email,
             "role": req.role,
-            "password": req.password,
+            "password": plain_password,
             "allowedCameras": req.allowedCameras or [],
             "is_blocked": req.is_blocked
 
@@ -517,17 +566,18 @@ async def update_user(email: str, req: AdminUpdateUserRequest, background_tasks:
         update_fields["role"] = req.role
         
     if req.password is not None and len(req.password) > 0:
-        validate_password_complexity(req.password, email)
+        plain_password = decrypt_password(req.password)
+        validate_password_complexity(plain_password, email)
         
-        if verify_password(req.password, existing.get("password", "")):
+        if verify_password(plain_password, existing.get("password", "")):
             raise HTTPException(status_code=400, detail="Cannot reuse the current password")
             
         pwd_history = existing.get("password_history", [])
         for old_hash in pwd_history:
-            if verify_password(req.password, old_hash):
+            if verify_password(plain_password, old_hash):
                 raise HTTPException(status_code=400, detail="Cannot reuse a recently used password")
                 
-        new_hash = hash_password(req.password)
+        new_hash = hash_password(plain_password)
         update_fields["password"] = new_hash
         
         new_history = [existing.get("password", "")] + pwd_history
@@ -640,23 +690,26 @@ async def change_password(req: ChangePasswordRequest, background_tasks: Backgrou
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
         
-    if not verify_password(req.old_password, user["password"]):
+    plain_old = decrypt_password(req.old_password)
+    plain_new = decrypt_password(req.new_password)
+    
+    if not verify_password(plain_old, user["password"]):
         raise HTTPException(status_code=401, detail="Incorrect current password")
         
     if req.new_password != req.confirm_password:
         raise HTTPException(status_code=400, detail="New passwords do not match")
         
-    validate_password_complexity(req.new_password, user["email"])
+    validate_password_complexity(plain_new, user["email"])
     
-    if verify_password(req.new_password, user["password"]):
+    if verify_password(plain_new, user["password"]):
         raise HTTPException(status_code=400, detail="Cannot reuse the current password")
         
     pwd_history = user.get("password_history", [])
     for old_hash in pwd_history:
-        if verify_password(req.new_password, old_hash):
+        if verify_password(plain_new, old_hash):
             raise HTTPException(status_code=400, detail="Cannot reuse a recently used password")
             
-    new_hash = hash_password(req.new_password)
+    new_hash = hash_password(plain_new)
     new_history = [user["password"]] + pwd_history
     
     update_fields = {

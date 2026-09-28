@@ -534,227 +534,23 @@ export function AlertPopup({ ip, alerts, onClose }) {
   );
 }
 
-// ── AlertDetailsModal ───────────────────────────────────────────────
+// ── AlertDetailsModal (Uses unified AiAlertModal) ───────────────────────────
 function AlertDetailsModal({ alert, onClose, cameraName, onNext, onPrev, hasNext, hasPrev }) {
-  const [status, setStatus] = useState(alert.status || "Active");
-  const [showConfirm, setShowConfirm] = useState(null);
-  const [note, setNote] = useState("");
-  
-  useEffect(() => {
-    setStatus(alert.status || "Active");
-    setShowConfirm(null);
-    setNote("");
-  }, [alert]);
-  
-  const handleUpdateStatus = async () => {
-    if (!showConfirm) return;
-    try {
-      let newStatus = showConfirm;
-      if (showConfirm === 'Resolved' && status.includes('Acknowledged')) {
-         newStatus = 'Acknowledged & Resolved';
-      }
-      const id = alert.id || alert._id || alert.alert_id;
-      if (id) {
-        await fetch(`${API}/api/alerts/${id}/status`, {
-          method: "PUT",
-          headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-          body: JSON.stringify({ status: newStatus, action: showConfirm, note }),
-        });
-      }
-      if (showConfirm === 'Acknowledged') {
-          const tzOffset = (new Date()).getTimezoneOffset() * 60000; alert.acknowledged_at = (new Date(Date.now() - tzOffset)).toISOString().slice(0, -1);
-          alert.acknowledge_note = note;
-      } else if (showConfirm === 'Resolved') {
-          const tzOffset = (new Date()).getTimezoneOffset() * 60000; alert.resolved_at = (new Date(Date.now() - tzOffset)).toISOString().slice(0, -1);
-          alert.resolve_note = note;
-      }
-      setStatus(newStatus);
-      alert.status = newStatus;
-      setShowConfirm(null);
-      setNote("");
-    } catch (e) {
-      console.error("Failed to update status", e);
-    }
-  };
-  const timeOnly = alert.time
-    ? alert.time.split("T")[1]?.split("+")[0]?.split(".")[0]
-    : alert.received_at?.split("T")[1]?.split("+")[0]?.split(".")[0];
-  const timestamp = (alert.received_at || alert.time || "").replace("T", " ").split(".")[0];
-  const isAck = status.includes('Acknowledged');
-  const isRes = status.includes('Resolved');
-  const formatTs = (ts) => {
-    if (!ts) return "";
-    const d = new Date(ts);
-    if (isNaN(d.getTime())) return ts.replace("T", " ").split(".")[0].replace("Z", "");
-    const pad = (n) => n.toString().padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  };
-  const handleDownloadPdf = () => {
-    const doc = new jsPDF();
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(20);
-    doc.text("Incident Report", 14, 22);
-    
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(100);
-    doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 30);
-    
-    doc.autoTable({
-      startY: 40,
-      head: [['Field', 'Value']],
-      body: [
-        ['Alert ID', alert.id || alert._id || alert.alert_id || "N/A"],
-        ['Camera', `${cameraName || "Unknown"} (${alert.ip || alert.serial || "N/A"})`],
-        ['Event Type', formatEventName(alert.type || alert.scenario || "Unknown")],
-        ['Status', status],
-        ['Timestamp', timestamp]
-      ],
-      theme: 'grid',
-      headStyles: { fillColor: [41, 128, 185] },
-    });
-    
-    const timelineBody = [];
-    timelineBody.push(['Triggered', timestamp, '']);
-    if (isAck) {
-      timelineBody.push(['Acknowledged', alert.acknowledged_at ? formatTs(alert.acknowledged_at) : '', alert.acknowledge_note || '']);
-    }
-    if (isRes) {
-      timelineBody.push(['Resolved', alert.resolved_at ? formatTs(alert.resolved_at) : '', alert.resolve_note || '']);
-    }
-    
-    doc.autoTable({
-      startY: doc.lastAutoTable.finalY + 10,
-      head: [['Event', 'Time', 'Note']],
-      body: timelineBody,
-      theme: 'grid',
-      headStyles: { fillColor: [41, 128, 185] },
-      columnStyles: {
-        0: { cellWidth: 35 },
-        1: { cellWidth: 45 },
-        2: { cellWidth: 'auto' }
-      },
-      styles: { overflow: 'linebreak' }
-    });
-    
-    doc.save(`Incident_Report_${alert.id || alert._id || "Alert"}.pdf`);
-  };
-
-
   return (
-    <div className="alp-overlay" style={{ zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(10, 12, 16, 0.85)', backdropFilter: 'blur(8px)' }}>
-      <div className="alp-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '520px', width: '100%', borderRadius: '16px', padding: '28px', background: 'var(--bg-elevated, #181c25)', border: '1px solid var(--border-light, #2a3347)', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255,255,255,0.05), 0 0 40px rgba(59, 130, 246, 0.1)', color: 'var(--text-primary, #f8fafc)', fontFamily: 'var(--font-ui, sans-serif)' }}>
-        {showConfirm ? (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {showConfirm === 'Acknowledged' ? (
-                  <svg viewBox="0 0 24 24" width="20" height="20" stroke="var(--blue, #3b82f6)" strokeWidth="2" fill="none"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><polyline points="9 12 11 14 15 10"></polyline></svg>
-                ) : (
-                  <svg viewBox="0 0 24 24" width="20" height="20" stroke="var(--teal, #10b981)" strokeWidth="2" fill="none"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-                )}
-                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>{showConfirm === 'Acknowledged' ? 'Acknowledge Alarm' : 'Mark as Resolved'}</h3>
-              </div>
-              <button onClick={() => setShowConfirm(null)} style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '18px' }}>✕</button>
-            </div>
-            <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '16px', marginTop: 0 }}>
-              {showConfirm === 'Acknowledged' ? "Confirm you've reviewed this alarm and describe your initial response or findings." : "Provide a brief summary of how this alarm was handled before closing it."}
-            </p>
-            <div style={{ marginBottom: '8px', fontSize: '13px', fontWeight: 500, color: 'var(--text-primary)' }}>
-              <span style={{ color: 'var(--red, #ef4444)' }}>*</span> {showConfirm === 'Acknowledged' ? 'Acknowledgement Note' : 'Resolution Summary'}
-            </div>
-            <textarea value={note} onChange={e => setNote(e.target.value)} placeholder={showConfirm === 'Acknowledged' ? "e.g. Alert reviewed — security team dispatched to Zone B." : "e.g. Investigated on-site — false alarm. No further action required."} style={{ width: '100%', height: '80px', background: 'var(--bg-surface, #11141b)', border: '1px solid var(--border-light, #2a3347)', borderRadius: '8px', padding: '12px', color: 'var(--text-primary)', fontSize: '14px', resize: 'none', marginBottom: '20px', outline: 'none', boxSizing: 'border-box' }} onFocus={e => e.target.style.borderColor = 'var(--blue, #3b82f6)'} onBlur={e => e.target.style.borderColor = 'var(--border-light, #2a3347)'} />
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowConfirm(null)} style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid var(--border-light, #2a3347)', background: 'var(--bg-surface, #11141b)', color: 'var(--text-primary)', cursor: 'pointer', fontWeight: 500 }}>Cancel</button>
-              <button onClick={handleUpdateStatus} style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: showConfirm === 'Acknowledged' ? 'var(--blue, #3b82f6)' : 'var(--teal, #10b981)', color: '#fff', cursor: 'pointer', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" strokeWidth="2" fill="none"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                {showConfirm === 'Acknowledged' ? 'Confirm Acknowledgement' : 'Confirm Resolution'}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>Alert Details</h3>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <button onClick={handleDownloadPdf} style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '18px', padding: '4px', display: 'flex', alignItems: 'center' }} title="Download PDF">
-                  <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" strokeWidth="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                </button>
-                <div style={{ display: 'flex', gap: '4px' }}>
-                  <button onClick={onPrev} disabled={!hasPrev} style={{ background: 'transparent', border: 'none', color: hasPrev ? 'var(--text-primary)' : 'var(--text-muted, #64748b)', cursor: hasPrev ? 'pointer' : 'default', fontSize: '18px', padding: '4px' }} title="Previous Alert">❮</button>
-                  <button onClick={onNext} disabled={!hasNext} style={{ background: 'transparent', border: 'none', color: hasNext ? 'var(--text-primary)' : 'var(--text-muted, #64748b)', cursor: hasNext ? 'pointer' : 'default', fontSize: '18px', padding: '4px' }} title="Next Alert">❯</button>
-                </div>
-                <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '18px', padding: '4px' }}>✕</button>
-              </div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gap: '14px 16px', marginBottom: '28px', alignItems: 'center' }}>
-              <span style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>ID</span>
-              <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '14px' }}>{alert.id || alert._id || alert.alert_id || "N/A"}</span>
-              
-              <span style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Camera</span>
-              <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '14px' }}>{cameraName || "Unknown"} <span style={{ color: 'var(--text-muted, #64748b)', fontWeight: 400 }}>({alert.ip || alert.serial || "N/A"})</span></span>
-              
-              <span style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Event Name</span>
-              <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '14px' }}>{formatEventName(alert.type || alert.scenario || "Unknown")}</span>
-              
-              <span style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Status</span>
-              <div>
-                <span style={{ 
-                  background: isRes ? 'rgba(16, 185, 129, 0.15)' : isAck ? 'rgba(59, 130, 246, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                  color: isRes ? 'var(--teal, #10b981)' : isAck ? 'var(--blue, #3b82f6)' : 'var(--red, #ef4444)',
-                  padding: '4px 12px', borderRadius: '20px', fontWeight: 600, fontSize: '13px', display: 'inline-block', border: '1px solid currentColor' 
-                }}>{status}</span>
-              </div>
-              
-              <span style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Time</span>
-              <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '14px' }}>{timestamp}</span>
-            </div>
-            <div style={{ background: 'var(--bg-surface, #11141b)', borderRadius: '8px', padding: '16px', marginBottom: '24px', border: '1px solid var(--border-light, #2a3347)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
-                <svg viewBox="0 0 24 24" width="20" height="20" stroke="var(--red, #ef4444)" strokeWidth="2" fill="none"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-                <span style={{ fontWeight: 600, fontSize: '15px', color: 'var(--text-primary)' }}>Response Timeline</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative' }}>
-                <div style={{ position: 'absolute', top: '22px', left: '15%', right: '15%', height: '4px', background: 'linear-gradient(90deg, var(--red, #ef4444) 0%, var(--blue, #3b82f6) 50%, var(--teal, #10b981) 100%)', opacity: 0.2, zIndex: 1, borderRadius: '2px' }}></div>
-                <div style={{ position: 'absolute', top: '22px', left: '15%', width: isRes ? '70%' : (isAck ? '35%' : '0%'), height: '4px', background: isRes ? 'var(--teal, #10b981)' : 'var(--blue, #3b82f6)', zIndex: 1, transition: 'width 1s ease-in-out, background 1s ease-in-out', boxShadow: isRes ? '0 0 12px rgba(16,185,129,0.8)' : '0 0 12px rgba(59,130,246,0.8)', borderRadius: '2px' }}></div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 2, flex: 1, minWidth: 0, padding: '0 4px' }}>
-                  <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'var(--red, #ef4444)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '12px', boxShadow: '0 0 0 2px var(--bg-elevated, #181c25)', animation: (!isAck && !isRes) ? 'pulse-red 2s infinite' : 'none' }}>
-                    <svg viewBox="0 0 24 24" width="18" height="18" stroke="#fff" strokeWidth="2" fill="none"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-                  </div>
-                  <span style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)' }}>Alarm Triggered</span>
-                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textAlign: 'center', marginTop: '4px' }}>{timestamp.split(' ')[0]}<br/>{timeOnly}</span>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 2, flex: 1, minWidth: 0, padding: '0 4px' }}>
-                  <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: isAck ? 'var(--blue, #3b82f6)' : 'var(--bg-surface, #11141b)', border: isAck ? 'none' : '1px solid var(--border-light, #2a3347)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '12px', boxShadow: isAck ? '0 0 0 2px var(--bg-surface, #11141b)' : 'none', animation: (isAck && !isRes) ? 'pulse-blue 2s infinite' : 'none', transition: 'all 0.5s ease' }}>
-                    <svg viewBox="0 0 24 24" width="18" height="18" stroke={isAck ? '#fff' : 'var(--text-secondary)'} strokeWidth="2" fill="none"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                  </div>
-                  <span style={{ fontWeight: 600, fontSize: '13px', color: isAck ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{isAck ? 'Acknowledged' : 'Not Acknowledged'}</span>
-                  {isAck && alert.acknowledged_at && (<span style={{ fontSize: '11px', color: 'var(--text-secondary)', textAlign: 'center', marginTop: '4px' }}>{formatTs(alert.acknowledged_at).split(' ')[0]}<br/>{formatTs(alert.acknowledged_at).split(' ')[1]}</span>)}
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 2, flex: 1, minWidth: 0, padding: '0 4px' }}>
-                  <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: isRes ? 'var(--teal, #10b981)' : 'var(--bg-surface, #11141b)', border: isRes ? 'none' : '1px solid var(--border-light, #2a3347)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '12px', boxShadow: isRes ? '0 0 0 2px var(--bg-surface, #11141b)' : 'none', transition: 'all 0.5s ease' }}>
-                    <svg viewBox="0 0 24 24" width="18" height="18" stroke={isRes ? '#fff' : 'var(--text-secondary)'} strokeWidth="2" fill="none"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-                  </div>
-                  <span style={{ fontWeight: 600, fontSize: '13px', color: isRes ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{isRes ? 'Resolved' : 'Active'}</span>
-                  {isRes && alert.resolved_at && (<span style={{ fontSize: '11px', color: 'var(--text-secondary)', textAlign: 'center', marginTop: '4px' }}>{formatTs(alert.resolved_at).split(' ')[0]}<br/>{formatTs(alert.resolved_at).split(' ')[1]}</span>)}
-                </div>
-              </div>
-            </div>
-            {!isRes && (
-              <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-                {!isAck && <button onClick={() => setShowConfirm('Acknowledged')} style={{ padding: '8px 24px', borderRadius: '8px', border: 'none', background: 'var(--blue, #3b82f6)', color: '#fff', cursor: 'pointer', fontWeight: 600, transition: 'all 0.2s', boxShadow: '0 2px 4px rgba(59,130,246,0.3)' }}>Acknowledge</button>}
-                <button onClick={() => setShowConfirm('Resolved')} style={{ padding: '8px 24px', borderRadius: '8px', border: 'none', background: 'var(--teal, #10b981)', color: '#fff', cursor: 'pointer', fontWeight: 600, transition: 'all 0.2s', boxShadow: '0 2px 4px rgba(16,185,129,0.3)' }}>Resolve</button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
+    <AiAlertModal
+      alert={alert}
+      onClose={onClose}
+      cameraName={cameraName}
+      onNext={hasNext ? onNext : undefined}
+      onPrev={hasPrev ? onPrev : undefined}
+    />
   );
 }
 
 
-// â”€â”€ AlertsPanel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+
+// ———————————————————————————————————————————————————————————————————————————————————
 function AlertsPanel({
   isOpen,
   onAlertCountUpdate,
@@ -768,6 +564,9 @@ function AlertsPanel({
   const [selectedAiAlert, setSelectedAiAlert] = useState(null);
   const [selectedInternalAlert, setSelectedInternalAlert] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // Prevent overlapping alert refresh requests.
+  const fetchingAlertsRef = useRef(false);
   const [zoomedImage, setZoomedImage] = useState(null);
   const [externalAiIp, setExternalAiIp] = useState("192.168.126.35");
   const [isAiActive, setIsAiActive] = useState(false);
@@ -782,16 +581,17 @@ function AlertsPanel({
         });
         if (res.ok) {
           const data = await res.json();
-          // Find the configured AI integration
-          const aiInt = data.find(i => i.isActive && (i.type.toLowerCase().includes('ai') || i.serverName.toLowerCase().includes('ai')));
-          setIsAiActive(!!aiInt);
+          const aiInt = data.find(i => i.isActive && (i.type?.toLowerCase().includes('ai') || i.serverName?.toLowerCase().includes('ai')));
+          const anyActive = data.find(i => i.isActive && i.serverIp);
           
           if (aiInt && aiInt.serverIp) {
+            setIsAiActive(true);
             setExternalAiIp(aiInt.serverIp.split(':')[0]);
+          } else if (anyActive) {
+            setIsAiActive(true);
+            setExternalAiIp(anyActive.serverIp.split(':')[0]);
           } else {
-            // Fallback to any active connection with an IP if no AI specific one is found
-            const anyActive = data.find(i => i.isActive && i.serverIp);
-            if (anyActive) setExternalAiIp(anyActive.serverIp.split(':')[0]);
+            setIsAiActive(false);
           }
         }
       } catch (e) {
@@ -799,7 +599,20 @@ function AlertsPanel({
       }
     };
     fetchAiIp();
+
+    window.addEventListener("integrationsUpdated", fetchAiIp);
+    window.addEventListener("storage", fetchAiIp);
+    return () => {
+      window.removeEventListener("integrationsUpdated", fetchAiIp);
+      window.removeEventListener("storage", fetchAiIp);
+    };
   }, []);
+
+  useEffect(() => {
+    if (!isAiActive && alertSource === "mqtt_ai") {
+      setAlertSource("all");
+    }
+  }, [isAiActive, alertSource, setAlertSource]);
 
   const [alertTypeFilter, setAlertTypeFilter] = useState("All");
   const [cameraFilter, setCameraFilter] = useState("All");
@@ -829,19 +642,34 @@ function AlertsPanel({
 
   const availableTypes = useMemo(() => {
     const types = new Set();
-    alerts.forEach((a) => types.add(getDisplayType(a)));
+    alerts.forEach((a) => {
+      const isAi = a.isExternal === true || a.source === "external_ai" || a.source === "AI_WEBHOOK";
+      if (alertSource === "builtin" && isAi) return;
+      if (alertSource === "mqtt_ai" && !isAi) return;
+      types.add(getDisplayType(a));
+    });
     return ["All", ...Array.from(types).sort()];
-  }, [alerts, getDisplayType]);
+  }, [alerts, alertSource, getDisplayType]);
 
   const availableCameras = useMemo(() => {
     const cams = new Set();
-    alerts.forEach((a) => cams.add(getDisplayCamera(a)));
+    alerts.forEach((a) => {
+      const isAi = a.isExternal === true || a.source === "external_ai" || a.source === "AI_WEBHOOK";
+      if (alertSource === "builtin" && isAi) return;
+      if (alertSource === "mqtt_ai" && !isAi) return;
+      cams.add(getDisplayCamera(a));
+    });
     return ["All", ...Array.from(cams).sort()];
-  }, [alerts, getDisplayCamera]);
+  }, [alerts, alertSource, getDisplayCamera]);
 
   const filteredAlerts = useMemo(() => {
     const now = new Date().getTime();
     return alerts.filter((a) => {
+      // Source filter
+      const isAi = a.isExternal === true || a.source === "external_ai" || a.source === "AI_WEBHOOK";
+      if (alertSource === "builtin" && isAi) return false;
+      if (alertSource === "mqtt_ai" && !isAi) return false;
+
       const typeMatch =
         alertTypeFilter === "All" || getDisplayType(a) === alertTypeFilter;
       const camMatch =
@@ -889,6 +717,7 @@ function AlertsPanel({
     });
   }, [
     alerts,
+    alertSource,
     alertTypeFilter,
     cameraFilter,
     searchQuery,
@@ -985,9 +814,17 @@ function AlertsPanel({
     return set;
   }, [devicesProp]);
 
-  const fetchAlerts = useCallback(async () => {
+  const fetchAlerts = useCallback(async (showInitialLoading = false) => {
+    // Prevent multiple alert refreshes from running at the same time.
+    if (fetchingAlertsRef.current) return;
+    fetchingAlertsRef.current = true;
+
     try {
-      setLoading(true);
+      // Only show Loading... during the initial load.
+      // Background refreshes keep the existing alerts visible.
+      if (showInitialLoading) {
+        setLoading(true);
+      }
       let combinedAlerts = [];
       const fetchBuiltin = alertSource === "builtin" || alertSource === "all";
       const fetchExternal = alertSource === "mqtt_ai" || alertSource === "external_ai" || alertSource === "all";
@@ -1161,7 +998,16 @@ function AlertsPanel({
               const snap = await fetchLiveSnapshotForIp(ip);
               if (snap) {
                 setAlerts((prev) =>
-                  prev.map((p) => (p === a ? { ...p, liveSnapshot: snap } : p)),
+                  prev.map((p) => {
+                    const pId = p.id || p._id || p.alert_id;
+                    const aId = a.id || a._id || a.alert_id;
+
+                    if (pId && aId && String(pId) === String(aId)) {
+                      return { ...p, liveSnapshot: snap };
+                    }
+
+                    return p;
+                  }),
                 );
               }
             }),
@@ -1171,7 +1017,12 @@ function AlertsPanel({
     } catch (e) {
       console.error("[Alerts] fetch failed:", e);
     } finally {
-      setLoading(false);
+      fetchingAlertsRef.current = false;
+
+      // Do not hide the alert list during background refreshes.
+      if (showInitialLoading) {
+        setLoading(false);
+      }
     }
   }, [onAlertCountUpdate, liveStatus, alertSource, devicesProp, allowedIps, externalAiIp]);
 
@@ -1237,9 +1088,17 @@ function AlertsPanel({
   }, [eventsByTopic["vms/analytics/alerts"], eventsByTopic.alerts, alertSource]);
 
   useEffect(() => {
-    fetchAlerts();
-    if (isWsConnected) return; // Zero HTTP polling when WebSocket is connected
-    const interval = setInterval(fetchAlerts, 5000);
+    // Initial load: show Loading... only once.
+    fetchAlerts(true);
+
+    // WebSocket provides real-time alerts, so no HTTP polling is needed.
+    if (isWsConnected) return;
+
+    // Background refresh: existing alerts stay visible while the request runs.
+    const interval = setInterval(() => {
+      fetchAlerts(false);
+    }, 5000);
+
     return () => clearInterval(interval);
   }, [fetchAlerts, isWsConnected]);
 
@@ -1257,60 +1116,46 @@ function AlertsPanel({
         </div>
       </div>
       <div className="lv-alerts-panel__filters-container">
-        <div className="lv-alerts-panel__filters" style={{ marginBottom: "12px", position: "relative", zIndex: 50 }}>
-          <div className={`lv-select-wrapper lv-dropdown-container ${alertSource !== "all" ? "is-active" : ""}`}>
-            <svg className="lv-select-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-            </svg>
-            <div
-              className="lv-alerts-filter-select"
-              onClick={() => {
-                setIsSourceDropdownOpen(!isSourceDropdownOpen);
-                setIsTypeDropdownOpen(false);
-                setIsCameraDropdownOpen(false);
-              }}
-              title="Select Alert Source"
-              style={{ userSelect: "none", display: "flex", alignItems: "center" }}
+        {isAiActive && (
+          <div className="lv-alerts-source-filters">
+            <button
+              className={`lv-source-btn ${alertSource === "all" ? "active" : ""}`}
+              onClick={() => setAlertSource("all")}
+              type="button"
+              title="Show All Alerts"
             >
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, paddingRight: "10px" }}>
-                {alertSource === "all" ? "All Alerts" : (alertSource === "builtin" ? "Builtin Analytics" : "AI Analytics")}
-              </span>
-            </div>
-            <svg
-              className="lv-select-arrow"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              style={isSourceDropdownOpen ? { transform: "rotate(180deg)" } : {}}
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+              </svg>
+              All
+            </button>
+            <button
+              className={`lv-source-btn ${alertSource === "builtin" ? "active" : ""}`}
+              onClick={() => setAlertSource("builtin")}
+              type="button"
+              title="Show Builtin Analytics Alerts"
             >
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-            {isSourceDropdownOpen && (
-              <div className="lv-filter-dropdown" style={{ width: "100%", maxHeight: "300px", overflowY: "auto" }}>
-                <button
-                  className={`lv-filter-dropdown-item ${alertSource === "all" ? "selected" : ""}`}
-                  onClick={() => { setAlertSource("all"); setIsSourceDropdownOpen(false); }}
-                >
-                  All Alerts
-                </button>
-                <button
-                  className={`lv-filter-dropdown-item ${alertSource === "builtin" ? "selected" : ""}`}
-                  onClick={() => { setAlertSource("builtin"); setIsSourceDropdownOpen(false); }}
-                >
-                  Builtin Analytics
-                </button>
-                <button
-                  className={`lv-filter-dropdown-item ${alertSource === "mqtt_ai" ? "selected" : ""}`}
-                  onClick={() => { setAlertSource("mqtt_ai"); setIsSourceDropdownOpen(false); }}
-                >
-                  AI Analytics
-                </button>
-              </div>
-            )}
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                <line x1="8" y1="21" x2="16" y2="21" />
+                <line x1="12" y1="17" x2="12" y2="21" />
+              </svg>
+              Builtin
+            </button>
+            <button
+              className={`lv-source-btn ${alertSource === "mqtt_ai" ? "active" : ""}`}
+              onClick={() => setAlertSource("mqtt_ai")}
+              type="button"
+              title="Show AI Analytics Alerts"
+            >
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93v2.14a2 2 0 0 1-1.5 1.93v2a2 2 0 1 1-4 0v-2a2 2 0 0 1-1.5-1.93V9.93C3.9 9.58 2.5 7.95 2.5 6a4 4 0 0 1 4-4c1.1 0 2.1.45 2.83 1.17A3.97 3.97 0 0 1 12 2z" />
+                <path d="M18 10h4M19 14h3M18 18h4" />
+              </svg>
+              AI Analytics
+            </button>
           </div>
-        </div>
-
+        )}
 
         <div className="lv-alerts-panel__filters">
           <div
@@ -1330,7 +1175,6 @@ function AlertsPanel({
               onClick={() => {
                 setIsTypeDropdownOpen(!isTypeDropdownOpen);
                 setIsCameraDropdownOpen(false);
-                setIsSourceDropdownOpen(false);
               }}
               title="Filter by Alert Type"
               style={{
@@ -1411,7 +1255,6 @@ function AlertsPanel({
               onClick={() => {
                 setIsCameraDropdownOpen(!isCameraDropdownOpen);
                 setIsTypeDropdownOpen(false);
-                setIsSourceDropdownOpen(false);
               }}
               title="Filter by Camera"
               style={{
@@ -1568,7 +1411,7 @@ function AlertsPanel({
       </div>
 
       <div className="lv-alerts-panel__list">
-        {loading ? (
+        {loading && filteredAlerts.length === 0 ? (
           <div className="lv-alerts-panel__empty">Loading...</div>
         ) : filteredAlerts.length === 0 ? (
           <div className="lv-alerts-panel__empty">No alerts found</div>
@@ -1744,10 +1587,10 @@ function AlertsPanel({
                     <div
                       className="lv-alert-card__thumbnail-container"
                       style={{ 
-                        width: "110px", 
-                        height: "110px", 
-                        minWidth: "110px",
-                        marginLeft: "12px", 
+                        width: "88px", 
+                        height: "68px", 
+                        minWidth: "88px",
+                        marginLeft: "10px", 
                         cursor: "pointer", 
                         borderRadius: "8px", 
                         overflow: "hidden",
@@ -1795,19 +1638,20 @@ function AlertsPanel({
             className="lv-image-modal__content"
             onClick={(e) => e.stopPropagation()}
           >
-            <button
-              className="lv-image-modal__close"
-              onClick={() => setZoomedImage(null)}
-            >
-              âœ•
-            </button>
+          <button
+            className="lv-image-modal__close"
+            onClick={() => setZoomedImage(null)}
+          >
+            ×
+          </button>
             <img
               src={zoomedImage.url}
               alt="Alert Zoom"
               className="lv-image-modal__img"
             />
             <div className="lv-image-modal__caption">
-              <strong>{zoomedImage.cameraName || zoomedImage.ip}</strong> â€”{" "}
+              <strong>{zoomedImage.cameraName || zoomedImage.ip}</strong>
+              {" — "}
               {zoomedImage.type} ({zoomedImage.time})
             </div>
           </div>
@@ -1849,8 +1693,8 @@ function AlertsPanel({
   );
 }
 
-// â”€â”€ CameraCell â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// maxBitrate is in Kbps â€” passed into WebRTCPlayer as a real SDP b=TIAS constraint.
+// ── CameraCell ─────────────────────────────────────────────────────────────
+// maxBitrate is in Kbps — passed into WebRTCPlayer as a real SDP b=TIAS constraint.
 // Grid default: 2000 Kbps (2 Mbps). Fullscreen: 10000 Kbps (10 Mbps).
 function CameraCell({
   device,
@@ -1862,16 +1706,24 @@ function CameraCell({
   onLiveChange,
   maxBitrate,
   badgeMode,
+  layout,
   hideName,
   objectFit,
   showAiOverlay,
   analyticsData,
 }) {
+  const isUltraDense = ["6x6", "8x8", "15x15", "16x16"].includes(layout) || badgeMode === "micro";
+  const isDense = layout === "5x5";
   const showRec = localStorage.getItem("miradorai_show_rec_ind") !== "false";
   let aiCount = 0;
   let aiNames = [];
-  if (showAiOverlay && analyticsData && analyticsData.analytics) {
-     const distinctTypes = new Set(analyticsData.analytics.map(a => a.sourceType || a.subType || "Unknown"));
+  const rawAnalytics = (analyticsData && analyticsData.analytics) 
+    || (device && (device.analytics || device.ai_analytics || device.rules)) 
+    || [];
+  if (showAiOverlay && Array.isArray(rawAnalytics) && rawAnalytics.length > 0) {
+     const distinctTypes = new Set(
+       rawAnalytics.map(a => typeof a === "string" ? a : (a.sourceType || a.subType || a.name || a.type || "Unknown"))
+     );
      aiCount = distinctTypes.size;
      aiNames = Array.from(distinctTypes).map(formatEventName);
   }
@@ -1890,7 +1742,7 @@ function CameraCell({
   }, [device.ip, isLive, onLiveChange]);
 
   // WebRTC errors are handled inside the player (retries automatically).
-  // We no longer auto-fall back to HLS â€” the user chooses the mode via the toolbar.
+  // We no longer auto-fall back to HLS — the user chooses the mode via the toolbar.
   const handleWebRTCError = () => {};
 
   // Calculate the target stream key based on stored codec metadata.
@@ -1914,154 +1766,93 @@ function CameraCell({
       className={`lv-cam ${localStorage.getItem("miradorai_show_event_ind") !== "false" && alertCount > 0 ? "lv-cam--alert" : ""}`}
       style={{ position: "relative" }}
     >
-      {showAiOverlay && aiCount > 0 && (
-        <div 
-          className="lv-cam__ai-overlay-container"
-          style={{
-            position: "absolute",
-            bottom: badgeMode === "micro" ? "4px" : badgeMode === "compact" ? "6px" : "12px",
-            left: badgeMode === "micro" ? "90px" : badgeMode === "compact" ? "110px" : "135px",
-            zIndex: 20,
-          }}
-          onMouseEnter={() => setShowAiTooltip(true)}
-          onMouseLeave={() => setShowAiTooltip(false)}
-        >
-          <div
-            className="lv-cam__ai-badge"
-            style={{
-              backgroundColor: "rgba(0,0,0,0.7)",
-              color: "#fff",
-              padding: "4px 8px",
-              borderRadius: "4px",
-              fontSize: "12px",
-              fontWeight: "bold",
-              cursor: "help",
-              border: "1px solid rgba(6,182,212,0.5)",
-              boxShadow: "0 0 8px rgba(6,182,212,0.3)"
+      {/* ── Sleek Professional Bottom-Right Pill Dock (Audio, Sparkle AI, Alerts) ── */}
+      {!isUltraDense && (
+        <div className={`lv-cam__dock-pill lv-cam__dock-pill--${badgeMode || "normal"}`}>
+          {/* 1. Audio Control (Muted / Active) */}
+          <button
+            type="button"
+            className={`lv-dock-item lv-dock-item--audio ${isMuted ? "is-muted" : "is-active"}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsMuted(!isMuted);
             }}
+            title={isMuted ? "Audio Muted — click to unmute" : "Audio Active — click to mute"}
           >
-            {aiCount} AI
-          </div>
-          {showAiTooltip && (
-            <div 
-              className="lv-cam__ai-tooltip"
-              style={{
-                position: "absolute",
-                bottom: "100%",
-                left: "0",
-                marginBottom: "6px",
-                backgroundColor: "rgba(15, 23, 42, 0.95)",
-                border: "1px solid rgba(6,182,212,0.3)",
-                borderRadius: "6px",
-                padding: "8px 12px",
-                minWidth: "160px",
-                boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
-                display: "flex",
-                flexDirection: "column",
-                gap: "6px",
-                pointerEvents: "none",
-                whiteSpace: "nowrap"
-              }}
+            <span className="lv-dock-item__icon">
+              {isMuted ? (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                  <line x1="23" y1="9" x2="17" y2="15" />
+                  <line x1="17" y1="9" x2="23" y2="15" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                </svg>
+              )}
+            </span>
+          </button>
+
+          {/* 2. AI Analytics Sparkle Badge & Tooltip */}
+          {showAiOverlay && aiCount > 0 && (
+            <div
+              tabIndex={0}
+              className={`lv-dock-item lv-dock-item--ai ${isDense ? "lv-dock-item--dense" : ""}`}
+              onMouseEnter={() => setShowAiTooltip(true)}
+              onMouseLeave={() => setShowAiTooltip(false)}
+              title={`${aiCount} Configured AI Analytics`}
             >
-              <div style={{ fontSize: "11px", fontWeight: "bold", color: "#fff", marginBottom: "2px", borderBottom: "1px solid rgba(255,255,255,0.1)", paddingBottom: "4px" }}>
-                Active Analytics
-              </div>
-              {aiNames.map((name, idx) => (
-                <div key={idx} style={{ 
-                  fontSize: "11px", 
-                  color: "#cbd5e1", 
-                  display: "flex", 
-                  alignItems: "center", 
-                  gap: "6px" 
-                }}>
-                  <span style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#06b6d4" }} />
-                  {name}
+              <svg className="lv-dock-sparkle" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 0L14.59 9.41L24 12L14.59 14.59L12 24L9.41 14.59L0 12L9.41 9.41L12 0Z" />
+              </svg>
+              <span className="lv-dock-ai-text">
+                {aiCount > 0 ? `${aiCount} AI` : "AI"}
+              </span>
+
+              {showAiTooltip && (
+                <div className={`lv-dock-tooltip ${isDense ? "lv-dock-tooltip--dense" : ""}`}>
+                  <div className="lv-dock-tooltip__header">
+                    <span className="lv-dock-tooltip__dot" />
+                    Configured Analytics ({aiCount})
+                  </div>
+                  <div className="lv-dock-tooltip__list">
+                    {aiNames.map((name, idx) => (
+                      <div key={idx} className="lv-dock-tooltip__item">
+                        <span className="lv-dock-tooltip__item-dot" />
+                        {name}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              ))}
+              )}
             </div>
+          )}
+
+          {/* 3. Alerts Count & Dropdown Chevron */}
+          {alertCount > 0 && (
+            <button
+              type="button"
+              className="lv-dock-item lv-dock-item--alert"
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                onBadgeClick?.();
+              }}
+              title={`${alertCount > 50 ? 50 : alertCount} alerts — click to view history`}
+            >
+              <span className="lv-dock-alert-num">
+                {alertCount > 50 ? 50 : alertCount}
+              </span>
+              <svg className="lv-dock-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
           )}
         </div>
       )}
-      <div className="lv-cam__bottom-right-controls">
-        {badgeMode !== "micro" && (
-          <div
-            className="lv-cam__mute-btn"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <input
-              type="checkbox"
-              id={`mute-${device.id || device.ip}`}
-              className="muteCheckboxInput"
-              checked={isMuted}
-              onChange={() => setIsMuted(!isMuted)}
-            />
-            <label
-              htmlFor={`mute-${device.id || device.ip}`}
-              className="toggleSwitch"
-            >
-              <div className="speaker">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  version="1.0"
-                  viewBox="0 0 75 75"
-                >
-                  <path
-                    d="M39.389,13.769 L22.235,28.606 L6,28.606 L6,47.699 L21.989,47.699 L39.389,62.75 L39.389,13.769z"
-                    style={{
-                      stroke: "#fff",
-                      strokeWidth: 5,
-                      strokeLinejoin: "round",
-                      fill: "#fff",
-                    }}
-                  ></path>
-                  <path
-                    d="M48,27.6a19.5,19.5 0 0 1 0,21.4M55.1,20.5a30,30 0 0 1 0,35.6M61.6,14a38.8,38.8 0 0 1 0,48.6"
-                    style={{
-                      fill: "none",
-                      stroke: "#fff",
-                      strokeWidth: 5,
-                      strokeLinecap: "round",
-                    }}
-                  ></path>
-                </svg>
-              </div>
-              <div className="mute-speaker">
-                <svg
-                  version="1.0"
-                  viewBox="0 0 75 75"
-                  stroke="#fff"
-                  strokeWidth="5"
-                >
-                  <path
-                    d="m39,14-17,15H6V48H22l17,15z"
-                    fill="#fff"
-                    strokeLinejoin="round"
-                  ></path>
-                  <path
-                    d="m49,26 20,24m0-24-20,24"
-                    fill="#fff"
-                    strokeLinecap="round"
-                  ></path>
-                </svg>
-              </div>
-            </label>
-          </div>
-        )}
-
-        {alertCount > 0 && badgeMode !== "micro" && (
-          <div
-            className="lv-cam__alert-badge"
-            onClick={(e) => {
-              e.stopPropagation();
-              e.preventDefault();
-              onBadgeClick?.();
-            }}
-            title={`${alertCount > 50 ? 50 : alertCount} alert${alertCount !== 1 ? "s" : ""} â€” click to view`}
-          >
-            {alertCount > 50 ? 50 : alertCount}
-          </div>
-        )}
-      </div>
 
       <div className="lv-cell__header">
         {isLive && <span className="lv-live-dot" />}
@@ -2560,6 +2351,8 @@ export default function LiveViewPage({ onNavigate }) {
   const [totalAlertsCount, setTotalAlertsCount] = useState(0);
   const [sidePlaybackCam, setSidePlaybackCam] = useState(null);
   const [alertSource, setAlertSource] = useState("all"); // 'all' | 'builtin' | 'mqtt_ai'
+  const [isAiActive, setIsAiActive] = useState(false);
+  const [externalAiIp, setExternalAiIp] = useState("192.168.126.35");
   const [analyticsConfig, setAnalyticsConfig] = useState([
     {
       "readerName": "EXIT",
@@ -2597,6 +2390,51 @@ export default function LiveViewPage({ onNavigate }) {
       ]
     }
   ]);
+
+  useEffect(() => {
+    const fetchAiStatus = async () => {
+      try {
+        const token = localStorage.getItem('miradorai_token') || localStorage.getItem('token') || localStorage.getItem('authToken');
+        const res = await fetch(`${API}/api/integrations`, {
+          headers: token ? { Authorization: 'Bearer ' + token } : {},
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const aiInt = data.find(i => i.isActive && (i.type?.toLowerCase().includes('ai') || i.serverName?.toLowerCase().includes('ai')));
+          const anyActive = data.find(i => i.isActive && i.serverIp);
+          
+          if (aiInt && aiInt.serverIp) {
+            setIsAiActive(true);
+            setExternalAiIp(aiInt.serverIp.split(':')[0]);
+          } else if (anyActive) {
+            setIsAiActive(true);
+            setExternalAiIp(anyActive.serverIp.split(':')[0]);
+          } else {
+            setIsAiActive(false);
+          }
+        } else {
+          setIsAiActive(false);
+        }
+      } catch (e) {
+        console.error("[LiveView] Failed to fetch integration status", e);
+        setIsAiActive(false);
+      }
+    };
+    fetchAiStatus();
+
+    window.addEventListener("integrationsUpdated", fetchAiStatus);
+    window.addEventListener("storage", fetchAiStatus);
+    return () => {
+      window.removeEventListener("integrationsUpdated", fetchAiStatus);
+      window.removeEventListener("storage", fetchAiStatus);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isAiActive && alertSource === "mqtt_ai") {
+      setAlertSource("all");
+    }
+  }, [isAiActive, alertSource]);
 
   const { eventsByTopic: globalEvents } = useWebSocket(["vms/analytics/response"]);
 
@@ -2816,9 +2654,40 @@ export default function LiveViewPage({ onNavigate }) {
   }, []);
 
   useEffect(() => {
-    const update = () => setDevices(loadDevices());
+    const fetchLatest = async () => {
+      try {
+        const res = await fetch(`${API}/api/cameras`, { headers: getAuthHeaders() });
+        if (res.ok) {
+          const data = await res.json();
+          const list = Array.isArray(data) ? data : (data.devices || data.cameras || []);
+          if (list) {
+            setDevices(list);
+            localStorage.setItem("miradorai_devices", JSON.stringify(list));
+          }
+        }
+      } catch (err) {
+        console.warn("[LiveView] Failed to fetch cameras from API:", err);
+      }
+    };
+    fetchLatest();
+
+    const update = (e) => {
+      if (e?.detail && Array.isArray(e.detail)) {
+        setDevices(e.detail);
+      } else {
+        setDevices(loadDevices());
+      }
+    };
+
     window.addEventListener("storage", update);
-    return () => window.removeEventListener("storage", update);
+    window.addEventListener("devicesUpdated", update);
+    window.addEventListener("miradorai-cameras-updated", update);
+
+    return () => {
+      window.removeEventListener("storage", update);
+      window.removeEventListener("devicesUpdated", update);
+      window.removeEventListener("miradorai-cameras-updated", update);
+    };
   }, []);
 
   useEffect(() => {
@@ -3871,14 +3740,14 @@ export default function LiveViewPage({ onNavigate }) {
                                   ? "compact"
                                   : "normal"
                             }
+                            layout={layout}
                             hideName={["15x15", "16x16"].includes(layout)}
                             objectFit={objectFitMode}
-                            showAiOverlay={alertSource === "mqtt_ai" || alertSource === "all"}
+                            showAiOverlay={isAiActive && (alertSource === "mqtt_ai" || alertSource === "all")}
                             analyticsData={analyticsConfig.find(a => 
-                              a.readerName === cam.name || 
-                              a.readerName === cam.device_name || 
-                              a.readerName === cam.reader_id || 
-                              a.ipAddress === cam.ip
+                              (a.readerName && (a.readerName === cam.name || a.readerName === cam.device_name || a.readerName === cam.reader_id)) || 
+                              (a.ipAddress && cam.ip && (a.ipAddress === cam.ip || a.ipAddress.replace(/_/g, ".") === cam.ip.replace(/_/g, "."))) ||
+                              (a.deviceId && (a.deviceId === cam.id || a.deviceId === cam._id))
                             )}
                           />
                         ) : (
@@ -4080,7 +3949,7 @@ function SequenceManagerModal({
             className="modal-close"
             onClick={editingSeq ? () => setEditingSeq(null) : onClose}
           >
-            âœ•
+            ×
           </button>
         </div>
 

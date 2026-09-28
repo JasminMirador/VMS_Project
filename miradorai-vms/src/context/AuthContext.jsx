@@ -1,7 +1,15 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useWebSocket } from "../hooks/useWebSocket";
+import { encryptPassword, getPublicKey } from "../utils/crypto";
 
 const AuthContext = createContext();
+
+async function sha256(message) {
+  const msgBuffer = new TextEncoder().encode(message);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
@@ -83,12 +91,14 @@ export const AuthProvider = ({ children }) => {
       return { success: false, error: "Passwords do not match" };
     }
 
-    // Call backend
     try {
+      const pubKey = await getPublicKey(API_BASE);
+      const encryptedPassword = await encryptPassword(password, pubKey);
+      
       const res = await fetch(`${API_BASE}/api/auth/signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, role }),
+        body: JSON.stringify({ email, password: encryptedPassword, role }),
       });
 
       let data = null;
@@ -121,27 +131,34 @@ export const AuthProvider = ({ children }) => {
     const assignedRole = validRoles.includes(role) ? role : "client";
 
     try {
-  const res = await fetch(`${API_BASE}/api/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      email,
-      password,
-      role: assignedRole,
-      captcha_id: captchaId,
-      captcha_text: captchaText,
-      mfa_code: mfaCode,
-    }),
-  });
+      // 1. Fetch public key
+      const pubKey = await getPublicKey(API_BASE);
 
-  console.log("PAYLOAD SENT TO BACKEND:", JSON.stringify({
-    email,
-    password,
-    role: assignedRole,
-    captcha_id: captchaId,
-    captcha_text: captchaText,
-    mfa_code: mfaCode,
-  }));
+      // 2. Encrypt password using RSA
+      const encryptedPassword = await encryptPassword(password, pubKey);
+
+      // 3. Submit login request
+      const res = await fetch(`${API_BASE}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          password: encryptedPassword,
+          role: assignedRole,
+          captcha_id: captchaId,
+          captcha_text: captchaText,
+          mfa_code: mfaCode,
+        }),
+      });
+
+      console.log("PAYLOAD SENT TO BACKEND:", JSON.stringify({
+        email,
+        password: "[CHALLENGE_HASH_HIDDEN]",
+        role: assignedRole,
+        captcha_id: captchaId,
+        captcha_text: captchaText,
+        mfa_code: mfaCode,
+      }));
 
   let data = null;
   try {
@@ -254,13 +271,17 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
+      const pubKey = await getPublicKey(API_BASE);
+      const encryptedNew = await encryptPassword(newPassword, pubKey);
+      const encryptedConfirm = await encryptPassword(confirmPassword, pubKey);
+
       const res = await fetch(`${API_BASE}/api/auth/reset-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email,
-          new_password:     newPassword,
-          confirm_password: confirmPassword,
+          new_password:     encryptedNew,
+          confirm_password: encryptedConfirm,
         }),
       });
 
@@ -343,6 +364,13 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem("miradorai_user");
     localStorage.removeItem("miradorai_token");
     localStorage.removeItem("miradorai_session_id");
+
+    // Attempt to automatically close the browser window as per security remediation
+    try {
+      window.close();
+    } catch (e) {
+      console.error("Window closure blocked by browser policy.", e);
+    }
   };
 
   const isAdmin        = user?.role === "admin";

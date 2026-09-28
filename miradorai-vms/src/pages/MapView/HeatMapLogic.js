@@ -22,6 +22,7 @@ const ORIGIN_OFFSET  = 1.5 * S;   // 0.93 — matches MapCanvas and fixed drawPl
 export function insideCone(px, py, marker) {
   const fovAngle  = marker.fovAngle  || 60;
   const direction = marker.direction || 0;
+  const isNadirMount = marker.mounting === "ceiling";
   
   // Use real physical range in meters scaled by map PPM if available, else fallback to standard formula
   const fovLen = (marker.rangeDay && marker.ppm)
@@ -31,13 +32,15 @@ export function insideCone(px, py, marker) {
   const angle     = direction * (Math.PI / 180);
 
   // ★ Same origin as MapCanvas AND fixed drawPlacedCamera
-  const ox = marker.x + Math.cos(angle) * ORIGIN_OFFSET;
-  const oy = marker.y + Math.sin(angle) * ORIGIN_OFFSET;
+  const ox = isNadirMount ? marker.x : marker.x + Math.cos(angle) * ORIGIN_OFFSET;
+  const oy = isNadirMount ? marker.y : marker.y + Math.sin(angle) * ORIGIN_OFFSET;
 
   const dx   = px - ox;
   const dy   = py - oy;
   const dist = Math.sqrt(dx * dx + dy * dy);
   if (dist > fovLen) return false;
+
+  if (isNadirMount) return true;
 
   let diff = Math.atan2(dy, dx) - angle;
   while (diff >  Math.PI) diff -= 2 * Math.PI;
@@ -86,8 +89,8 @@ export function drawHeatmapToContext(
   let sampleMinX = offset.x,        sampleMinY = offset.y;
   let sampleMaxX = offset.x + imgW, sampleMaxY = offset.y + imgH;
 
-  const targetZones      = activeZone ? [activeZone] : (allZones.length > 0 ? allZones : []);
-  const isClippedToZones = targetZones.length > 0;
+  const targetZones      = activeZone ? [activeZone] : [];
+  const isClippedToZones = Boolean(activeZone && activeZone.polygon?.length >= 3);
 
   if (activeZone) {
     const sxs = activeZone.polygon.map(p => offset.x + p.x * scale);
@@ -130,9 +133,10 @@ export function drawHeatmapToContext(
         const mZone = containedZones[0];
         markerZones.set(marker, mZone);
 
+        const isNadirMount = marker.mounting === "ceiling";
         const angle = (marker.direction || 0) * (Math.PI / 180);
-        const ox = marker.x + Math.cos(angle) * ORIGIN_OFFSET;
-        const oy = marker.y + Math.sin(angle) * ORIGIN_OFFSET;
+        const ox = isNadirMount ? marker.x : marker.x + Math.cos(angle) * ORIGIN_OFFSET;
+        const oy = isNadirMount ? marker.y : marker.y + Math.sin(angle) * ORIGIN_OFFSET;
         try {
           const obstaclesPolys = allZones.filter(z => z.isBoomBarrier).map(z => z.polygon);
           const visPoly = computeVisibilityPolygon({ x: ox, y: oy }, mZone.polygon, obstaclesPolys);
@@ -173,24 +177,25 @@ export function drawHeatmapToContext(
           if (!pointInPolygon(imgX, imgY, polyToCheck)) continue;
         }
 
-        const cam = cameras.find(c => c.id === marker.camId);
-        if (cam?.status === "online") {
+        const cam = cameras.find(c => c.id === marker.camId || c.ip === marker.camIp || c.name === marker.camName);
+        const isOnline = cam ? cam.status === "online" : true;
+        if (isOnline) {
           onlineCoverage++;
         } else {
           insideOfflineCam = true;
         }
       }
 
-      if (insideOfflineCam) continue;
+      if (insideOfflineCam && onlineCoverage === 0) continue;
 
       const level = onlineCoverage > 0 ? 1 : 0;
       foundLevels.add(level);
 
       let r, g, b, a;
       if (onlineCoverage === 0) {
-        r=15;  g=15;  b=25;  a=110; // Blind spot / Black
+        r=15;  g=23;  b=42;  a=120; // Blind spot / Blueprint dark
       } else {
-        r=34;  g=197; b=94;  a=150; // Green coverage
+        r=16;  g=185; b=129; a=145; // Clean emerald green coverage
       }
       /* Commented out yellow and red colors as requested:
       else if (onlineCoverage === 1) { r=34;  g=197; b=94;  a=150; }
@@ -388,7 +393,7 @@ function drawCameraIcon(ctx, x, y, size, type, color) {
 export function drawDoriLegendToCanvas(ctx, canvasW, canvasH) {
   const entries = [
     { color: "#a855f7", label: "Identification (250+ px/m)" },
-    { color: "#f97316", label: "Recognition (125+ px/m)" },
+    { color: "#ef4444", label: "Recognition (125+ px/m)" },
     { color: "#eab308", label: "Observation (62+ px/m)" },
     { color: "#3b82f6", label: "Detection (25+ px/m)" },
   ];

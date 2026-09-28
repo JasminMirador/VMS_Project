@@ -491,9 +491,6 @@ def _decrypt_bytes(encrypted_bytes: bytes) -> io.BytesIO:
 # Shared CORS headers
 # ------------------------------------------------------------------
 _CORS_HEADERS = {
-    "Access-Control-Allow-Origin":   "*",
-    "Access-Control-Allow-Methods":  "GET, OPTIONS",
-    "Access-Control-Allow-Headers":  "*",
     "Access-Control-Expose-Headers": "Content-Length, Content-Type, Accept-Ranges, Content-Disposition",
     "Vary":                          "Origin",
     "Cache-Control":                 "no-store",

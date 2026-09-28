@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from "react";
-import { computeVisibilityPolygon } from "./CctvCalculators";
+import { computeVisibilityPolygon, getDoriDistances } from "./CctvCalculators";
+import { getLocalPpm } from "./LayoutCalibrationEngine";
 
 
 /**
@@ -37,6 +38,7 @@ const MapCanvas = forwardRef(function MapCanvas(
     iconScale = 1.20,
     selectedIdx = null,
     ppm = null,
+    calibration = null,
   },
   ref
 ) {
@@ -165,200 +167,179 @@ const MapCanvas = forwardRef(function MapCanvas(
     if (cadRenderer && typeof cadRenderer.render === "function") {
       cadRenderer.render(ctx, { x: ox, y: oy, scale }, W, H);
     } else if (img) {
+      // ── 1. Draw Floor Plan Image in transformed coordinate space ──
       ctx.save();
       ctx.translate(ox, oy);
       ctx.scale(scale, scale);
       ctx.drawImage(img, 0, 0);
       ctx.restore();
 
-      // Draw physical dimensions on boundaries
+      // ── 2. FOV Beams and Heatmap Coverage Layer (Inside transformed space) ──
       ctx.save();
-      const finalPpm = ppm || 22;
-      const widthM = (img.width / finalPpm).toFixed(1);
-      const heightM = (img.height / finalPpm).toFixed(1);
-      
-      ctx.font = "bold 13px Inter, sans-serif";
-      ctx.fillStyle = "#10b981"; 
-      ctx.shadowColor = "#000000";
-      ctx.shadowBlur = 4;
-      
-      // Top boundary (Width)
-      const topX = ox + (img.width * scale) / 2;
-      const topY = oy - 8;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "bottom";
-      if (topY > 0) {
-        ctx.fillText(`↔ ${widthM} m`, topX, topY);
+      ctx.translate(ox, oy);
+      ctx.scale(scale, scale);
+      if (markers.length > 0) {
+        // If showHeatmap is active on 2D layout, draw deep blueprint blindspot coverage over the floor plan
+        if (showHeatmap) {
+          ctx.save();
+          ctx.fillStyle = "rgba(15, 23, 42, 0.65)"; // Deep blueprint blindspot tint
+          ctx.fillRect(0, 0, img.width, img.height);
+          ctx.restore();
+        }
+
+        markers.forEach(m => {
+          const cam = cameras.find(c => c.id === m.camId);
+          const online = cam?.status === "online";
+          const isHighlit = m.camId === highlightedCamId;
+
+          const fovAngle = m.fovAngle || 60;
+          const direction = m.direction || 0;
+          const localPpm = calibration?.enabled ? getLocalPpm(calibration, m.x, m.y) : (ppm || null);
+          const defaultLen = Math.min(img.width * 0.35, Math.max(60, (img.width / 40) * (cam?.specs?.rangeDay || 20)));
+          const fovLen = localPpm && cam?.specs?.rangeDay ? cam.specs.rangeDay * localPpm : defaultLen;
+          const halfRad = (fovAngle / 2) * (Math.PI / 180);
+          const angle = direction * (Math.PI / 180);
+          const S = 0.62;
+
+          const originX = m.x + Math.cos(angle) * (1.5 * S);
+          const originY = m.y + Math.sin(angle) * (1.5 * S);
+
+          const zone = getMarkerZone(m);
+
+          ctx.save();
+          const boomBarriers = (zones || []).filter(z => z.isBoomBarrier);
+          if ((zone && zone.polygon?.length >= 3) || boomBarriers.length > 0) {
+            ctx.beginPath();
+            let basePoly = zone?.polygon;
+            if (!basePoly) {
+              basePoly = [];
+              const R = fovLen + 10;
+              for (let i = 0; i <= 16; i++) {
+                const a = angle - halfRad + (2 * halfRad * (i / 16));
+                basePoly.push({ x: originX + Math.cos(a) * R, y: originY + Math.sin(a) * R });
+              }
+              basePoly.push({ x: originX, y: originY });
+            }
+            let polyToClip = basePoly;
+            try {
+              const obstaclesPolys = boomBarriers.map(z => z.polygon);
+              const visPoly = computeVisibilityPolygon({ x: originX, y: originY }, basePoly, obstaclesPolys);
+              if (visPoly && visPoly.length >= 3) {
+                polyToClip = visPoly;
+              }
+            } catch (e) {
+              console.error("Visibility clip error:", e);
+            }
+            polyToClip.forEach((pt, i) => {
+              if (i === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
+            });
+            ctx.closePath();
+            ctx.clip();
+          }
+
+          const camType = getCamType(cam);
+          const typeCol = TYPE_COLORS[camType] || "#3b82f6";
+
+          function hexToRgb(hex) {
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+            return `${r},${g},${b}`;
+          }
+          const rgb = hexToRgb(isHighlit ? "#5aabf0" : typeCol);
+
+          // Strong, vibrant radial gradient for rich seamless beam presence
+          const grad = ctx.createRadialGradient(originX, originY, 0, originX, originY, fovLen);
+
+          if (showHeatmap) {
+            if (!online) {
+              grad.addColorStop(0, "rgba(100, 116, 139, 0.55)");
+              grad.addColorStop(0.65, "rgba(100, 116, 139, 0.32)");
+              grad.addColorStop(1, "rgba(100, 116, 139, 0.08)");
+            } else {
+              // Vivid emerald green coverage highlight on heatmap
+              grad.addColorStop(0, "rgba(16, 185, 129, 0.90)");
+              grad.addColorStop(0.35, "rgba(16, 185, 129, 0.75)");
+              grad.addColorStop(0.75, "rgba(16, 185, 129, 0.52)");
+              grad.addColorStop(1, "rgba(16, 185, 129, 0.20)");
+            }
+          } else {
+            if (!online) {
+              grad.addColorStop(0, "rgba(110, 110, 110, 0.55)");
+              grad.addColorStop(0.7, "rgba(110, 110, 110, 0.32)");
+              grad.addColorStop(1, "rgba(110, 110, 110, 0.08)");
+            } else {
+              grad.addColorStop(0, `rgba(${rgb}, 0.76)`);
+              grad.addColorStop(0.45, `rgba(${rgb}, 0.54)`);
+              grad.addColorStop(0.82, `rgba(${rgb}, 0.32)`);
+              grad.addColorStop(1, `rgba(${rgb}, 0.10)`);
+            }
+          }
+
+          if (showPpm) {
+            const camObj = cameras.find(c => c.id === m.camId) || m.camera;
+            const dori = getDoriDistances(camObj || { hfov: m.fovAngle || 60, rangeDay: m.rangeDay || 25 });
+            const doriBands = [
+              { distM: dori.detection, color: "#3b82f6" },
+              { distM: dori.observation, color: "#eab308" },
+              { distM: dori.recognition, color: "#ef4444" },
+              { distM: dori.identification, color: "#a855f7" }
+            ];
+            const maxM = dori.maxDist || 25;
+            doriBands.forEach(({ distM, color }) => {
+              const rDist = Math.max(5, fovLen * Math.min(1.0, distM / maxM));
+              ctx.save();
+              ctx.beginPath();
+              ctx.moveTo(originX, originY);
+              ctx.arc(originX, originY, rDist, angle - halfRad, angle + halfRad);
+              ctx.closePath();
+              ctx.fillStyle = color + "55";
+              ctx.fill();
+              ctx.strokeStyle = color + "aa";
+              ctx.lineWidth = 1.2;
+              ctx.stroke();
+
+              // Render DORI meter label badge along beam centerline
+              if (rDist > 15) {
+                const labelX = originX + Math.cos(angle) * (rDist * 0.88);
+                const labelY = originY + Math.sin(angle) * (rDist * 0.88);
+                ctx.font = "bold 10px Inter, Arial, sans-serif";
+                const txt = `${distM.toFixed(1)} m`;
+                const tw = ctx.measureText(txt).width + 8;
+                const th = 14;
+
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                if (ctx.roundRect) ctx.roundRect(labelX - tw / 2, labelY - th / 2, tw, th, 4);
+                else ctx.rect(labelX - tw / 2, labelY - th / 2, tw, th);
+                ctx.fill();
+
+                ctx.strokeStyle = "#ffffff";
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                ctx.fillStyle = "#ffffff";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(txt, labelX, labelY + 0.5);
+              }
+              ctx.restore();
+            });
+          } else {
+            ctx.fillStyle = grad;
+            traceCone(ctx, originX, originY, fovLen, angle, halfRad);
+            ctx.fill();
+          }
+
+          ctx.restore();
+        });
       }
 
-      // Left boundary (Height)
-      const leftX = ox - 8;
-      const leftY = oy + (img.height * scale) / 2;
-      ctx.translate(leftX, leftY);
-      ctx.rotate(-Math.PI / 2);
-      ctx.textBaseline = "bottom";
-      ctx.fillText(`↔ ${heightM} m`, 0, 0);
-      ctx.restore();
-    }
-
-    // ── 2. Dark overlay + zone-clipped FOV punch-outs ──────────────
-    if (markers.length > 0) {
-
-      // Step A — global dark layer
-      ctx.save();
-      ctx.fillStyle = "rgba(0,0,0,0.70)";
-      ctx.fillRect(0, 0, img.width, img.height);
-      ctx.restore();
-
-      // Step B — erase (punch out) each camera's FOV cone from dark layer
-      //          clipped to zone polygon so light stays inside the zone
-      markers.forEach(m => {
-        const cam = cameras.find(c => c.id === m.camId);
-        const fovAngle = m.fovAngle || 60;
-        const direction = m.direction || 0;
-        const finalPpm = ppm || 22;
-        const fovLen = cam?.specs?.rangeDay ? cam.specs.rangeDay * finalPpm : (fovAngle * 2.2 + 40);
-        const halfRad = (fovAngle / 2) * (Math.PI / 180);
-        const angle = direction * (Math.PI / 180);
-
-        // ★ Light starts from CENTRE of camera body
-        const S = 0.62;
-        const originX = m.x + Math.cos(angle) * (1.5 * S);
-        const originY = m.y + Math.sin(angle) * (1.5 * S);
-
-        const zone = getMarkerZone(m);
-
-        ctx.save();
-        const boomBarriers = (zones || []).filter(z => z.isBoomBarrier);
-        if ((zone && zone.polygon?.length >= 3) || boomBarriers.length > 0) {
-          ctx.beginPath();
-          let basePoly = zone?.polygon;
-          if (!basePoly) {
-            basePoly = [];
-            const R = fovLen + 10;
-            for (let i = 0; i <= 16; i++) {
-              const a = angle - halfRad + (2 * halfRad * (i / 16));
-              basePoly.push({ x: originX + Math.cos(a) * R, y: originY + Math.sin(a) * R });
-            }
-            basePoly.push({ x: originX, y: originY });
-          }
-          let polyToClip = basePoly;
-          try {
-            const obstaclesPolys = boomBarriers.map(z => z.polygon);
-            const visPoly = computeVisibilityPolygon({ x: originX, y: originY }, basePoly, obstaclesPolys);
-            if (visPoly && visPoly.length >= 3) {
-              polyToClip = visPoly;
-            }
-          } catch (e) {
-            console.error("Visibility clip error:", e);
-          }
-          polyToClip.forEach((pt, i) => {
-            if (i === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
-          });
-          ctx.closePath();
-          ctx.clip();
-        }
-
-        ctx.globalCompositeOperation = "destination-out";
-        const g = ctx.createRadialGradient(originX, originY, 0, originX, originY, fovLen);
-        g.addColorStop(0, "rgba(0,0,0,1)");
-        g.addColorStop(0.58, "rgba(0,0,0,0.90)");
-        g.addColorStop(0.82, "rgba(0,0,0,0.45)");
-        g.addColorStop(1, "rgba(0,0,0,0)");
-
-        traceCone(ctx, originX, originY, fovLen, angle, halfRad);
-        ctx.fillStyle = g;
-        ctx.fill();
-        ctx.restore();
-      });
-
-      // Step C — colour tint layer (green = online, grey = offline, blue = highlight)
-      //          same zone clip applied
-      markers.forEach(m => {
-        const cam = cameras.find(c => c.id === m.camId);
-        const online = cam?.status === "online";
-        const isHighlit = m.camId === highlightedCamId;
-
-        const fovAngle = m.fovAngle || 60;
-        const direction = m.direction || 0;
-        const finalPpm = ppm || 22;
-        const fovLen = cam?.specs?.rangeDay ? cam.specs.rangeDay * finalPpm : (fovAngle * 2.2 + 40);
-        const halfRad = (fovAngle / 2) * (Math.PI / 180);
-        const angle = direction * (Math.PI / 180);
-        const S = 0.62;
-
-        const originX = m.x + Math.cos(angle) * (1.5 * S);
-        const originY = m.y + Math.sin(angle) * (1.5 * S);
-
-        const zone = getMarkerZone(m);
-
-        ctx.save();
-        const boomBarriers = (zones || []).filter(z => z.isBoomBarrier);
-        if ((zone && zone.polygon?.length >= 3) || boomBarriers.length > 0) {
-          ctx.beginPath();
-          let basePoly = zone?.polygon;
-          if (!basePoly) {
-            basePoly = [];
-            const R = fovLen + 10;
-            for (let i = 0; i <= 16; i++) {
-              const a = angle - halfRad + (2 * halfRad * (i / 16));
-              basePoly.push({ x: originX + Math.cos(a) * R, y: originY + Math.sin(a) * R });
-            }
-            basePoly.push({ x: originX, y: originY });
-          }
-          let polyToClip = basePoly;
-          try {
-            const obstaclesPolys = boomBarriers.map(z => z.polygon);
-            const visPoly = computeVisibilityPolygon({ x: originX, y: originY }, basePoly, obstaclesPolys);
-            if (visPoly && visPoly.length >= 3) {
-              polyToClip = visPoly;
-            }
-          } catch (e) {
-            console.error("Visibility clip error:", e);
-          }
-          polyToClip.forEach((pt, i) => {
-            if (i === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
-          });
-          ctx.closePath();
-          ctx.clip();
-        }
-        ctx.globalCompositeOperation = "source-over";
-
-        const camType = getCamType(cam);
-        const typeCol = TYPE_COLORS[camType] || "#3b82f6";
-        const col = online ? (isHighlit ? "#5aabf0" : typeCol) : "#555";
-
-
-        // Parse hex color to rgb for gradient
-        function hexToRgb(hex) {
-          const r = parseInt(hex.slice(1, 3), 16);
-          const g = parseInt(hex.slice(3, 5), 16);
-          const b = parseInt(hex.slice(5, 7), 16);
-          return `${r},${g},${b}`;
-        }
-        const rgb = hexToRgb(isHighlit ? "#5aabf0" : typeCol);
-
-        let g;
-        if (!online) {
-          g = ctx.createRadialGradient(originX, originY, 0, originX, originY, fovLen);
-          g.addColorStop(0, "rgba(110,110,110,0.14)");
-          g.addColorStop(1, "rgba(110,110,110,0)");
-        } else {
-          g = ctx.createRadialGradient(originX, originY, 0, originX, originY, fovLen);
-          g.addColorStop(0, `rgba(${rgb},0.60)`);
-          g.addColorStop(0.55, `rgba(${rgb},0.26)`);
-          g.addColorStop(1, `rgba(${rgb},0)`);
-        }
-
-        traceCone(ctx, originX, originY, fovLen, angle, halfRad);
-        ctx.fillStyle = g;
-        ctx.fill();
-        ctx.restore();
-      });
-    }
-
     // ── 3. Camera bodies + number labels + direction handles ───────
-    const S = iconScale; // ★ Custom camera scale from Toolbox
+    // Dynamic icon scaling based on layout physical dimensions
+    const layoutBaseDim = Math.max(img.width, img.height);
+    const layoutScaleFactor = Math.max(0.65, Math.min(2.5, layoutBaseDim / 1800));
+    const S = iconScale * layoutScaleFactor; // ★ Dynamic layout-adaptive camera scale
 
     markers.forEach((m, i) => {
       const cam = cameras.find(c => c.id === m.camId) || {
@@ -684,41 +665,110 @@ const MapCanvas = forwardRef(function MapCanvas(
       ctx.fillText((i + 1).toString(), -2 * S, 0);
       ctx.restore();
 
-      // ── Hover tooltip ──
-      if (hov) {
-        ctx.font = "10.5px Inter, sans-serif";
-        const lbl = cam.name;
-        const tw = ctx.measureText(lbl).width;
-        const bx = m.x - tw / 2 - 7;
-        const by = m.y - R - 22;
+      // ── Draggable Camera Name Label Badge with optional dotted leader line ──
+      const displayLabel = m.camName || cam.name || cam.model || `Camera ${i + 1}`;
+      ctx.font = "10.5px Inter, sans-serif";
+      const tw = ctx.measureText(displayLabel).width;
+
+      // Apply label offset if present
+      const lo = m.labelOffset || { dx: 0, dy: 0 };
+      const labelCenterX = m.x + lo.dx;
+      const labelTopY = m.y - 24 + lo.dy;
+      const bx = labelCenterX - tw / 2 - 7;
+      const by = labelTopY;
+      const labelW = tw + 14;
+      const labelH = 18;
+
+      // Draw dotted leader line if label has been moved
+      if (lo.dx !== 0 || lo.dy !== 0) {
         ctx.save();
-        ctx.fillStyle = "#0d1117f2";
+        ctx.setLineDash([4, 3]);
+        ctx.strokeStyle = (online ? (isHighlit ? "#5aabf0" : "#a855f7") : "#888888") + "bb";
+        ctx.lineWidth = 1.2;
         ctx.beginPath();
-        ctx.roundRect(bx, by, tw + 14, 18, 4);
-        ctx.fill();
-        ctx.fillStyle = "#e8edf5";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(lbl, m.x, by + 9);
+        ctx.moveTo(m.x, m.y);
+        ctx.lineTo(labelCenterX, by + labelH / 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
         ctx.restore();
       }
 
-      // ── Direction handle ──
-      const ang2 = (m.direction || 0) * (Math.PI / 180);
-      const hx = m.x + Math.cos(ang2) * (R + 9);
-      const hy = m.y + Math.sin(ang2) * (R + 9);
+      ctx.save();
+      const isLight = document.documentElement.getAttribute("data-theme") === "light";
+      ctx.fillStyle = isLight ? "rgba(255, 255, 255, 0.95)" : "#0d1117ee";
       ctx.beginPath();
-      ctx.arc(hx, hy, 3, 0, Math.PI * 2);
-      ctx.fillStyle = online ? col : "#555";
+      if (ctx.roundRect) ctx.roundRect(bx, by, labelW, labelH, 4);
+      else ctx.rect(bx, by, labelW, labelH);
       ctx.fill();
-      ctx.strokeStyle = "rgba(255,255,255,0.30)";
+
+      // Border styling
+      if (isHighlit || i === selectedIdx) {
+        ctx.strokeStyle = isLight ? "#2563eb" : "#5aabf0";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      } else if (lo.dx !== 0 || lo.dy !== 0) {
+        ctx.strokeStyle = isLight ? "#7c3aed" : "#a855f7";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle = isLight ? "#cbd5e1" : "rgba(255, 255, 255, 0.15)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = isLight ? "#1e293b" : "#e8edf5";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(displayLabel, labelCenterX, by + 9);
+      ctx.restore();
+
+      // ── Hover tooltip (shows extra details if hovering directly over camera icon) ──
+      if (hov && (lo.dx === 0 && lo.dy === 0)) {
+        // Only show if label is in default position and user hovers over the camera body
+      }
+
+      // ── Direction Minimalist Accent Grip Dot Rotation Handle ──
+      const ang2 = (m.direction || 0) * (Math.PI / 180);
+      const eyeR = R + 18;
+      const hx = m.x + Math.cos(ang2) * eyeR;
+      const hy = m.y + Math.sin(ang2) * eyeR;
+
+      ctx.save();
+      ctx.translate(hx, hy);
+
+      // Outer circular badge background
+      ctx.beginPath();
+      ctx.arc(0, 0, 8.5, 0, Math.PI * 2);
+      ctx.fillStyle = isLight ? "rgba(255, 255, 255, 0.95)" : "#0d1117ee";
+      ctx.fill();
+
+      // Outer accent ring
+      ctx.beginPath();
+      ctx.arc(0, 0, 7, 0, Math.PI * 2);
+      ctx.strokeStyle = (online ? col : "#666") + "66";
       ctx.lineWidth = 1;
       ctx.stroke();
+
+      // Primary accent ring
+      ctx.beginPath();
+      ctx.arc(0, 0, 5, 0, Math.PI * 2);
+      ctx.strokeStyle = online ? col : "#666";
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+
+      // Inner solid grip core dot
+      ctx.beginPath();
+      ctx.arc(0, 0, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = online ? col : "#666";
+      ctx.fill();
+
+      ctx.restore();
     });
 
-    ctx.restore();
+      ctx.restore();
+    }
     onDraw?.();
-  }, [cameras, markers, zones, floorImgRef, scaleRef, offsetRef, hoveredIdxRef, highlightedCamId, onDraw]);
+  }, [cameras, markers, zones, floorImgRef, scaleRef, offsetRef, hoveredIdxRef, highlightedCamId, onDraw, ppm, calibration]);
 
   useImperativeHandle(ref, () => ({ drawAll }), [drawAll]);
 

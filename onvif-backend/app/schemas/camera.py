@@ -1,4 +1,4 @@
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, model_validator, field_validator
 from typing import Optional, Any
 from datetime import datetime
 
@@ -17,6 +17,15 @@ class BaseCameraRequest(BaseModel):
             data['ip'] = val
             data['ip_address'] = val
         return data
+
+import re
+NAME_REGEX = re.compile(r"^[a-zA-Z0-9 _.-]+$")
+
+def validate_safe_name(v: str) -> str:
+    if v and not NAME_REGEX.match(v):
+        raise ValueError("Field contains invalid characters")
+    return v
+
 
 class CameraCredentials(BaseCameraRequest):
     port:     int = 80
@@ -66,6 +75,11 @@ class ProbeRequest(BaseCameraRequest):
     group_id:    str = "default"
     device_name: str = ""
     save_to_db:  bool = True
+    
+    @field_validator('group_id', 'device_name', mode='before')
+    @classmethod
+    def val_safe_name(cls, v):
+        return validate_safe_name(v)
 
 class StreamRegisterRequest(BaseCameraRequest):
     rtsp_url:     str
@@ -78,6 +92,11 @@ class StreamRegisterRequest(BaseCameraRequest):
     device_name:  str = ""
     group_id:     str = "default"
     live_codec:   Optional[str] = "H.264"
+    
+    @field_validator('group_id', 'device_name', 'manufacturer', 'model', mode='before')
+    @classmethod
+    def val_safe_name(cls, v):
+        return validate_safe_name(v)
 
 class StreamAssignRequest(BaseCameraRequest):
     port:              int = 80
@@ -95,6 +114,11 @@ class StreamAssignRequest(BaseCameraRequest):
     resolution:        Optional[str] = None
     bitrate:           Optional[int] = None
     bitrate_type:      Optional[str] = None
+
+    @field_validator('device_name', 'manufacturer', 'model', mode='before')
+    @classmethod
+    def val_safe_name(cls, v):
+        return validate_safe_name(v)
 
 class VideoEncoderSettingRequest(BaseCameraRequest):
     port:              int = 80

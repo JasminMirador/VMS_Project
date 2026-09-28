@@ -49,3 +49,15 @@ def validate_rtsp_url(url: str) -> bool:
         if isinstance(e, HTTPException):
             raise e
         raise HTTPException(status_code=400, detail=f"Invalid RTSP URL format: {str(e)}")
+
+import re
+
+NAME_REGEX = re.compile(r"^[a-zA-Z0-9 _.-]+$")
+
+def validate_name(name: str, field_name: str = "Name") -> str:
+    if not name or not name.strip():
+        raise HTTPException(status_code=400, detail=f"{field_name} is required")
+    name = name.strip()
+    if not NAME_REGEX.match(name):
+        raise HTTPException(status_code=400, detail=f"{field_name} contains invalid characters")
+    return name

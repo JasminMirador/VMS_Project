@@ -254,7 +254,13 @@ const css = `
   .msm-channel-check svg { display: none; }
   .msm-channel-check.filled svg { display: block; }
 
-  .msm-error-msg { font-size: 14px; color: var(--red); margin-top: -8px; }
+  .msm-error-msg {
+    color: var(--red);
+    font-size: 12px;
+    line-height: 1.35;
+    margin-top: 0;
+  }
+  .msm-error-msg::before { content: '⚠ '; }
 
   .msm-ui-alert {
     background: rgba(239, 68, 68, 0.08);
@@ -383,8 +389,10 @@ export default function ManualSearchModal({
 
   const validate = () => {
     const e = {};
-    if (!ip) e.ip = "IP address is required";
+    if (!ip.trim()) e.ip = "Please enter the IP address.";
     else if (!validateIP(ip)) e.ip = "Invalid IP address";
+    if (!user.trim()) e.user = "Please enter the username.";
+    if (!pass.trim()) e.pass = "Please enter the password.";
     if (port && (isNaN(port) || +port < 1 || +port > 65535)) e.port = "1–65535";
     return e;
   };
@@ -398,27 +406,8 @@ export default function ManualSearchModal({
 
   const handleProbe = async () => {
     const e = validate();
-    if (!ip) {
-      setAlertMsg("IP Address is a mandatory field. Please enter a valid IP address!");
-      setErrors({ ...e, ip: "IP address is required" });
-      return;
-    }
-    if (e.ip) {
-      setAlertMsg("IP Address is a mandatory field. Please enter a valid IP address!");
-      setErrors(e);
-      return;
-    }
-    if (!user.trim()) {
-      setAlertMsg("Username is a mandatory field. Please enter the camera's ONVIF username!");
-      setErrors({ user: "Username is required" });
-      return;
-    }
-    if (!pass.trim()) {
-      setAlertMsg("Password is a mandatory field. Please enter the camera's ONVIF password!");
-      setErrors({ pass: "Password is required" });
-      return;
-    }
     if (Object.keys(e).length) {
+      setAlertMsg("");
       setErrors(e);
       return;
     }
@@ -911,28 +900,9 @@ export default function ManualSearchModal({
               Cancel
             </button>
             <button
-              tabIndex={7}
-              className="msm-btn msm-btn--probe"
-              onClick={() => {
-                if (!ip) {
-                  setAlertMsg("IP Address is a mandatory field. Please enter a valid IP address!");
-                  return;
-                }
-                if (!port) {
-                  setAlertMsg("Port is required.");
-                  return;
-                }
-                if (!user.trim()) {
-                  setAlertMsg("Username is a mandatory field. Please enter the camera's ONVIF username!");
-                  return;
-                }
-                if (!pass.trim()) {
-                  setAlertMsg("Password is a mandatory field. Please enter the camera's ONVIF password!");
-                  return;
-                }
-                setAlertMsg("");
-                mode === "onvif" ? handleProbe() : handleDirectUrl();
-              }}
+            tabIndex={7}
+            className="msm-btn msm-btn--probe"
+            onClick={() => (mode === "onvif" ? handleProbe() : handleDirectUrl())}
               disabled={probe === "probing"}
             >
               {probe === "probing" ? "Probing…" : "Probe "}

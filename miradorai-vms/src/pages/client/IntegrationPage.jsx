@@ -258,6 +258,7 @@ export default function IntegrationPage() {
       const res = await fetch(`${API_BASE}/api/integrations/${id}`, { method: "DELETE", headers });
       if (res.ok) {
         setConnections(connections.filter((c) => c.id !== id));
+        window.dispatchEvent(new Event("integrationsUpdated"));
         showToast("Connection removed.", "success");
       } else {
         showToast("Couldn't remove that connection.", "error");
@@ -382,6 +383,7 @@ export default function IntegrationPage() {
 
       if (res.ok) {
         fetchIntegrations();
+        window.dispatchEvent(new Event("integrationsUpdated"));
         setShowForm(false);
         navigate("/integration");
         showToast(exists ? "Connection updated successfully." : "Connection saved successfully.", "success");
@@ -726,7 +728,7 @@ export default function IntegrationPage() {
                           setFormData({ ...formData, serverIp: e.target.value, isConnected: false });
                           if (formErrors.serverIp) setFormErrors({ ...formErrors, serverIp: null });
                         }}
-                        placeholder="e.g. 192.168.1.100"
+                        placeholder="e.g. 192.168.126.18"
                       />
                     </div>
                     <button
@@ -786,7 +788,38 @@ export default function IntegrationPage() {
                         </span>
                         <Toggle
                           value={formData.isActive}
-                          onChange={(v) => setFormData({ ...formData, isActive: v })}
+                          onChange={async (v) => {
+                            const updatedForm = { ...formData, isActive: v };
+                            setFormData(updatedForm);
+
+                            const exists = connections.find((c) => c.id === formData.id || c._id === formData.id);
+                            if (exists) {
+                              try {
+                                const token = localStorage.getItem("token") || localStorage.getItem("miradorai_token");
+                                const API_BASE = import.meta.env.VITE_API_URL || "";
+                                const targetId = formData.id || formData._id;
+                                const payload = {
+                                  ...exists,
+                                  ...updatedForm,
+                                  updated_at: Date.now() / 1000,
+                                };
+                                const res = await fetch(`${API_BASE}/api/integrations/${targetId}`, {
+                                  method: "PUT",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                    Authorization: token ? `Bearer ${token}` : "",
+                                  },
+                                  body: JSON.stringify(payload),
+                                });
+                                if (res.ok) {
+                                  fetchIntegrations();
+                                  window.dispatchEvent(new Event("integrationsUpdated"));
+                                }
+                              } catch (err) {
+                                console.error("Failed to persist active status", err);
+                              }
+                            }
+                          }}
                         />
                       </label>
                     </div>

@@ -25,10 +25,12 @@ export function CamerasProvider({ children }) {
   const intervalRef = useRef(null);
 
   const fetchCameras = useCallback(async () => {
+    const token = localStorage.getItem("miradorai_token");
+    if (!token) return; // Do not fetch or trigger 401 when logged out
+
     try {
-      const token = localStorage.getItem("miradorai_token");
       const res = await fetch(`${API_BASE}/api/cameras`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) return;
       const data = await res.json();

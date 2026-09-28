@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import "./DesignerView.css";
 import { fovDrawParams } from "./CameraModelDB";
 import { drawHeatmapToContext, drawHeatmapLegendToCanvas, drawDesignLegendToCanvas } from "./HeatmapLogic";
@@ -10,6 +10,19 @@ import sentinelLogoImg from "../../assets/sentinel logo.jpg";
 import * as pdfjsLib from "pdfjs-dist";
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
 import jsPDF from "jspdf";
+import Gltf3DViewer from "./Gltf3DViewer";
+import { renderGltfToImage } from "./GltfFloorRenderer";
+import { renderHtmlToImage } from "./HtmlFloorRenderer";
+import { saveFloorsDB, loadFloorsDB } from "./mapIndexedDB";
+import CalibrationOverlay from "./CalibrationOverlay";
+import CalibrationPanel from "./CalibrationPanel";
+import {
+  getPixelDistance,
+  calculatePhysicalDistance,
+  buildStandardCalibration,
+  buildAdvancedCalibration,
+  layoutToWorld
+} from "./LayoutCalibrationEngine";
 // ── Constants ─────────────────────────────────────────────────────────────────
 const API = import.meta.env.VITE_API_URL || "";
 const MAP_ID = "default";
@@ -311,7 +324,7 @@ function PremiumPopup({ show, type, title, message, onConfirm, onCancel }) {
 function ExportPreviewModal({ baseDataUrl, exportMode, showDori, isDownloading, onDownload, onCancel, selectedCompany }) {
   const DORI_ITEMS = [
     { color: "#a855f7", label: "Identification (250+ px/m)" },
-    { color: "#f97316", label: "Recognition (125+ px/m)" },
+    { color: "#ef4444", label: "Recognition (125+ px/m)" },
     { color: "#eab308", label: "Observation (62+ px/m)" },
     { color: "#3b82f6", label: "Detection (25+ px/m)" },
   ];
@@ -999,7 +1012,7 @@ function FovVisualizer({ camera }) {
 // ── Camera drawing ────────────────────────────────────────────────────────────
 // FIX 1: clipZone now auto-detects the camera's own zone when no active zone is set.
 // This ensures FOV is always clipped to its zone even after refresh.
-function drawPlacedCamera(ctx, p, ppm, hovering, selected, zonesRef, activeZoneIdRef, highlightedId, showLabel = true, showPpm = false, hideBeam = false, iconScale = 1.20, renderLayer = "all", canvasScale = 1, showMetricsVisibility = false) {
+function drawPlacedCamera(ctx, p, ppm, hovering, selected, zonesRef, activeZoneIdRef, highlightedId, showLabel = true, showPpm = false, hideBeam = false, iconScale = 1.20, renderLayer = "all", canvasScale = 1, showMetricsVisibility = false, showHeatmap = false) {
   const { x, y, direction, camera } = p;
   const col = TYPE_COLORS[camera.type] || "#3b82f6";
   const isHighlit = p.id === highlightedId;
@@ -1103,14 +1116,14 @@ function drawPlacedCamera(ctx, p, ppm, hovering, selected, zonesRef, activeZoneI
       // We compensate for low ppm by enforcing a floor in screen pixels
       const MIN_SCREEN_PX = [60, 40, 25, 14]; // Detection, Observation, Recognition, Identification
       const thresholds = [25, 62, 125, 250];
-      const colors     = ["#3b82f6", "#eab308", "#f97316", "#a855f7"];
+      const colors     = ["#3b82f6", "#eab308", "#ef4444", "#a855f7"];
 
       const zonesPpm = thresholds.map((tPpm, i) => {
         const distMetres  = getDistMetres(tPpm);           // metres
         const distCanvas  = distMetres * ppm;              // canvas pixels (world space)
         // Ensure minimum visibility in screen pixels: at least MIN_SCREEN_PX[i] screen px
         const minCanvas   = MIN_SCREEN_PX[i] / Math.max(canvasScale, 0.05);
-        return { d: Math.max(distCanvas, minCanvas), c: colors[i] };
+        return { d: Math.max(distCanvas, minCanvas), c: colors[i], m: distMetres };
       });
 
       zonesPpm.forEach(z => {
@@ -1135,10 +1148,37 @@ function drawPlacedCamera(ctx, p, ppm, hovering, selected, zonesRef, activeZoneI
         ctx.strokeStyle = z.c + "77";
         ctx.lineWidth = 1.5;
         ctx.stroke();
+
+        // Render DORI meter label badge along beam centerline
+        if (dVal > 15) {
+          const labelX = originX + Math.cos(angle) * (dVal * 0.88);
+          const labelY = originY + Math.sin(angle) * (dVal * 0.88);
+          ctx.save();
+          ctx.font = "bold 10px Inter, Arial, sans-serif";
+          const txt = `${z.m.toFixed(1)} m`;
+          const tw = ctx.measureText(txt).width + 8;
+          const th = 14;
+
+          ctx.fillStyle = z.c;
+          ctx.beginPath();
+          if (ctx.roundRect) ctx.roundRect(labelX - tw / 2, labelY - th / 2, tw, th, 4);
+          else ctx.rect(labelX - tw / 2, labelY - th / 2, tw, th);
+          ctx.fill();
+
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
+          ctx.fillStyle = "#ffffff";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(txt, labelX, labelY + 0.5);
+          ctx.restore();
+        }
       });
     }
 
-    // ── FOV cone ─────────────────────────────────────────────────────
+    // ── FOV cone: Professional realistic blueprint blue / heatmap green (Seamless 2D Beam) ──
     if (!hideBeam) {
       ctx.save();
       ctx.beginPath();
@@ -1147,12 +1187,21 @@ function drawPlacedCamera(ctx, p, ppm, hovering, selected, zonesRef, activeZoneI
       ctx.closePath();
       if (!showPpm) {
         const g = ctx.createRadialGradient(originX, originY, 0, originX, originY, radius);
-        g.addColorStop(0, col + (selected ? "77" : isHighlit ? "66" : "44"));
-        g.addColorStop(1, col + "0a");
-        ctx.fillStyle = g; ctx.fill();
+        if (showHeatmap) {
+          g.addColorStop(0, "rgba(16, 185, 129, 0.70)");
+          g.addColorStop(0.45, "rgba(16, 185, 129, 0.48)");
+          g.addColorStop(0.8, "rgba(16, 185, 129, 0.25)");
+          g.addColorStop(1, "rgba(16, 185, 129, 0.08)");
+        } else {
+          g.addColorStop(0, selected ? "rgba(14, 165, 233, 0.75)" : "rgba(14, 165, 233, 0.60)");
+          g.addColorStop(0.45, selected ? "rgba(14, 165, 233, 0.52)" : "rgba(14, 165, 233, 0.38)");
+          g.addColorStop(0.8, selected ? "rgba(14, 165, 233, 0.30)" : "rgba(14, 165, 233, 0.18)");
+          g.addColorStop(1, selected ? "rgba(14, 165, 233, 0.10)" : "rgba(14, 165, 233, 0.04)");
+        }
+        ctx.fillStyle = g;
+        ctx.fill();
       }
-      ctx.strokeStyle = col + (selected || isHighlit ? "cc" : "66");
-      ctx.lineWidth = selected || isHighlit ? 1.5 : 1; ctx.stroke();
+      // Boundary stroke lines removed for clean seamless 2D FOV beam presentation
       ctx.restore();
     }
     
@@ -1524,9 +1573,9 @@ function drawPlacedCamera(ctx, p, ppm, hovering, selected, zonesRef, activeZoneI
   ctx.shadowBlur = 0; ctx.restore();
 
   // ── Permanent Label with optional dotted leader line ────────────────────
-  const displayLabel = p.customName || camera.model;
+  const displayLabel = p.customName || p.camName || camera.name || camera.model || "Camera";
   const lbl = displayLabel;
-  ctx.font = "10.5px Inter, sans-serif";
+  ctx.font = "600 10.5px Inter, sans-serif";
   const tw = ctx.measureText(lbl).width;
 
   // Apply label offset if present
@@ -1554,7 +1603,7 @@ function drawPlacedCamera(ctx, p, ppm, hovering, selected, zonesRef, activeZoneI
 
   ctx.save();
   const isLight = document.documentElement.getAttribute("data-theme") === "light";
-  ctx.fillStyle = isLight ? "rgba(255, 255, 255, 0.9)" : "#0d1117f2";
+  ctx.fillStyle = isLight ? "rgba(255, 255, 255, 0.95)" : "#0d1117f2";
   ctx.beginPath();
   if (ctx.roundRect) ctx.roundRect(bx, by, labelW, labelH, 4);
   else ctx.rect(bx, by, labelW, labelH);
@@ -1565,20 +1614,63 @@ function drawPlacedCamera(ctx, p, ppm, hovering, selected, zonesRef, activeZoneI
     ctx.strokeStyle = col;
     ctx.lineWidth = 1.5;
     ctx.stroke();
-  }
-
-  // Subtle dashed border when label is offset (visual cue it's draggable)
-  if (lo.dx !== 0 || lo.dy !== 0) {
-    ctx.strokeStyle = col + "44";
-    ctx.lineWidth = 0.5;
+  } else if (lo.dx !== 0 || lo.dy !== 0) {
+    // Subtle dashed border when label is offset (visual cue it's draggable)
+    ctx.strokeStyle = col + "66";
+    ctx.lineWidth = 1;
     ctx.setLineDash([2, 2]);
     ctx.stroke();
     ctx.setLineDash([]);
+  } else {
+    ctx.strokeStyle = isLight ? "rgba(0, 0, 0, 0.15)" : "rgba(255, 255, 255, 0.2)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
   }
 
-  ctx.fillStyle = isLight ? "#334155" : "#e8edf5";
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText(lbl, labelCenterX, by + 9);
+  // Draw camera label text
+  ctx.fillStyle = isLight ? "#0f172a" : "#f1f5f9";
+  ctx.font = "600 10.5px Inter, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(displayLabel, labelCenterX, by + 9);
+  ctx.restore();
+
+  // ── Minimalist Accent Grip Dot Rotation Handle ──
+  const ang2 = (p.direction || 0) * (Math.PI / 180);
+  const R = 8;
+  const eyeR = R + 18;
+  const hx = x + Math.cos(ang2) * eyeR;
+  const hy = y + Math.sin(ang2) * eyeR;
+
+  ctx.save();
+  ctx.translate(hx, hy);
+  
+  // Outer circular badge background
+  ctx.beginPath();
+  ctx.arc(0, 0, 8.5, 0, Math.PI * 2);
+  ctx.fillStyle = isLight ? "rgba(255, 255, 255, 0.95)" : "#0d1117ee";
+  ctx.fill();
+
+  // Outer accent ring
+  ctx.beginPath();
+  ctx.arc(0, 0, 7, 0, Math.PI * 2);
+  ctx.strokeStyle = col + "66";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Primary accent ring
+  ctx.beginPath();
+  ctx.arc(0, 0, 5, 0, Math.PI * 2);
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 1.4;
+  ctx.stroke();
+
+  // Inner solid grip core dot
+  ctx.beginPath();
+  ctx.arc(0, 0, 2.5, 0, Math.PI * 2);
+  ctx.fillStyle = col;
+  ctx.fill();
+
   ctx.restore();
   }
 }
@@ -1773,10 +1865,12 @@ function DvZoneSidebarItem({
 }
 
 // ── DORI Legend Card (Draggable) ─────────────────────────────────────────────
-function DoriLegendCard({ show, onClose }) {
+function DoriLegendCard({ show, onClose, camera }) {
   const [position, setPosition] = useState({ x: 300, y: 100 });
 
   if (!show) return null;
+
+  const dori = CctvCalc.getDoriDistances(camera);
 
   const handleMouseDown = (e) => {
     e.preventDefault();
@@ -1813,12 +1907,12 @@ function DoriLegendCard({ show, onClose }) {
         cursor: 'grab',
         userSelect: 'none',
         boxShadow: '0 4px 14px rgba(0,0,0,0.1)',
-        width: 220
+        width: 260
       }}
       onMouseDown={handleMouseDown}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <div style={{ color: '#7e22ce', fontSize: 11, fontWeight: 800 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <div style={{ color: '#7e22ce', fontSize: 11, fontWeight: 800, letterSpacing: '0.4px' }}>
           DORI ZONES (EN 62676-4)
         </div>
         {onClose && (
@@ -1829,23 +1923,43 @@ function DoriLegendCard({ show, onClose }) {
           >✕</button>
         )}
       </div>
-      <div style={{ height: 1, background: 'rgba(0,0,0,0.1)', marginBottom: 10 }} />
+      {camera && (
+        <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {camera.model || camera.brand ? `${camera.brand || ''} ${camera.model || ''}`.trim() : 'Camera Spec'} ({camera.megapixels || 2}MP)
+        </div>
+      )}
+      <div style={{ height: 1, background: 'rgba(0,0,0,0.1)', marginBottom: 8 }} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#a855f7', boxShadow: '0 0 6px rgba(168,85,247,0.5)' }} />
-          <span style={{ color: '#334155', fontSize: 12, fontWeight: 600 }}>Identification (250+ px/m)</span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#a855f7', boxShadow: '0 0 6px rgba(168,85,247,0.5)', flexShrink: 0 }} />
+            <span style={{ color: '#334155', fontSize: 11, fontWeight: 600 }}>Identification (250+ px/m)</span>
+          </div>
+          <span style={{ color: '#7e22ce', fontSize: 11, fontWeight: 700, marginLeft: 8 }}>{dori.identification.toFixed(1)} m</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#f97316', boxShadow: '0 0 6px rgba(249,115,22,0.5)' }} />
-          <span style={{ color: '#334155', fontSize: 12, fontWeight: 600 }}>Recognition (125+ px/m)</span>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444', boxShadow: '0 0 6px rgba(239,68,68,0.5)', flexShrink: 0 }} />
+            <span style={{ color: '#334155', fontSize: 11, fontWeight: 600 }}>Recognition (125+ px/m)</span>
+          </div>
+          <span style={{ color: '#dc2626', fontSize: 11, fontWeight: 700, marginLeft: 8 }}>{dori.recognition.toFixed(1)} m</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#eab308', boxShadow: '0 0 6px rgba(234,179,8,0.5)' }} />
-          <span style={{ color: '#334155', fontSize: 12, fontWeight: 600 }}>Observation (62+ px/m)</span>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#eab308', boxShadow: '0 0 6px rgba(234,179,8,0.5)', flexShrink: 0 }} />
+            <span style={{ color: '#334155', fontSize: 11, fontWeight: 600 }}>Observation (62+ px/m)</span>
+          </div>
+          <span style={{ color: '#a16207', fontSize: 11, fontWeight: 700, marginLeft: 8 }}>{dori.observation.toFixed(1)} m</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#3b82f6', boxShadow: '0 0 6px rgba(59,130,246,0.5)' }} />
-          <span style={{ color: '#334155', fontSize: 12, fontWeight: 600 }}>Detection (25+ px/m)</span>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#3b82f6', boxShadow: '0 0 6px rgba(59,130,246,0.5)', flexShrink: 0 }} />
+            <span style={{ color: '#334155', fontSize: 11, fontWeight: 600 }}>Detection (25+ px/m)</span>
+          </div>
+          <span style={{ color: '#1d4ed8', fontSize: 11, fontWeight: 700, marginLeft: 8 }}>{dori.detection.toFixed(1)} m</span>
         </div>
       </div>
     </div>
@@ -1864,6 +1978,15 @@ export default function DesignerView({ onBack }) {
   const offsetRef = useRef({ x: 0, y: 0 });
   const rafRef = useRef(null);
   const panStartRef = useRef(null);
+  const [isPanLocked, setIsPanLocked] = useState(false);
+  const isPanLockedRef = useRef(false);
+  const togglePanLock = useCallback(() => {
+    const next = !isPanLockedRef.current;
+    isPanLockedRef.current = next;
+    setIsPanLocked(next);
+    panStartRef.current = null;
+  }, []);
+  useEffect(() => { isPanLockedRef.current = isPanLocked; }, [isPanLocked]);
   const draggingIdxRef = useRef(null);
   const rotatingIdxRef = useRef(null);
   const mouseDownPosRef = useRef(null);
@@ -2236,6 +2359,7 @@ export default function DesignerView({ onBack }) {
   const [inspectorTab, setInspectorTab] = useState("cameras"); // "cameras" | "zones"
   const [retentionDays, setRetentionDays] = useState(30);
   const exportMenuRef = useRef(null);
+  const gltfViewerRef = useRef(null);
   
   const [showEarthMap, setShowEarthMap] = useState(false);
 
@@ -2250,6 +2374,24 @@ export default function DesignerView({ onBack }) {
   const layersDropRef = useRef(null);
   const fileDropRef = useRef(null);
 
+  // ── Layout Calibration states (Synchronized with MapView) ──
+  const [calibPanelOpen, setCalibPanelOpen] = useState(false);
+  const [calibType, setCalibType] = useState("standard");
+  const calibTypeRef = useRef("standard");
+  useEffect(() => { calibTypeRef.current = calibType; }, [calibType]);
+  const [calibRefs, setCalibRefs] = useState([]);
+  const calibRefsRef = useRef([]);
+  useEffect(() => { calibRefsRef.current = calibRefs; }, [calibRefs]);
+  const [activeCalibRefId, setActiveCalibRefId] = useState(null);
+  const activeCalibRefIdRef = useRef(null);
+  useEffect(() => { activeCalibRefIdRef.current = activeCalibRefId; }, [activeCalibRefId]);
+  const [drawingCalibLine, setDrawingCalibLine] = useState(null);
+  const drawingCalibLineRef = useRef(null);
+  useEffect(() => { drawingCalibLineRef.current = drawingCalibLine; }, [drawingCalibLine]);
+  const [showPreviewGrid, setShowPreviewGrid] = useState(false);
+  const [calibHandleDrag, setCalibHandleDrag] = useState(null);
+  const calibHandleDragRef = useRef(null);
+
   // ── Calibration Tape Measure states ──
   const [calPts, setCalPts] = useState([]);
   const calPtsRef = useRef([]);
@@ -2263,12 +2405,6 @@ export default function DesignerView({ onBack }) {
   const cropStartRef = useRef(null);
   const cropEndRef = useRef(null);
   const [hasCropSelection, setHasCropSelection] = useState(false);
-
-  const [showCalibrateModal, setShowCalibrateModal] = useState(false);
-  const [calibrateDistPx, setCalibrateDistPx] = useState(0);
-  const [calibrateRealWidth, setCalibrateRealWidth] = useState("5.0");
-  const [calibrateRealLength, setCalibrateRealLength] = useState("5.0");
-  const [calibrateRealHeight, setCalibrateRealHeight] = useState("");
 
   // Internal shadowed apiSaveLayout that updates React state for cloud save status
   const apiSaveLayout = useCallback(async ({ placed, zones, ppm, floorPlan = null, slides = null, activeSlideId = null }) => {
@@ -2366,21 +2502,6 @@ export default function DesignerView({ onBack }) {
       ctx.fillText("Import a floor plan or use the grid", 1000, 1000);
     }
 
-    // ── Ruler ────────────────────────────────────────────────────────────────
-    const rulerPx = ppm * 5;
-    const rulerY = (floorImgRef.current?.height || 2000) - 24;
-    const rulerX = 20;
-    ctx.save();
-    ctx.fillStyle = isLight ? "rgba(255, 255, 255, 0.72)" : "rgba(13,17,23,0.72)"; ctx.fillRect(rulerX - 4, rulerY - 6, rulerPx + 8, 18);
-    ctx.strokeStyle = "#3b82f6"; ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(rulerX, rulerY + 4); ctx.lineTo(rulerX + rulerPx, rulerY + 4);
-    ctx.moveTo(rulerX, rulerY); ctx.lineTo(rulerX, rulerY + 8);
-    ctx.moveTo(rulerX + rulerPx, rulerY); ctx.lineTo(rulerX + rulerPx, rulerY + 8);
-    ctx.stroke();
-    ctx.fillStyle = "#3b82f6"; ctx.font = "9px monospace"; ctx.textAlign = "center";
-    ctx.fillText("5 m", rulerX + rulerPx / 2, rulerY + 1);
-    ctx.restore();
 
     // ── Visual Calibration Tape Measure ──────────────────────────────────────
     if (modeRef.current === "calibrate") {
@@ -2635,7 +2756,8 @@ export default function DesignerView({ onBack }) {
         iconScaleRef.current,
         "beam",
         scaleRef.current,
-        showMetricsVisibilityRef.current
+        showMetricsVisibilityRef.current,
+        showHeatmap
       );
     });
 
@@ -2654,7 +2776,8 @@ export default function DesignerView({ onBack }) {
         iconScaleRef.current,
         "body",
         scaleRef.current,
-        showMetricsVisibilityRef.current
+        showMetricsVisibilityRef.current,
+        showHeatmap
       );
     });
 
@@ -2662,11 +2785,40 @@ export default function DesignerView({ onBack }) {
     if (selectedIdx !== null && selectedIdx < placedRef.current.length) {
       const p = placedRef.current[selectedIdx];
       const { angle } = fovDrawParams(p.camera, p.direction);
-      const hx = p.x + Math.cos(angle) * 36;
-      const hy = p.y + Math.sin(angle) * 36;
-      ctx.beginPath(); ctx.arc(hx, hy, 5, 0, Math.PI * 2);
-      ctx.fillStyle = TYPE_COLORS[p.camera.type] || "#3b82f6"; ctx.fill();
-      ctx.strokeStyle = "#fff8"; ctx.lineWidth = 1.2; ctx.stroke();
+      const hx = p.x + Math.cos(angle) * 26;
+      const hy = p.y + Math.sin(angle) * 26;
+      const col = TYPE_COLORS[p.camera.type] || "#3b82f6";
+      
+      ctx.save();
+      ctx.translate(hx, hy);
+
+      // Outer halo ring for selected camera handle
+      ctx.beginPath();
+      ctx.arc(0, 0, 10, 0, Math.PI * 2);
+      ctx.fillStyle = isLight ? "rgba(255, 255, 255, 0.95)" : "#0d1117ee";
+      ctx.fill();
+
+      // Outer accent ring
+      ctx.beginPath();
+      ctx.arc(0, 0, 8, 0, Math.PI * 2);
+      ctx.strokeStyle = col + "55";
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
+      // Inner primary ring
+      ctx.beginPath();
+      ctx.arc(0, 0, 5.5, 0, Math.PI * 2);
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+
+      // Solid grip core dot
+      ctx.beginPath();
+      ctx.arc(0, 0, 3, 0, Math.PI * 2);
+      ctx.fillStyle = col;
+      ctx.fill();
+
+      ctx.restore();
     }
 
     // ── Zone Hover Tooltip ───────────────────────────────────────────────────
@@ -2756,7 +2908,7 @@ export default function DesignerView({ onBack }) {
     });
 
     ctx.restore();
-  }, [ppm, hoveredIdx, selectedIdx, showPpm, showMetricsVisibility]);
+  }, [ppm, hoveredIdx, selectedIdx, showPpm, showMetricsVisibility, showHeatmap]);
 
   const handleUndo = useCallback(() => {
     if (undoStack.length === 0) return;
@@ -2977,22 +3129,152 @@ export default function DesignerView({ onBack }) {
     scheduleSave(updated, zonesRef.current, ppmRef.current);
   }, [draw, scheduleSave, recordState]);
 
-  // ── Restore layout on mount ───────────────────────────────────────────────
+  // ── Layout Calibration Handlers (Synchronized with MapView) ──
+  const setCalibrateMode = useCallback(() => {
+    setMode("calibrate");
+    modeRef.current = "calibrate";
+    setCalibPanelOpen(true);
+    setSelectedIdx(null);
+    selectedIdxRef.current = null;
+    setSelectedModel(null);
+    setModesDropdownOpen(false);
+    setDrawingCalibLine(null);
+    drawingCalibLineRef.current = null;
+    const currentSlide = slidesRef.current.find(s => s.id === activeSlideIdRef.current) || slidesRef.current[0];
+    if (currentSlide?.calibration?.references?.length) {
+      setCalibRefs([...currentSlide.calibration.references]);
+      calibRefsRef.current = [...currentSlide.calibration.references];
+      setCalibType(currentSlide.calibration.mode || "standard");
+    }
+    draw();
+  }, [draw]);
+
+  const handleApplyCalibration = useCallback(() => {
+    const currentSlide = slidesRef.current.find(s => s.id === activeSlideIdRef.current) || slidesRef.current[0];
+    const img = floorImgRef.current;
+    if (!img && !currentSlide?.modelDataUrl) {
+      alert("No floor plan loaded.");
+      return;
+    }
+    if (calibRefsRef.current.length === 0) {
+      alert("Please draw at least one reference line.");
+      return;
+    }
+    try {
+      const imgDims = {
+        width: img ? img.width : (currentSlide?.imageWidth || 2048),
+        height: img ? img.height : (currentSlide?.imageHeight || 2048)
+      };
+      let newCalib = null;
+      if (calibTypeRef.current === "standard") {
+        newCalib = buildStandardCalibration(calibRefsRef.current[0], imgDims);
+      } else {
+        newCalib = buildAdvancedCalibration(calibRefsRef.current, imgDims);
+      }
+
+      const updatedSlides = slidesRef.current.map(s => {
+        if (s.id !== activeSlideIdRef.current) return s;
+        return {
+          ...s,
+          calibration: newCalib,
+          ppm: newCalib.ppm
+        };
+      });
+
+      slidesRef.current = updatedSlides;
+      setSlides(updatedSlides);
+      setPpm(newCalib.ppm);
+      ppmRef.current = newCalib.ppm;
+      saveFloorsDB(updatedSlides, activeSlideIdRef.current);
+      scheduleSave(placedRef.current, zonesRef.current, newCalib.ppm);
+
+      setCalibPanelOpen(false);
+      setMode("place");
+      modeRef.current = "place";
+      alert(
+        newCalib.mode === "standard"
+          ? `Standard calibration applied successfully.\nGlobal scale: ${newCalib.ppm.toFixed(2)} px/m.`
+          : `Advanced spatial transformation applied successfully with ${newCalib.references.length} reference measurements.`
+      );
+      draw();
+    } catch (err) {
+      console.error("[DesignerView] Calibration failed:", err);
+      alert("Calibration failed: " + err.message);
+    }
+  }, [draw, scheduleSave]);
+
+  const handleClearCalibration = useCallback(() => {
+    if (!window.confirm("Clear calibration? Scale and distance measurements will return to uncalibrated default.")) return;
+    const defaultPpm = PIXELS_PER_METRE;
+    const updatedSlides = slidesRef.current.map(s => {
+      if (s.id !== activeSlideIdRef.current) return s;
+      return {
+        ...s,
+        calibration: null,
+        ppm: defaultPpm
+      };
+    });
+    slidesRef.current = updatedSlides;
+    setSlides(updatedSlides);
+    setPpm(defaultPpm);
+    ppmRef.current = defaultPpm;
+    saveFloorsDB(updatedSlides, activeSlideIdRef.current);
+    scheduleSave(placedRef.current, zonesRef.current, defaultPpm);
+    setCalibRefs([]);
+    calibRefsRef.current = [];
+    setActiveCalibRefId(null);
+    setCalibPanelOpen(false);
+    setMode("place");
+    modeRef.current = "place";
+    draw();
+  }, [draw, scheduleSave]);
+
+  // ── Restore layout on mount with IndexedDB and API fallback ──────────────
   useEffect(() => {
-    apiLoadLayout().then(data => {
-      if (data && data.slides && data.slides.length > 0) {
-        const parsedSlides = data.slides;
+    async function initLayout() {
+      let parsedSlides = null;
+      let activeId = null;
+
+      // 1. Try loading from IndexedDB first for instant, high-capacity cache
+      try {
+        const cachedSlides = await loadFloorsDB("designer_" + MAP_ID);
+        if (cachedSlides && Array.isArray(cachedSlides) && cachedSlides.length > 0) {
+          parsedSlides = cachedSlides;
+          const savedActiveId = localStorage.getItem("miradorai_designer_activeSlide_" + MAP_ID);
+          if (savedActiveId && parsedSlides.find(s => s.id === savedActiveId)) {
+            activeId = savedActiveId;
+          } else {
+            activeId = parsedSlides[0].id;
+          }
+        }
+      } catch (err) {
+        console.warn("[DesignerView] IndexedDB restore error:", err);
+      }
+
+      // 2. Fetch backend layout
+      let backendData = null;
+      try {
+        backendData = await apiLoadLayout();
+      } catch (err) {
+        console.warn("[DesignerView] Backend load error:", err);
+      }
+
+      if (!parsedSlides && backendData && backendData.slides && backendData.slides.length > 0) {
+        parsedSlides = backendData.slides;
+        activeId = (backendData.active_slide_id && parsedSlides.find(s => s.id === backendData.active_slide_id))
+          ? backendData.active_slide_id
+          : parsedSlides[0].id;
+      }
+
+      if (parsedSlides && parsedSlides.length > 0) {
         setSlides(parsedSlides);
         slidesRef.current = parsedSlides;
 
-        const activeId = (data.active_slide_id && parsedSlides.find(s => s.id === data.active_slide_id))
-          ? data.active_slide_id
-          : parsedSlides[0].id;
+        const effectiveActiveId = activeId || parsedSlides[0].id;
+        setActiveSlideId(effectiveActiveId);
+        activeSlideIdRef.current = effectiveActiveId;
 
-        setActiveSlideId(activeId);
-        activeSlideIdRef.current = activeId;
-        
-        const activeSlide = parsedSlides.find(s => s.id === activeId);
+        const activeSlide = parsedSlides.find(s => s.id === effectiveActiveId);
         if (activeSlide) {
           setPpm(activeSlide.ppm || PIXELS_PER_METRE);
           ppmRef.current = activeSlide.ppm || PIXELS_PER_METRE;
@@ -3006,7 +3288,6 @@ export default function DesignerView({ onBack }) {
           draftZonesRef.current = activeSlide.draftZones || [];
           setDraftZones(activeSlide.draftZones || []);
 
-          // Restore text annotations per slide
           textNodesRef.current = activeSlide.textNodes || [];
           setTextNodes(activeSlide.textNodes || []);
 
@@ -3018,17 +3299,25 @@ export default function DesignerView({ onBack }) {
               setTimeout(fitImage, 50);
             };
             img.src = activeSlide.floorPlan;
+          } else if (activeSlide.modelDataUrl) {
+            floorImgRef.current = null;
+            setHasFloor(true);
+          } else {
+            floorImgRef.current = null;
+            setHasFloor(false);
           }
         }
       } else {
         const defaultSlide = {
           id: "slide_" + Date.now(),
           name: "Floor Draft 1",
-          floorPlan: (data && data.floor_plan) || null,
-          placed: (data && data.placed) || [],
-          zones: (data && data.zones) || [],
+          floorPlan: (backendData && backendData.floor_plan) || null,
+          modelDataUrl: (backendData && backendData.model_data_url) || null,
+          partsReport: null,
+          placed: (backendData && backendData.placed) || [],
+          zones: (backendData && backendData.zones) || [],
           draftZones: [],
-          ppm: (data && data.ppm) || PIXELS_PER_METRE
+          ppm: (backendData && backendData.ppm) || PIXELS_PER_METRE
         };
 
         setSlides([defaultSlide]);
@@ -3036,32 +3325,44 @@ export default function DesignerView({ onBack }) {
         setActiveSlideId(defaultSlide.id);
         activeSlideIdRef.current = defaultSlide.id;
 
-        if (data) {
-          if (data.ppm) {
-            setPpm(data.ppm);
-            ppmRef.current = data.ppm;
+        if (backendData) {
+          if (backendData.ppm) {
+            setPpm(backendData.ppm);
+            ppmRef.current = backendData.ppm;
           }
-          if (data.placed?.length) {
-            placedRef.current = data.placed;
-            setPlaced(data.placed);
+          if (backendData.placed?.length) {
+            placedRef.current = backendData.placed;
+            setPlaced(backendData.placed);
           }
-          if (data.zones?.length) {
-            zonesRef.current = data.zones;
-            setZones(data.zones);
+          if (backendData.zones?.length) {
+            zonesRef.current = backendData.zones;
+            setZones(backendData.zones);
           }
-          if (data.floor_plan) {
+          if (backendData.floor_plan) {
             const img = new Image();
             img.onload = () => {
               floorImgRef.current = img;
               setHasFloor(true);
               setTimeout(fitImage, 50);
             };
-            img.src = data.floor_plan;
+            img.src = backendData.floor_plan;
           }
         }
       }
-    });
+    }
+
+    initLayout();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Auto-save to IndexedDB whenever slides or activeSlideId changes ───────
+  useEffect(() => {
+    if (slides && slides.length > 0) {
+      saveFloorsDB("designer_" + MAP_ID, slides);
+      if (activeSlideId) {
+        localStorage.setItem("miradorai_designer_activeSlide_" + MAP_ID, activeSlideId);
+      }
+    }
+  }, [slides, activeSlideId]);
 
   // Reactive Sync: Keep active slide inside slides list in sync with current canvas editor states
   useEffect(() => {
@@ -3114,6 +3415,7 @@ export default function DesignerView({ onBack }) {
 
   // ── Zoom to zone ──────────────────────────────────────────────────────────
   const zoomToZone = useCallback((zone) => {
+    if (isPanLockedRef.current) return;
     const wrap = wrapRef.current; if (!wrap) return;
     const xs = zone.polygon.map(p => p.x), ys = zone.polygon.map(p => p.y);
     const minX = Math.min(...xs), maxX = Math.max(...xs);
@@ -3130,6 +3432,7 @@ export default function DesignerView({ onBack }) {
 
   // ── Zoom to a camera ─────────────────────────────────────────────────────
   const zoomToCamera = useCallback((camId) => {
+    if (isPanLockedRef.current) return;
     const cam = placedRef.current.find(p => p.id === camId);
     if (!cam) return;
     const wrap = wrapRef.current; if (!wrap) return;
@@ -3239,6 +3542,9 @@ export default function DesignerView({ onBack }) {
         setTimeout(fitImage, 50);
       };
       img.src = targetSlide.floorPlan;
+    } else if (targetSlide.modelDataUrl) {
+      floorImgRef.current = null;
+      setHasFloor(true);
     } else {
       floorImgRef.current = null;
       setHasFloor(false);
@@ -3300,6 +3606,9 @@ export default function DesignerView({ onBack }) {
             setTimeout(fitImage, 50);
           };
           img.src = newActiveSlide.floorPlan;
+        } else if (newActiveSlide.modelDataUrl) {
+          floorImgRef.current = null;
+          setHasFloor(true);
         } else {
           floorImgRef.current = null;
           setHasFloor(false);
@@ -3316,30 +3625,37 @@ export default function DesignerView({ onBack }) {
     }
   }, [recordState, fitImage, draw, scheduleSave]);
 
-  const addNewSlide = useCallback((floorPlan = null, floorPlanName = null) => {
+  const addNewSlide = useCallback((floorPlan = null, floorPlanName = null, options = {}) => {
+    const { modelDataUrl = null, autoPpm = null, imageWidth = 2048, imageHeight = 2048, partsReport = null, embeddedPlaced = [] } = options;
     recordState();
 
     const newSlideId = "slide_" + Date.now();
     const newSlideName = floorPlanName || `Floor Draft ${slidesRef.current.length + 1}`;
-   
+    const effectivePpm = autoPpm || PIXELS_PER_METRE;
+
     const newSlide = {
       id: newSlideId,
       name: newSlideName,
       floorPlan,
-      placed: [],
+      modelDataUrl,
+      imageWidth,
+      imageHeight,
+      partsReport,
+      placed: embeddedPlaced,
       zones: [],
       draftZones: [],
-      ppm: PIXELS_PER_METRE
+      ppm: effectivePpm
     };
 
     setSlides(prev => [...prev, newSlide]);
     setActiveSlideId(newSlideId);
+    activeSlideIdRef.current = newSlideId;
 
-    setPpm(PIXELS_PER_METRE);
-    ppmRef.current = PIXELS_PER_METRE;
+    setPpm(effectivePpm);
+    ppmRef.current = effectivePpm;
 
-    placedRef.current = [];
-    setPlaced([]);
+    placedRef.current = embeddedPlaced;
+    setPlaced(embeddedPlaced);
     zonesRef.current = [];
     setZones([]);
     draftZonesRef.current = [];
@@ -3362,6 +3678,9 @@ export default function DesignerView({ onBack }) {
         setTimeout(fitImage, 50);
       };
       img.src = floorPlan;
+    } else if (modelDataUrl) {
+      floorImgRef.current = null;
+      setHasFloor(true);
     } else {
       floorImgRef.current = null;
       setHasFloor(false);
@@ -3369,17 +3688,79 @@ export default function DesignerView({ onBack }) {
     }
 
     apiSaveFloorPlan(floorPlan);
-    scheduleSave([], [], PIXELS_PER_METRE);
+    scheduleSave(embeddedPlaced, [], effectivePpm);
   }, [recordState, fitImage, draw, scheduleSave]);
+
+  const loadOrUpdateSlide = useCallback((floorPlan = null, floorPlanName = null, options = {}) => {
+    const currentActiveSlide = slidesRef.current.find(s => s.id === activeSlideIdRef.current);
+    const isCurrentEmpty = currentActiveSlide && !currentActiveSlide.floorPlan && !currentActiveSlide.modelDataUrl && (!currentActiveSlide.placed || currentActiveSlide.placed.length === 0);
+
+    if (isCurrentEmpty) {
+      const { modelDataUrl = null, autoPpm = null, imageWidth = 2048, imageHeight = 2048, partsReport = null, embeddedPlaced = [] } = options;
+      recordState();
+
+      const effectivePpm = autoPpm || PIXELS_PER_METRE;
+      const updatedSlide = {
+        ...currentActiveSlide,
+        name: floorPlanName || currentActiveSlide.name,
+        floorPlan,
+        modelDataUrl,
+        imageWidth,
+        imageHeight,
+        partsReport,
+        placed: embeddedPlaced,
+        ppm: effectivePpm
+      };
+
+      setSlides(prev => prev.map(s => s.id === updatedSlide.id ? updatedSlide : s));
+      setPpm(effectivePpm);
+      ppmRef.current = effectivePpm;
+      placedRef.current = embeddedPlaced;
+      setPlaced(embeddedPlaced);
+      zonesRef.current = [];
+      setZones([]);
+      draftZonesRef.current = [];
+      setDraftZones([]);
+      drawingPointsRef.current = [];
+      setDrawingPoints([]);
+      setSelectedIdx(null);
+      setActiveZoneId(null);
+      activeZoneIdRef.current = null;
+
+      if (floorPlan) {
+        const img = new Image();
+        img.onload = () => {
+          floorImgRef.current = img;
+          setHasFloor(true);
+          setTimeout(fitImage, 50);
+        };
+        img.src = floorPlan;
+      } else if (modelDataUrl) {
+        floorImgRef.current = null;
+        setHasFloor(true);
+      } else {
+        floorImgRef.current = null;
+        setHasFloor(false);
+        draw();
+      }
+
+      apiSaveFloorPlan(floorPlan);
+      scheduleSave(embeddedPlaced, [], effectivePpm);
+    } else {
+      addNewSlide(floorPlan, floorPlanName, options);
+    }
+  }, [addNewSlide, recordState, fitImage, draw, scheduleSave]);
 
   const applyZoom = useCallback((delta, cx, cy) => {
     const prev = scaleRef.current;
     const next = Math.min(8, Math.max(0.08, prev + delta));
     scaleRef.current = next;
-    offsetRef.current = {
-      x: cx - (cx - offsetRef.current.x) * (next / prev),
-      y: cy - (cy - offsetRef.current.y) * (next / prev),
-    };
+    if (!isPanLockedRef.current) {
+      offsetRef.current = {
+        x: cx - (cx - offsetRef.current.x) * (next / prev),
+        y: cy - (cy - offsetRef.current.y) * (next / prev),
+      };
+    }
     setZoomPct(Math.round(next * 100)); draw();
   }, [draw]);
 
@@ -3418,9 +3799,9 @@ export default function DesignerView({ onBack }) {
     if (selectedIdx === null) return false;
     const p = placedRef.current[selectedIdx]; if (!p) return false;
     const { angle } = fovDrawParams(p.camera, p.direction);
-    const hx = p.x + Math.cos(angle) * 36;
-    const hy = p.y + Math.sin(angle) * 36;
-    return Math.hypot(ix - hx, iy - hy) < 12 / scaleRef.current;
+    const hx = p.x + Math.cos(angle) * 26;
+    const hy = p.y + Math.sin(angle) * 26;
+    return Math.hypot(ix - hx, iy - hy) < 16 / scaleRef.current;
   }
 
   // ── Label hit-test: returns index of placed camera whose label contains (ix, iy) ──
@@ -3884,31 +4265,50 @@ export default function DesignerView({ onBack }) {
     }
 
     if (modeRef.current === "calibrate") {
-      const pts = calPtsRef.current;
-      if (pts.length === 0) {
-        setCalPts([p]);
-        calPtsRef.current = [p];
-        draw();
-      } else if (pts.length === 1) {
-        const ptA = pts[0];
-        const distPx = Math.hypot(p.x - ptA.x, p.y - ptA.y);
-        setCalPts([ptA, p]);
-        calPtsRef.current = [ptA, p];
-        setCalibrateDistPx(distPx);
-       
-        // Calculate horizontal and vertical components in pixels
-        const dx = Math.abs(p.x - ptA.x);
-        const dy = Math.abs(p.y - ptA.y);
-        const currentPpm = ppmRef.current || PIXELS_PER_METRE;
-       
-        // Populate modal meters inputs based on current PPM
-        setCalibrateRealWidth((dx / currentPpm).toFixed(2));
-        setCalibrateRealLength((dy / currentPpm).toFixed(2));
-        setCalibrateRealHeight("");
-       
-        setShowCalibrateModal(true);
-        draw();
+      // 1. Check if clicking endpoints of existing calibration references
+      for (const r of calibRefsRef.current) {
+        const sDist = Math.hypot(p.x - r.start.x, p.y - r.start.y);
+        if (sDist < 18 / scaleRef.current) {
+          calibHandleDragRef.current = { refId: r.id, handle: "start" };
+          setCalibHandleDrag({ refId: r.id, handle: "start" });
+          setActiveCalibRefId(r.id);
+          activeCalibRefIdRef.current = r.id;
+          return;
+        }
+        const eDist = Math.hypot(p.x - r.end.x, p.y - r.end.y);
+        if (eDist < 18 / scaleRef.current) {
+          calibHandleDragRef.current = { refId: r.id, handle: "end" };
+          setCalibHandleDrag({ refId: r.id, handle: "end" });
+          setActiveCalibRefId(r.id);
+          activeCalibRefIdRef.current = r.id;
+          return;
+        }
       }
+
+      // 2. Check if clicking along the line segment to select it
+      for (const r of calibRefsRef.current) {
+        const x1 = r.start.x, y1 = r.start.y, x2 = r.end.x, y2 = r.end.y;
+        const l2 = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
+        let dist = 999;
+        if (l2 === 0) {
+          dist = Math.hypot(p.x - x1, p.y - y1);
+        } else {
+          let t = ((p.x - x1) * (x2 - x1) + (p.y - y1) * (y2 - y1)) / l2;
+          t = Math.max(0, Math.min(1, t));
+          dist = Math.hypot(p.x - (x1 + t * (x2 - x1)), p.y - (y1 + t * (y2 - y1)));
+        }
+        if (dist < 14 / scaleRef.current) {
+          setActiveCalibRefId(r.id);
+          activeCalibRefIdRef.current = r.id;
+          setCalibPanelOpen(true);
+          return;
+        }
+      }
+
+      // 3. Otherwise start drawing a new reference line
+      const newLine = { start: p, end: p };
+      drawingCalibLineRef.current = newLine;
+      setDrawingCalibLine(newLine);
       return;
     }
 
@@ -3921,9 +4321,12 @@ export default function DesignerView({ onBack }) {
       drawingPointsRef.current = updated; setDrawingPoints(updated); draw(); return;
     }
 
-    if (modeRef.current === "pan") {
+    if ((modeRef.current === "pan" || e.button === 1 || e.button === 2) && !isPanLockedRef.current) {
       panStartRef.current = { mx: e.clientX - offsetRef.current.x, my: e.clientY - offsetRef.current.y };
       return;
+    }
+    if (isPanLockedRef.current) {
+      panStartRef.current = null;
     }
 
     if (nearRotHandle(p.x, p.y)) { recordState(); rotatingIdxRef.current = selectedIdx; return; }
@@ -4048,6 +4451,30 @@ export default function DesignerView({ onBack }) {
       return;
     }
 
+    if (modeRef.current === "calibrate") {
+      if (calibHandleDragRef.current) {
+        const { refId, handle } = calibHandleDragRef.current;
+        const updated = calibRefsRef.current.map(r => {
+          if (r.id !== refId) return r;
+          const next = { ...r };
+          if (handle === "start") next.start = p;
+          else next.end = p;
+          next.pixelDistance = getPixelDistance(next.start, next.end);
+          return next;
+        });
+        calibRefsRef.current = updated;
+        setCalibRefs(updated);
+        return;
+      }
+      if (drawingCalibLineRef.current) {
+        const updatedLine = { ...drawingCalibLineRef.current, end: p };
+        drawingCalibLineRef.current = updatedLine;
+        setDrawingCalibLine(updatedLine);
+        return;
+      }
+      return;
+    }
+
     if (draggingTextNodeIdRef.current !== null && draggingTextStartRef.current !== null) {
       const idx = textNodesRef.current.findIndex(n => n.id === draggingTextNodeIdRef.current);
       if (idx !== -1) {
@@ -4119,8 +4546,12 @@ export default function DesignerView({ onBack }) {
     }
 
     if (panStartRef.current) {
-      offsetRef.current = { x: e.clientX - panStartRef.current.mx, y: e.clientY - panStartRef.current.my };
-      draw(); return;
+      if (isPanLockedRef.current) {
+        panStartRef.current = null;
+      } else {
+        offsetRef.current = { x: e.clientX - panStartRef.current.mx, y: e.clientY - panStartRef.current.my };
+        draw(); return;
+      }
     }
 
     if (rotatingIdxRef.current !== null) {
@@ -4203,6 +4634,43 @@ export default function DesignerView({ onBack }) {
   }, [draw, hoveredIdx]); // eslint-disable-line
 
   const onMouseUp = useCallback(() => {
+    if (modeRef.current === "calibrate") {
+      if (calibHandleDragRef.current) {
+        calibHandleDragRef.current = null;
+        setCalibHandleDrag(null);
+        return;
+      }
+      if (drawingCalibLineRef.current) {
+        const curLine = drawingCalibLineRef.current;
+        const dPx = getPixelDistance(curLine.start, curLine.end);
+        if (dPx >= 8) {
+          const newRef = {
+            id: "ref_" + Date.now(),
+            start: curLine.start,
+            end: curLine.end,
+            pixelDistance: dPx,
+            realDistance: 10.0,
+            unit: "meters",
+            realDistanceMeters: 10.0,
+          };
+          let updatedRefs = [];
+          if (calibTypeRef.current === "standard") {
+            updatedRefs = [newRef];
+          } else {
+            updatedRefs = [...calibRefsRef.current, newRef];
+          }
+          calibRefsRef.current = updatedRefs;
+          setCalibRefs(updatedRefs);
+          setActiveCalibRefId(newRef.id);
+          activeCalibRefIdRef.current = newRef.id;
+        }
+        drawingCalibLineRef.current = null;
+        setDrawingCalibLine(null);
+        return;
+      }
+      return;
+    }
+
     if (modeRef.current === "crop" && cropStartRef.current && cropEndRef.current) {
       setHasCropSelection(true);
       mouseDownPosRef.current = null;
@@ -4310,10 +4778,80 @@ export default function DesignerView({ onBack }) {
   }, [draw]); // eslint-disable-line
 
   // ── Floor plan import ─────────────────────────────────────────────────────
-  function handleFileChange(e) {
+  async function handleFileChange(e) {
     const file = e.target.files[0]; if (!file) return;
     const name = file.name.replace(/\.[^/.]+$/, "");
-   
+    const ext = file.name.toLowerCase().split(".").pop();
+
+    // ── .gltf / .glb → load 3D model and auto-calibrate scale (PPM) ─────
+    if (ext === "gltf" || ext === "glb") {
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        const modelDataUrl = ev.target.result;
+        try {
+          const { dataUrl: imageDataUrl, ppm: autoPpm, partsReport, embeddedMarkers, width, height } = await renderGltfToImage(file);
+          console.log(`[DesignerView] Loaded GLB model. Auto-calibrated PPM: ${autoPpm}`);
+
+          let restoredPlaced = [];
+          if (embeddedMarkers && embeddedMarkers.length > 0) {
+            restoredPlaced = embeddedMarkers.map(m => {
+              const camObj = m.camera || cameraDBRef.current.find(c => c.id === m.camId) || {
+                id: m.camId || `cam_${Date.now()}`,
+                model: m.camName || "Camera",
+                brand: m.camera?.brand || "Auto",
+                type: m.camera?.type || "dome",
+                hfov: m.fovAngle || 60,
+                rangeDay: 30,
+                megapixels: 4
+              };
+              return {
+                id: m.id || `placed_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                camera: camObj,
+                customName: m.camName || camObj.model,
+                x: m.x,
+                y: m.y,
+                direction: m.direction || 0,
+                recordingMode: "continuous",
+                fps: 25,
+                lighting: "normal",
+                mounting: "default",
+                includeBackbox: false,
+                includePoe: false
+              };
+            });
+          }
+
+          loadOrUpdateSlide(imageDataUrl, name, {
+            modelDataUrl,
+            autoPpm: autoPpm || PIXELS_PER_METRE,
+            imageWidth: width || 2048,
+            imageHeight: height || 2048,
+            partsReport,
+            embeddedPlaced: restoredPlaced
+          });
+        } catch (err) {
+          console.error("[DesignerView] GLTF/GLB load failed:", err);
+          alert("Failed to load 3D model: " + (err.message || "unknown error"));
+        }
+      };
+      reader.readAsDataURL(file);
+      e.target.value = "";
+      return;
+    }
+
+    // ── .html → render HTML to 2D image ───────────────────────────
+    if (ext === "html" || ext === "htm") {
+      try {
+        const { dataUrl } = await renderHtmlToImage(file);
+        loadOrUpdateSlide(dataUrl, name);
+      } catch (err) {
+        console.error("[DesignerView] HTML render failed:", err);
+        alert("Failed to load HTML floor plan: " + (err.message || "unknown error"));
+      }
+      e.target.value = "";
+      return;
+    }
+
     if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
       const fileReader = new FileReader();
       fileReader.onload = async function() {
@@ -4333,7 +4871,7 @@ export default function DesignerView({ onBack }) {
          
           await page.render({ canvasContext: context, viewport: viewport }).promise;
           const dataUrl = canvas.toDataURL("image/png");
-          addNewSlide(dataUrl, name);
+          loadOrUpdateSlide(dataUrl, name);
         } catch (err) {
           console.error("Failed to parse PDF", err);
           alert("Failed to parse PDF.");
@@ -4343,7 +4881,7 @@ export default function DesignerView({ onBack }) {
     } else {
       const reader = new FileReader();
       reader.onload = ev => {
-        addNewSlide(ev.target.result, name);
+        loadOrUpdateSlide(ev.target.result, name);
       };
       reader.readAsDataURL(file);
     }
@@ -4741,7 +5279,7 @@ function drawCameraStatsToCanvas(ctx, canvasW, canvasH, placedCameras, overrideX
 function drawDoriLegendToCanvas(ctx, x, y, scaleMultiplier = 1, canvasW = 1000, previewW = 960) {
   const ITEMS = [
     { color: "#a855f7", label: "Identification (250+ px/m)" },
-    { color: "#f97316", label: "Recognition (125+ px/m)" },
+    { color: "#ef4444", label: "Recognition (125+ px/m)" },
     { color: "#eab308", label: "Observation (62+ px/m)" },
     { color: "#3b82f6", label: "Detection (25+ px/m)" },
   ];
@@ -5162,6 +5700,94 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
     });
   }
 
+  // ── 3D Markers & Camera Sync for Gltf3DViewer ──
+  const gltfMarkers = useMemo(() => {
+    return (placed || []).map(p => ({
+      id: p.id,
+      camId: p.camera?.id || p.id,
+      camName: p.customName || p.camera?.model || "Camera",
+      x: p.x,
+      y: p.y,
+      direction: p.direction || 0,
+      fovAngle: p.camera?.hfov || 60,
+      camera: p.camera
+    }));
+  }, [placed]);
+
+  const gltfCameras = useMemo(() => {
+    const map = new Map();
+    (cameraDB || []).forEach(c => map.set(c.id, c));
+    (placed || []).forEach(p => {
+      if (p.camera?.id && !map.has(p.camera.id)) {
+        map.set(p.camera.id, p.camera);
+      }
+    });
+    return Array.from(map.values());
+  }, [cameraDB, placed]);
+
+  const handleUpdate3DMarkers = useCallback((newMarkers) => {
+    recordState();
+    const updated = newMarkers.map(m => {
+      const existing = placedRef.current.find(p => p.id === m.id);
+      if (existing) {
+        return {
+          ...existing,
+          x: m.x,
+          y: m.y,
+          direction: m.direction
+        };
+      }
+      const camObj = m.camera || cameraDBRef.current.find(c => c.id === m.camId) || {
+        id: m.camId,
+        model: m.camName || "Camera",
+        type: "dome",
+        hfov: m.fovAngle || 60,
+        rangeDay: 30
+      };
+      return {
+        id: m.id || `placed_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        camera: camObj,
+        x: m.x,
+        y: m.y,
+        direction: m.direction || 0,
+        recordingMode: "continuous",
+        fps: 25,
+        lighting: "normal",
+        mounting: "default",
+        includeBackbox: false,
+        includePoe: false
+      };
+    });
+    placedRef.current = updated;
+    setPlaced(updated);
+    draw();
+    scheduleSave(updated, zonesRef.current, ppmRef.current);
+  }, [recordState, draw, scheduleSave]);
+
+  // ── Export 3D GLB Model (with cameras and solid beams) ──
+  const export3DModelGLB = useCallback(() => {
+    const activeSlide = slidesRef.current.find(s => s.id === activeSlideIdRef.current);
+    const slideName = activeSlide?.name || "Floor_Design";
+    if (gltfViewerRef.current?.exportGLB) {
+      gltfViewerRef.current.exportGLB(slideName);
+    } else {
+      alert("3D viewer is not initialized for GLB export.");
+    }
+    setFileDropdownOpen(false);
+  }, []);
+
+  // ── Export 3D Top-Down 2D Snapshot (Design / Heatmap) ──
+  const export3DTopDown = useCallback((isHeatmap = false) => {
+    const activeSlide = slidesRef.current.find(s => s.id === activeSlideIdRef.current);
+    const slideName = activeSlide?.name || "Floor_Design";
+    if (gltfViewerRef.current?.exportTopDownSnapshot) {
+      gltfViewerRef.current.exportTopDownSnapshot(slideName, isHeatmap);
+    } else {
+      alert("3D viewer is not initialized for 2D top-down export.");
+    }
+    setFileDropdownOpen(false);
+  }, []);
+
   useEffect(() => {
     const h = e => {
       // Don't intercept if typing in an input
@@ -5390,60 +6016,138 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
 
                   <div className="dv-dropdown-panel__title" style={{ marginTop: "10px" }}>Export Options</div>
 
-                  <div style={{ display: "flex", gap: "8px", margin: "0 8px" }}>
-                    {/* Export Designer View */}
-                    <button
-                      className="dv-dropdown-card"
-                      disabled={placed.length === 0}
-                      style={{ flex: 1, flexDirection: "column", padding: "12px 6px", alignItems: "center", justifyContent: "center", gap: "8px", opacity: placed.length === 0 ? 0.4 : 1, cursor: placed.length === 0 ? "not-allowed" : "pointer" }}
-                      onClick={() => { if (placed.length > 0) { setFileDropdownOpen(false); handleOpenExportPreview("design"); } }}                  >
-                      <div className="dv-dropdown-card__icon" style={{ margin: 0 }}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="24" height="24">
-                          <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 21V9" />
-                        </svg>
-                      </div>
-                      <div className="dv-dropdown-card__body" style={{ alignItems: "center" }}>
-                        <span className="dv-dropdown-card__label" style={{ textAlign: "center", fontSize: "11px", lineHeight: "1.2" }}>Designer View</span>
-                      </div>
-                    </button>
-
-                    {/* Export Heatmap */}
-                    <button
-                      className="dv-dropdown-card"
-                      disabled={placed.length === 0}
-                      style={{ flex: 1, flexDirection: "column", padding: "12px 6px", alignItems: "center", justifyContent: "center", gap: "8px", opacity: placed.length === 0 ? 0.4 : 1, cursor: placed.length === 0 ? "not-allowed" : "pointer" }}
-                      onClick={() => { if (placed.length > 0) { setFileDropdownOpen(false); handleOpenExportPreview("heatmap"); } }}
+                  {slides.find(s => s.id === activeSlideId)?.modelDataUrl ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px", margin: "0 8px" }}>
+                      {/* 1. Download Design (.glb) */}
+                      <button
+                        className="dv-dropdown-item-btn"
+                        style={{ background: "rgba(29, 158, 117, 0.12)", border: "1px solid rgba(29, 158, 117, 0.3)", color: "#1D9E75", padding: "8px 10px" }}
+                        onClick={export3DModelGLB}
                       >
-                      <div className="dv-dropdown-card__icon dv-dropdown-card__icon--heatmap" style={{ margin: 0 }}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="24" height="24">
-                          <circle cx="12" cy="12" r="3" />
-                          <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-                        </svg>
-                      </div>
-                      <div className="dv-dropdown-card__body" style={{ alignItems: "center" }}>
-                        <span className="dv-dropdown-card__label" style={{ textAlign: "center", fontSize: "11px", lineHeight: "1.2" }}>Heatmap</span>
-                      </div>
-                    </button>
+                        <div className="dv-dropdown-item-btn__icon" style={{ color: "#1D9E75" }}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                          </svg>
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", textAlign: "left" }}>
+                          <span style={{ fontWeight: 700, fontSize: "12px" }}>Download Design (.glb)</span>
+                          <span style={{ fontSize: "10px", opacity: 0.7 }}>With 3D cameras &amp; solid beams</span>
+                        </div>
+                      </button>
 
-                    {/* Export Clarity Zones */}
-                    <button
-                      className="dv-dropdown-card"
-                      disabled={placed.length === 0}
-                      style={{ flex: 1, flexDirection: "column", padding: "12px 6px", alignItems: "center", justifyContent: "center", gap: "8px", opacity: placed.length === 0 ? 0.4 : 1, cursor: placed.length === 0 ? "not-allowed" : "pointer" }}
-                      onClick={() => { if (placed.length > 0) { setFileDropdownOpen(false); handleOpenExportPreview("dori"); } }}
+                      {/* 2. Download Design 2D */}
+                      <button
+                        className="dv-dropdown-item-btn"
+                        style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-light)", padding: "8px 10px" }}
+                        onClick={() => export3DTopDown(false)}
                       >
-                      <div className="dv-dropdown-card__icon" style={{ color: "#a855f7", margin: 0 }}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="24" height="24">
-                          <circle cx="12" cy="12" r="10" />
-                          <circle cx="12" cy="12" r="6" />
-                          <circle cx="12" cy="12" r="2" />
-                        </svg>
-                      </div>
-                      <div className="dv-dropdown-card__body" style={{ alignItems: "center" }}>
-                        <span className="dv-dropdown-card__label" style={{ textAlign: "center", fontSize: "11px", lineHeight: "1.2" }}>Clarity Zones</span>
-                      </div>
-                    </button>
-                  </div>
+                        <div className="dv-dropdown-item-btn__icon">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                            <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 21V9" />
+                          </svg>
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", textAlign: "left" }}>
+                          <span style={{ fontWeight: 700, fontSize: "12px" }}>Download Design 2D</span>
+                          <span style={{ fontSize: "10px", opacity: 0.7 }}>Pristine top-down 2D snapshot</span>
+                        </div>
+                      </button>
+
+                      {/* 3. Download Heatmap 2D */}
+                      <button
+                        className="dv-dropdown-item-btn"
+                        disabled={!showHeatmap}
+                        title={!showHeatmap ? "Enable the Heatmap layer to download heatmap 2D" : "Download 2D top-down heatmap snapshot"}
+                        style={{
+                          background: showHeatmap ? "rgba(245, 158, 11, 0.12)" : "var(--bg-elevated)",
+                          border: showHeatmap ? "1px solid rgba(245, 158, 11, 0.3)" : "1px solid var(--border-light)",
+                          color: showHeatmap ? "#f59e0b" : "var(--text-secondary)",
+                          padding: "8px 10px",
+                          opacity: !showHeatmap ? 0.45 : 1,
+                          cursor: !showHeatmap ? "not-allowed" : "pointer"
+                        }}
+                        onClick={() => { if (showHeatmap) export3DTopDown(true); }}
+                      >
+                        <div className="dv-dropdown-item-btn__icon" style={{ color: showHeatmap ? "#f59e0b" : "inherit" }}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                            <circle cx="12" cy="12" r="3" />
+                            <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                          </svg>
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", textAlign: "left" }}>
+                          <span style={{ fontWeight: 700, fontSize: "12px" }}>Download Heatmap 2D</span>
+                          <span style={{ fontSize: "10px", opacity: 0.7 }}>{showHeatmap ? "Top-down coverage heatmap" : "Requires Heatmap layer active"}</span>
+                        </div>
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", gap: "8px", margin: "0 8px" }}>
+                      {/* Export Designer View */}
+                      <button
+                        className="dv-dropdown-card"
+                        disabled={placed.length === 0}
+                        style={{ flex: 1, flexDirection: "column", padding: "12px 6px", alignItems: "center", justifyContent: "center", gap: "8px", opacity: placed.length === 0 ? 0.4 : 1, cursor: placed.length === 0 ? "not-allowed" : "pointer" }}
+                        onClick={() => { if (placed.length > 0) { setFileDropdownOpen(false); handleOpenExportPreview("design"); } }}
+                      >
+                        <div className="dv-dropdown-card__icon" style={{ margin: 0 }}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="24" height="24">
+                            <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 21V9" />
+                          </svg>
+                        </div>
+                        <div className="dv-dropdown-card__body" style={{ alignItems: "center" }}>
+                          <span className="dv-dropdown-card__label" style={{ textAlign: "center", fontSize: "11px", lineHeight: "1.2" }}>Designer View</span>
+                        </div>
+                      </button>
+
+                      {/* Export Heatmap */}
+                      <button
+                        className="dv-dropdown-card"
+                        disabled={placed.length === 0 || !showHeatmap}
+                        title={!showHeatmap ? "Enable the Heatmap layer to download heatmap" : "Export Heatmap"}
+                        style={{
+                          flex: 1,
+                          flexDirection: "column",
+                          padding: "12px 6px",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: "8px",
+                          opacity: (placed.length === 0 || !showHeatmap) ? 0.4 : 1,
+                          cursor: (placed.length === 0 || !showHeatmap) ? "not-allowed" : "pointer"
+                        }}
+                        onClick={() => { if (placed.length > 0 && showHeatmap) { setFileDropdownOpen(false); handleOpenExportPreview("heatmap"); } }}
+                      >
+                        <div className="dv-dropdown-card__icon dv-dropdown-card__icon--heatmap" style={{ margin: 0 }}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="24" height="24">
+                            <circle cx="12" cy="12" r="3" />
+                            <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                          </svg>
+                        </div>
+                        <div className="dv-dropdown-card__body" style={{ alignItems: "center" }}>
+                          <span className="dv-dropdown-card__label" style={{ textAlign: "center", fontSize: "11px", lineHeight: "1.2" }}>Heatmap</span>
+                        </div>
+                      </button>
+
+                      {/* Export Clarity Zones */}
+                      <button
+                        className="dv-dropdown-card"
+                        disabled={placed.length === 0}
+                        style={{ flex: 1, flexDirection: "column", padding: "12px 6px", alignItems: "center", justifyContent: "center", gap: "8px", opacity: placed.length === 0 ? 0.4 : 1, cursor: placed.length === 0 ? "not-allowed" : "pointer" }}
+                        onClick={() => { if (placed.length > 0) { setFileDropdownOpen(false); handleOpenExportPreview("dori"); } }}
+                      >
+                        <div className="dv-dropdown-card__icon" style={{ color: "#a855f7", margin: 0 }}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="24" height="24">
+                            <circle cx="12" cy="12" r="10" />
+                            <circle cx="12" cy="12" r="6" />
+                            <circle cx="12" cy="12" r="2" />
+                          </svg>
+                        </div>
+                        <div className="dv-dropdown-card__body" style={{ alignItems: "center" }}>
+                          <span className="dv-dropdown-card__label" style={{ textAlign: "center", fontSize: "11px", lineHeight: "1.2" }}>Clarity Zones</span>
+                        </div>
+                      </button>
+                    </div>
+                  )}
 
                   {hasFloor && (
                     <>
@@ -5467,7 +6171,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
               )}
             </div>
            
-            <input ref={fileInputRef} type="file" accept="image/*,.pdf" style={{ display: "none" }} onChange={handleFileChange} />
+            <input ref={fileInputRef} type="file" accept="image/*,.pdf,.gltf,.glb,.html,.htm" style={{ display: "none" }} onChange={handleFileChange} />
             <input ref={jsonFileInputRef} type="file" accept=".json" style={{ display: "none" }} onChange={handleJsonImport} />
             <input ref={datasheetInputRef} type="file" accept=".pdf" style={{ display: "none" }} onChange={handleDatasheetUpload} />
 
@@ -5632,16 +6336,21 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                     {/* Calibrate */}
                     <button
                       className={`dv-dropdown-card ${mode === "calibrate" ? "dv-dropdown-card--active" : ""}`}
-                      onClick={() => { setMode("calibrate"); setCalPts([]); setMouseMapPos(null); setSelectedIdx(null); setSelectedModel(null); setModesDropdownOpen(false); draw(); }}
+                      onClick={() => { setCalibrateMode(); setModesDropdownOpen(false); }}
                     >
                       <div className="dv-dropdown-card__icon">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="24" height="24">
-                          <path d="M4 19h16M4 5h16M12 5v14M8 12h8" />
+                          <circle cx="12" cy="12" r="10"/>
+                          <line x1="22" y1="12" x2="18" y2="12"/>
+                          <line x1="6" y1="12" x2="2" y2="12"/>
+                          <line x1="12" y1="6" x2="12" y2="2"/>
+                          <line x1="12" y1="22" x2="12" y2="18"/>
+                          <circle cx="12" cy="12" r="3"/>
                         </svg>
                       </div>
                       <div className="dv-dropdown-card__body">
                         <span className="dv-dropdown-card__label">Calibrate</span>
-                        {/* <span className="dv-dropdown-card__desc">Visually measure scale with tape line</span> */}
+                        {/* <span className="dv-dropdown-card__desc">Calibrate layout scale & distortion</span> */}
                       </div>
                       {mode === "calibrate" && <span className="dv-dropdown-card__check">✓</span>}
                     </button>
@@ -5902,6 +6611,57 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
               />
               <span style={{ fontSize: "12px", color: "var(--text-secondary)", fontWeight: 600 }}>px/m</span>
             </div>
+
+            {/* ── Calibration Status Badge ── */}
+            {hasFloor && (slides.find(s => s.id === activeSlideId)?.calibration?.enabled || slides.find(s => s.id === activeSlideId)?.modelDataUrl ? (
+              <button
+                className="dv-icon-btn"
+                onClick={slides.find(s => s.id === activeSlideId)?.modelDataUrl ? undefined : setCalibrateMode}
+                title={
+                  slides.find(s => s.id === activeSlideId)?.modelDataUrl
+                    ? "3D layouts are inherently autocalibrated in real-world metric scale (1 unit = 1 meter)."
+                    : "Layout scale is calibrated. Click to recalibrate or adjust."
+                }
+                style={{
+                  background: "rgba(16, 185, 129, 0.12)",
+                  color: "#10b981",
+                  border: "1px solid rgba(16, 185, 129, 0.35)",
+                  cursor: slides.find(s => s.id === activeSlideId)?.modelDataUrl ? "default" : "pointer",
+                  gap: "5px",
+                  padding: "4px 8px"
+                }}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" width="13" height="13">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                <span style={{ fontSize: "12px", fontWeight: "600" }}>
+                  {slides.find(s => s.id === activeSlideId)?.modelDataUrl
+                    ? `3D Autocalibrated (${(slides.find(s => s.id === activeSlideId)?.calibration?.ppm || slides.find(s => s.id === activeSlideId)?.ppm || 25.0).toFixed(1)} px/m)`
+                    : slides.find(s => s.id === activeSlideId)?.calibration?.mode === "advanced"
+                    ? "Calibrated (Advanced)"
+                    : `Calibrated (${slides.find(s => s.id === activeSlideId)?.calibration?.ppm ? slides.find(s => s.id === activeSlideId).calibration.ppm.toFixed(1) : (ppm ? ppm.toFixed(1) : "22.0")} px/m)`}
+                </span>
+              </button>
+            ) : hasFloor ? (
+              <button
+                className="dv-icon-btn"
+                onClick={setCalibrateMode}
+                title="This floor plan has no scale calibration. Click to calibrate layout scale."
+                style={{
+                  background: "#fef3c7",
+                  color: "#92400e",
+                  border: "1px solid #fcd34d",
+                  cursor: "pointer",
+                  gap: "4px",
+                  padding: "4px 8px"
+                }}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <span style={{ fontSize: "12px", fontWeight: "600" }}>⚠️ Not calibrated</span>
+              </button>
+            ) : null)}
 
             {selectedPlaced && (
               <button className="dv-icon-btn dv-icon-btn--danger" onClick={removeSelected}>
@@ -6286,6 +7046,24 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                         overflow: "hidden"
                       }}
                     >
+                      {slide.modelDataUrl && (
+                        <div style={{
+                          position: "absolute",
+                          top: "4px",
+                          left: "4px",
+                          background: "rgba(29, 158, 117, 0.9)",
+                          color: "#fff",
+                          fontSize: "8.5px",
+                          fontWeight: "800",
+                          padding: "1px 5px",
+                          borderRadius: "3px",
+                          letterSpacing: "0.5px",
+                          zIndex: 2
+                        }}>
+                          3D
+                        </div>
+                      )}
+
                       {slide.floorPlan ? (
                         <img
                           src={slide.floorPlan}
@@ -6648,9 +7426,24 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                       ) : (
                         placed.map((p, idx) => {
                           const col = TYPE_COLORS[p.camera.type] || "#3b82f6";
-                          const isHighlit = highlightedCamId === p.id;
+                          const isSelected = selectedIdx === idx;
+                          const isHighlit = highlightedCamId === p.id || isSelected;
                           return (
-                            <div key={p.id} style={{ display: "flex", flexDirection: "column", background: isHighlit ? col + "11" : "transparent", borderLeft: isHighlit ? `2.5px solid ${col}` : "2.5px solid transparent", marginBottom: 2, padding: "8px 10px", cursor: "pointer", transition: "all 0.15s" }} onClick={() => handleHighlightCam(p.id)}>
+                            <div
+                              key={p.id}
+                              style={{
+                                display: "flex", flexDirection: "column",
+                                background: isSelected ? col + "22" : (isHighlit ? col + "11" : "transparent"),
+                                borderLeft: isSelected || isHighlit ? `3px solid ${col}` : "3px solid transparent",
+                                marginBottom: 2, padding: "8px 10px", cursor: "pointer", transition: "all 0.15s"
+                              }}
+                              onClick={() => {
+                                setSelectedIdx(idx);
+                                setSelectedModel(p.camera);
+                                setIsSettingsMinimized(false);
+                                handleHighlightCam(p.id);
+                              }}
+                            >
                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                   <CameraIcon type={p.camera.type} size={18} color={col} />
                                   <input
@@ -6854,96 +7647,204 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
         <div className="dv-canvas-wrap" ref={wrapRef}
           onDragOver={e => e.preventDefault()}
           onDrop={onDrop}
-          style={{ position: "relative" }}
+          style={{ position: "relative", zIndex: 1 }}
         >
-          {/* Zone Edit Toolbars */}
-          {zones.map(z => {
-            if (z.polygon.length < 3) return null;
-            let sumX = 0; let sumY = 0;
-            z.polygon.forEach(pt => { sumX += pt.x; sumY += pt.y; });
-            const centroidX = sumX / z.polygon.length;
-            const centroidY = sumY / z.polygon.length;
+          {slides.find(s => s.id === activeSlideId)?.modelDataUrl ? (
+            <Gltf3DViewer
+              ref={gltfViewerRef}
+              modelUrl={slides.find(s => s.id === activeSlideId).modelDataUrl}
+              markers={gltfMarkers}
+              cameras={gltfCameras}
+              showHeatmap={showHeatmap}
+              iconScale={iconScale}
+              showPpm={showPpm}
+              showMetricsVisibility={showMetricsVisibility}
+              isPanLocked={isPanLocked}
+              selectedIdx={selectedIdx}
+              onSelectCamera={(idx) => {
+                setSelectedIdx(idx);
+                if (placedRef.current && placedRef.current[idx]) {
+                  setSelectedModel(placedRef.current[idx].camera);
+                }
+              }}
+              imageSize={{
+                width: slides.find(s => s.id === activeSlideId)?.imageWidth || floorImgRef.current?.width || 2048,
+                height: slides.find(s => s.id === activeSlideId)?.imageHeight || floorImgRef.current?.height || 2048
+              }}
+              updateMarkers={handleUpdate3DMarkers}
+            />
+          ) : (
+            <>
+              {/* Calibration Overlay */}
+              {(calibRefs.length > 0 || drawingCalibLine) && (
+                <CalibrationOverlay
+                  references={calibRefs}
+                  activeRefId={activeCalibRefId}
+                  drawingLine={drawingCalibLine}
+                  scale={scaleRef.current || 1}
+                  offset={offsetRef.current || { x: 0, y: 0 }}
+                  calibType={calibType}
+                  showGrid={showPreviewGrid}
+                  imageDimensions={{
+                    width: floorImgRef.current?.width || 2000,
+                    height: floorImgRef.current?.height || 2000
+                  }}
+                />
+              )}
 
-            const sc = scaleRef.current || 1;
-            const ox = offsetRef.current?.x || 0;
-            const oy = offsetRef.current?.y || 0;
-            
-            // Place at the first vertex
-            const firstPt = z.polygon[0];
-            const screenX = firstPt.x * sc + ox - 10;
-            const screenY = firstPt.y * sc + oy - 10;
-            
-            const isEditing = editZoneId === z.id;
+              {/* Zone Edit Toolbars */}
+              {zones.map(z => {
+                if (z.polygon.length < 3) return null;
+                let sumX = 0; let sumY = 0;
+                z.polygon.forEach(pt => { sumX += pt.x; sumY += pt.y; });
+                const centroidX = sumX / z.polygon.length;
+                const centroidY = sumY / z.polygon.length;
 
-            return (
-              <div key={`edit_tb_${z.id}`} style={{
-                position: "absolute", left: screenX, top: screenY,
-                transform: "translate(-100%, -100%)", display: "flex", gap: "2px",
-                background: "var(--bg-elevated)", padding: "2px 4px",
-                backdropFilter: "blur(4px)",
-                borderRadius: "3px", border: `1px solid ${z.color}`,
-                boxShadow: "var(--shadow-md)", zIndex: 90, pointerEvents: "auto",
-                alignItems: "center"
-              }}>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setEditZoneId(isEditing ? null : z.id); draw(); }}
-                  style={{ background: "none", border: "none", color: isEditing ? "var(--purple)" : "var(--text-secondary)", cursor: "pointer", display: "flex", alignItems: "center", padding: 0 }}
-                  title={isEditing ? "Done Editing" : "Edit Zone"}
-                >
-                  {isEditing ? (
-                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                  ) : (
-                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
-                  )}
-                </button>
-                {isEditing && (
-                  <>
-                    <div
-                      onMouseDown={(e) => {
-                        e.stopPropagation(); e.preventDefault();
-                        const startX = e.clientX;
-                        const initialPolygon = JSON.parse(JSON.stringify(z.polygon));
-                        const onMove = (moveEvent) => {
-                          const dx = moveEvent.clientX - startX;
-                          const scaleFactor = Math.max(0.1, 1 + dx / 100);
-                          const updated = zonesRef.current.map(zone => {
-                            if (zone.id === z.id) {
-                              return { ...zone, polygon: initialPolygon.map(pt => ({ x: centroidX + (pt.x - centroidX) * scaleFactor, y: centroidY + (pt.y - centroidY) * scaleFactor })) };
-                            }
-                            return zone;
-                          });
-                          zonesRef.current = updated;
-                          setZones(updated);
-                          draw();
-                        };
-                        const onUp = () => {
-                          window.removeEventListener("mousemove", onMove);
-                          window.removeEventListener("mouseup", onUp);
-                          if (typeof scheduleSave === 'function') scheduleSave(placedRef.current, zonesRef.current, ppmRef.current);
-                        };
-                        window.addEventListener("mousemove", onMove);
-                        window.addEventListener("mouseup", onUp);
-                      }}
-                      style={{ background: "none", border: "none", color: "#3b82f6", cursor: "ew-resize", display: "flex", alignItems: "center" }}
-                      title="Drag to Scale"
+                const sc = scaleRef.current || 1;
+                const ox = offsetRef.current?.x || 0;
+                const oy = offsetRef.current?.y || 0;
+                
+                // Place at the first vertex
+                const firstPt = z.polygon[0];
+                const screenX = firstPt.x * sc + ox - 10;
+                const screenY = firstPt.y * sc + oy - 10;
+                
+                const isEditing = editZoneId === z.id;
+
+                return (
+                  <div key={`edit_tb_${z.id}`} style={{
+                    position: "absolute", left: screenX, top: screenY,
+                    transform: "translate(-100%, -100%)", display: "flex", gap: "2px",
+                    background: "var(--bg-elevated)", padding: "2px 4px",
+                    backdropFilter: "blur(4px)",
+                    borderRadius: "3px", border: `1px solid ${z.color}`,
+                    boxShadow: "var(--shadow-md)", zIndex: 90, pointerEvents: "auto",
+                    alignItems: "center"
+                  }}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setEditZoneId(isEditing ? null : z.id); draw(); }}
+                      style={{ background: "none", border: "none", color: isEditing ? "var(--purple)" : "var(--text-secondary)", cursor: "pointer", display: "flex", alignItems: "center", padding: 0 }}
+                      title={isEditing ? "Done Editing" : "Edit Zone"}
                     >
-                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
-                    </div>
-                  </>
-                )}
-              </div>
-            );
-          })}
-          <canvas ref={canvasRef} className="dv-canvas"
-            style={{ cursor: mode === "pan" ? "grab" : undefined }}
-            onMouseDown={onMouseDown}
-            onMouseMove={onMouseMove}
-            onMouseUp={onMouseUp}
-            onMouseLeave={onMouseUp}
-            onDoubleClick={onDoubleClick}
-            onContextMenu={onContextMenu}
-          />
-          <DoriLegendCard show={showPpm} onClose={() => setShowPpm(false)} />
+                      {isEditing ? (
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                      ) : (
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                      )}
+                    </button>
+                    {isEditing && (
+                      <>
+                        <div
+                          onMouseDown={(e) => {
+                            e.stopPropagation(); e.preventDefault();
+                            const startX = e.clientX;
+                            const initialPolygon = JSON.parse(JSON.stringify(z.polygon));
+                            const onMove = (moveEvent) => {
+                              const dx = moveEvent.clientX - startX;
+                              const scaleFactor = Math.max(0.1, 1 + dx / 100);
+                              const updated = zonesRef.current.map(zone => {
+                                if (zone.id === z.id) {
+                                  return { ...zone, polygon: initialPolygon.map(pt => ({ x: centroidX + (pt.x - centroidX) * scaleFactor, y: centroidY + (pt.y - centroidY) * scaleFactor })) };
+                                }
+                                return zone;
+                              });
+                              zonesRef.current = updated;
+                              setZones(updated);
+                              draw();
+                            };
+                            const onUp = () => {
+                              window.removeEventListener("mousemove", onMove);
+                              window.removeEventListener("mouseup", onUp);
+                              if (typeof scheduleSave === 'function') scheduleSave(placedRef.current, zonesRef.current, ppmRef.current);
+                            };
+                            window.addEventListener("mousemove", onMove);
+                            window.addEventListener("mouseup", onUp);
+                          }}
+                          style={{ background: "none", border: "none", color: "#3b82f6", cursor: "ew-resize", display: "flex", alignItems: "center" }}
+                          title="Drag to Scale"
+                        >
+                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+              <canvas ref={canvasRef} className="dv-canvas"
+                style={{ cursor: mode === "pan" ? "grab" : undefined }}
+                onMouseDown={onMouseDown}
+                onMouseMove={onMouseMove}
+                onMouseUp={onMouseUp}
+                onMouseLeave={onMouseUp}
+                onDoubleClick={onDoubleClick}
+                onContextMenu={onContextMenu}
+              />
+            </>
+          )}
+
+          {/* Layout Calibration Control Panel */}
+          {mode === "calibrate" && calibPanelOpen && (
+            <CalibrationPanel
+              isOpen={calibPanelOpen}
+              calibType={calibType}
+              onSelectCalibType={(t) => {
+                setCalibType(t);
+                calibTypeRef.current = t;
+                if (t === "standard" && calibRefs.length > 1) {
+                  setCalibRefs([calibRefs[0]]);
+                  calibRefsRef.current = [calibRefs[0]];
+                  setActiveCalibRefId(calibRefs[0].id);
+                  activeCalibRefIdRef.current = calibRefs[0].id;
+                }
+              }}
+              references={calibRefs}
+              activeRefId={activeCalibRefId}
+              isDrawingRef={Boolean(drawingCalibLine)}
+              showPreviewGrid={showPreviewGrid}
+              onTogglePreviewGrid={() => setShowPreviewGrid(prev => !prev)}
+              onStartAddRef={() => {}}
+              onUpdateRefDistance={(refId, realDist, unit) => {
+                const updated = calibRefs.map(r => {
+                  if (r.id !== refId) return r;
+                  const meters = unit === "feet" ? realDist * 0.3048 : realDist;
+                  return {
+                    ...r,
+                    realDistance: realDist,
+                    unit,
+                    realDistanceMeters: meters,
+                  };
+                });
+                setCalibRefs(updated);
+                calibRefsRef.current = updated;
+              }}
+              onDeleteRef={(refId) => {
+                const updated = calibRefs.filter(r => r.id !== refId);
+                setCalibRefs(updated);
+                calibRefsRef.current = updated;
+                if (activeCalibRefId === refId) {
+                  setActiveCalibRefId(null);
+                  activeCalibRefIdRef.current = null;
+                }
+              }}
+              onSelectRef={(refId) => {
+                setActiveCalibRefId(refId);
+                activeCalibRefIdRef.current = refId;
+              }}
+              onApplyCalibration={handleApplyCalibration}
+              onClearCalibration={handleClearCalibration}
+              onClose={() => {
+                setCalibPanelOpen(false);
+                setMode("place");
+                modeRef.current = "place";
+                draw();
+              }}
+              imageDimensions={
+                floorImgRef.current
+                  ? { width: floorImgRef.current.width, height: floorImgRef.current.height }
+                  : { width: 2000, height: 2000 }
+              }
+            />
+          )}
 
           {/* ── Google Map Inside Canvas ── */}
           {showEarthMap && (
@@ -7061,7 +7962,6 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
 
 
           <HeatmapLayer
-            // isDesignerView={true}
             markers={heatmapMarkers}
             cameras={heatmapCameras}
             scaleRef={scaleRef}
@@ -7071,7 +7971,14 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
             floorImgRef={floorImgRef}
             activeZone={activeZone}
             zones={zones}
+            onlyLegend={Boolean(slides.find(s => s.id === activeSlideId)?.modelDataUrl)}
             onClose={() => setShowHeatmap(false)}
+          />
+
+          <DoriLegendCard
+            show={showPpm}
+            onClose={() => setShowPpm(false)}
+            camera={(selectedIdx !== null && placed[selectedIdx]?.camera) || placed[placed.length - 1]?.camera || placed[0]?.camera}
           />
 
           {hasCropSelection && mode === "crop" && (
@@ -7095,8 +8002,71 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
 
 
 
+          {/* Floating Pan Lock Top Banner Badge */}
+          {isPanLocked && (
+            <div style={{
+              position: "absolute",
+              top: "16px",
+              left: "50%",
+              transform: "translateX(-50%)",
+              background: "rgba(239, 68, 68, 0.92)",
+              color: "#ffffff",
+              padding: "5px 14px",
+              borderRadius: "20px",
+              fontSize: "12px",
+              fontWeight: 700,
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              boxShadow: "0 4px 14px rgba(239, 68, 68, 0.4)",
+              zIndex: 10,
+              pointerEvents: "none"
+            }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" width="13" height="13">
+                <path d="M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2zm-11 0V7a4 4 0 0 1 8 0v4" />
+              </svg>
+              Canvas Pan Locked
+            </div>
+          )}
+
           {/* Floating Zoom HUD */}
           <div className="dv-zoom-hud">
+            <button
+              className={`dv-zbtn ${isPanLocked ? "active" : ""}`}
+              onClick={togglePanLock}
+              title={isPanLocked ? "Pan Locked (Click to unlock canvas panning)" : "Lock Pan (Click to freeze canvas position)"}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: "32px",
+                height: "30px",
+                padding: "0",
+                background: isPanLocked ? "rgba(239, 68, 68, 0.28)" : "transparent",
+                color: isPanLocked ? "#f87171" : "var(--text-primary)",
+                border: isPanLocked ? "1px solid rgba(239, 68, 68, 0.6)" : "1px solid transparent",
+                borderRadius: "6px",
+                cursor: "pointer",
+                boxShadow: isPanLocked ? "0 0 12px rgba(239, 68, 68, 0.45)" : "none",
+                transform: isPanLocked ? "scale(1.1)" : "scale(1)",
+                transition: "all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)"
+              }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" width="20" height="20" style={{ transition: "transform 0.25s ease" }}>
+                {isPanLocked ? (
+                  <>
+                    <rect x="5" y="11" width="14" height="10" rx="2" ry="2" />
+                    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                  </>
+                ) : (
+                  <>
+                    <rect x="5" y="11" width="14" height="10" rx="2" ry="2" />
+                    <path d="M8 11V6a4 4 0 0 1 8 0" />
+                  </>
+                )}
+              </svg>
+            </button>
+            <div className="dv-zoom-hud-divider" style={{ width: "1px", height: "14px", background: "var(--border-light)", margin: "0 4px" }} />
             <button className="dv-zbtn dv-zbtn--fit" onClick={fitImage}>Fit</button>
             <div className="dv-zoom-hud-divider" style={{ width: "1px", height: "14px", background: "var(--border-light)", margin: "0 4px" }} />
             <button className="dv-zbtn" onClick={() => { const el = wrapRef.current; if (el) applyZoom(-0.2, el.clientWidth / 2, el.clientHeight / 2); }} title="Zoom Out">−</button>
@@ -7129,13 +8099,6 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
             <button className="dv-zbtn" onClick={() => { const el = wrapRef.current; if (el) applyZoom(0.2, el.clientWidth / 2, el.clientHeight / 2); }} title="Zoom In">+</button>
           </div>
 
-          {/* ── Visual Scale Bar overlay ── */}
-          {hasFloor && (
-            <div className="dv-scale-bar-overlay" title={`Map Scale: ${ppm} px/m`}>
-              <span className="dv-scale-bar-text">{scaleParams.meters} m</span>
-              <div className="dv-scale-bar-line" style={{ width: scaleParams.width }} />
-            </div>
-          )}
 
           {placed.length === 0 && mode !== "zone" && (
             <div className="dv-drop-hint">
@@ -7470,191 +8433,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
 
       {/* ── Text Edit Modal Removed ── */}
 
-      {showCalibrateModal && (
-        <div className="dv-automate-overlay">
-          <div className="dv-stats-panel" style={{ width: 380, padding: 20 }}>
-            <div className="dv-stats-panel__header" style={{ paddingBottom: 12, marginBottom: 16 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div className="dv-stats-panel__icon" style={{ background: "#f59e0b15", color: "#f59e0b" }}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
-                    <line x1="2" y1="12" x2="22" y2="12" />
-                    <line x1="5" y1="9" x2="5" y2="15" />
-                    <line x1="10" y1="9" x2="10" y2="15" />
-                    <line x1="15" y1="9" x2="15" y2="15" />
-                    <line x1="20" y1="9" x2="20" y2="15" />
-                  </svg>
-                </div>
-                <div>
-                  <div className="dv-stats-panel__title" style={{ fontSize: 18, fontWeight: 700 }}>Calibrate Map Scale</div>
-                  <div className="dv-stats-panel__sub" style={{ fontSize: 15 }}>Define real-world dimensions</div>
-                </div>
-              </div>
-              <button className="dv-stats-panel__close" onClick={() => {
-                setCalPts([]);
-                calPtsRef.current = [];
-                setShowCalibrateModal(false);
-                setMode("pan");
-                draw();
-              }}>✕</button>
-            </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <p style={{ fontSize: 16, color: "var(--text-secondary)", lineHeight: 1.5 }}>
-                You have measured a box of:
-                <br />
-                • Width: <strong style={{ color: "#f59e0b" }}>{Math.round(Math.abs(calPts[1]?.x - calPts[0]?.x))} px</strong>
-                <br />
-                • Length: <strong style={{ color: "#f59e0b" }}>{Math.round(Math.abs(calPts[1]?.y - calPts[0]?.y))} px</strong>
-              </p>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <label style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)" }}>Real-World Width (meters)</label>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <input
-                      type="number"
-                      step="any"
-                      value={calibrateRealWidth}
-                      onChange={e => setCalibrateRealWidth(e.target.value)}
-                      style={{
-                        flex: 1,
-                        background: "var(--bg-input)",
-                        border: "1px solid var(--border)",
-                        borderRadius: 4,
-                        color: "var(--text-primary)",
-                        fontSize: 17,
-                        padding: "8px 10px",
-                        outline: "none"
-                      }}
-                      placeholder="e.g. 10.0"
-                      autoFocus
-                    />
-                    <span style={{ fontSize: 17, color: "var(--text-secondary)" }}>meters</span>
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <label style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)" }}>Real-World Length (meters)</label>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <input
-                      type="number"
-                      step="any"
-                      value={calibrateRealLength}
-                      onChange={e => setCalibrateRealLength(e.target.value)}
-                      style={{
-                        flex: 1,
-                        background: "var(--bg-input)",
-                        border: "1px solid var(--border)",
-                        borderRadius: 4,
-                        color: "var(--text-primary)",
-                        fontSize: 17,
-                        padding: "8px 10px",
-                        outline: "none"
-                      }}
-                      placeholder="e.g. 8.0"
-                    />
-                    <span style={{ fontSize: 17, color: "var(--text-secondary)" }}>meters</span>
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <label style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)" }}>Real-World Height (meters)</label>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <input
-                      type="number"
-                      step="any"
-                      value={calibrateRealHeight}
-                      onChange={e => setCalibrateRealHeight(e.target.value)}
-                      style={{
-                        flex: 1,
-                        background: "var(--bg-input)",
-                        border: "1px solid var(--border)",
-                        borderRadius: 4,
-                        color: "var(--text-primary)",
-                        fontSize: 17,
-                        padding: "8px 10px",
-                        outline: "none"
-                      }}
-                      placeholder="e.g. 3.0"
-                    />
-                    <span style={{ fontSize: 17, color: "var(--text-secondary)" }}>meters</span>
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
-                <button
-                  className="mv-modal__btn mv-modal__btn--cancel"
-                  onClick={() => {
-                    setCalPts([]);
-                    calPtsRef.current = [];
-                    setShowCalibrateModal(false);
-                    setMode("pan");
-                    draw();
-                  }}
-                  style={{
-                    background: "transparent",
-                    border: "1px solid var(--border)",
-                    borderRadius: 4,
-                    color: "var(--text-secondary)",
-                    padding: "8px 16px",
-                    cursor: "pointer",
-                    fontSize: 16
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="mv-modal__btn mv-modal__btn--confirm"
-                  onClick={() => {
-                    const wMeters = parseFloat(calibrateRealWidth);
-                    const lMeters = parseFloat(calibrateRealLength);
-                    const hMeters = parseFloat(calibrateRealHeight);
-                   
-                    const dx = Math.abs(calPts[1].x - calPts[0].x);
-                    const dy = Math.abs(calPts[1].y - calPts[0].y);
-                   
-                    let ppmVals = [];
-                    if (wMeters > 0 && dx > 0.1) {
-                      ppmVals.push(dx / wMeters);
-                    }
-                    if (hMeters > 0 && dy > 0.1) {
-                      ppmVals.push(dy / hMeters);
-                    } else if (lMeters > 0 && dy > 0.1) {
-                      ppmVals.push(dy / lMeters);
-                    }
-                   
-                    if (ppmVals.length > 0) {
-                      const newPpm = ppmVals.reduce((a, b) => a + b, 0) / ppmVals.length;
-                      setPpm(newPpm);
-                      ppmRef.current = newPpm;
-                      scheduleSave(placedRef.current, zonesRef.current, newPpm);
-                    }
-                   
-                    setCalPts([]);
-                    calPtsRef.current = [];
-                    setShowCalibrateModal(false);
-                    setMode("pan");
-                    draw();
-                  }}
-                  style={{
-                    background: "#f59e0b",
-                    border: "none",
-                    borderRadius: 4,
-                    color: "#000",
-                    fontWeight: 700,
-                    padding: "8px 16px",
-                    cursor: "pointer",
-                    fontSize: 16
-                  }}
-                >
-                  Apply Scale
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 {exportPreviewOpen && (
         <ExportPreviewModal
           baseDataUrl={exportPreviewDataUrl}
@@ -8601,6 +9380,7 @@ function ZoneNameModal({ onSave, onCancel, existingNames }) {
   function handleSave() {
     const trimmed = name.trim();
     if (!trimmed) { setErr("Zone name is required."); return; }
+    if (!/^[a-zA-Z0-9 _-]+$/.test(trimmed)) { setErr("Zone Name can only contain alphanumeric characters, spaces, dashes, and underscores."); return; }
     if (existingNames.includes(trimmed)) { setErr("A zone with this name already exists."); return; }
     onSave(trimmed);
   }

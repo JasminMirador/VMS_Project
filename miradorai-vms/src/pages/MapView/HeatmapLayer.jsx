@@ -17,13 +17,15 @@ export default function HeatmapLayer({
   activeZone,
   zones = [],
   onClose,
+  onlyLegend = false,
 }) {
   const densityRef = useRef(null);
 
   useEffect(() => {
+    if (onlyLegend) return;
     const canvas = densityRef.current;
     if (!canvas) return;
-    const wrap = wrapRef.current;
+    const wrap = wrapRef?.current;
     if (!wrap) return;
 
     const W = wrap.clientWidth;
@@ -41,15 +43,15 @@ export default function HeatmapLayer({
     drawHeatmapToContext(ctx, W, H, {
       markers,
       cameras,
-      scale:     scaleRef.current,
-      offset:    offsetRef.current,
+      scale:     scaleRef?.current || 1,
+      offset:    offsetRef?.current || { x: 0, y: 0 },
       activeZone,
       allZones:  zones,
-      floorImg:  floorImgRef.current,
+      floorImg:  floorImgRef?.current,
       step:      3,
     });
   }, [showHeatmap, markers, cameras, scaleRef, offsetRef, wrapRef,
-      floorImgRef, activeZone, zones]);
+      floorImgRef, activeZone, zones, onlyLegend]);
 
   const [translate, setTranslate] = useState({ x: 0, y: 0 });
 
@@ -76,11 +78,13 @@ export default function HeatmapLayer({
 
   return (
     <>
-      <canvas
-        ref={densityRef}
-        className="mv-heatmap-density-canvas"
-        style={{ display: showHeatmap ? "block" : "none" }}
-      />
+      {!onlyLegend && (
+        <canvas
+          ref={densityRef}
+          className="mv-heatmap-density-canvas"
+          style={{ display: showHeatmap ? "block" : "none" }}
+        />
+      )}
 
       {showHeatmap && (
         <div 

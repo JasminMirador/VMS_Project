@@ -1,6 +1,6 @@
 import os
 from datetime import datetime, timedelta
-from jose import JWTError, jwt
+from jose import JWTError, jwt, jwe
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import uuid
@@ -54,14 +54,20 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 365 * 24 * 60 # 365 days
 
 security_scheme = HTTPBearer(auto_error=False)
 
-def create_token(email: str, role: str, session_id: str = None):
-    to_encode = {"sub": email, "role": role}
+def create_token(user_id: str, role: str, session_id: str = None):
+    to_encode = {"sub": user_id, "role": role}
     if session_id:
         to_encode["sid"] = session_id
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, PRIVATE_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+    
+    # 1. Sign the payload (JWS)
+    signed_jwt = jwt.encode(to_encode, PRIVATE_KEY, algorithm=ALGORITHM)
+    
+    # 2. Encrypt the signed token (JWE)
+    encrypted_jwt = jwe.encrypt(signed_jwt.encode("utf-8"), PUBLIC_KEY, algorithm="RSA-OAEP", encryption="A256GCM")
+    
+    return encrypted_jwt.decode("utf-8")
 
 def verify_token(request: Request, credentials: HTTPAuthorizationCredentials = Depends(security_scheme)):
     token = None
@@ -78,7 +84,15 @@ def verify_token(request: Request, credentials: HTTPAuthorizationCredentials = D
         )
         
     try:
-        payload = jwt.decode(token, PUBLIC_KEY, algorithms=[ALGORITHM])
+        # Try to decrypt JWE first
+        try:
+            decrypted_bytes = jwe.decrypt(token, PRIVATE_KEY)
+            token_to_verify = decrypted_bytes.decode("utf-8")
+        except Exception:
+            # Fallback for backward compatibility with unencrypted JWS tokens
+            token_to_verify = token
+
+        payload = jwt.decode(token_to_verify, PUBLIC_KEY, algorithms=[ALGORITHM])
         
         # Concurrent session check
         from app.core.database import db as _db

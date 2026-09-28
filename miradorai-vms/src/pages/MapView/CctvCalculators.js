@@ -131,10 +131,51 @@ export function calculatePPM(horizontalPixels, sceneWidthMeters) {
  */
 export function getClarityFromPPM(ppm) {
   if (ppm >= 250) return { label: "Identification (I)", color: "#a855f7" }; // Purple
-  if (ppm >= 125) return { label: "Recognition (R)", color: "#f97316" };    // Orange
+  if (ppm >= 125) return { label: "Recognition (R)", color: "#ef4444" };    // Red
   if (ppm >= 62)  return { label: "Observation (O)", color: "#eab308" };     // Yellow
   if (ppm >= 25)  return { label: "Detection (D)", color: "#3b82f6" };       // Blue
   return { label: "Uncovered", color: "#64748b" };                           // Grey
+}
+
+/**
+ * Calculates accurate DORI zone distances in meters based on EN 62676-4 standard.
+ * @param {object} camera 
+ * @returns {object} { identification, recognition, observation, detection, maxDist }
+ */
+export function getDoriDistances(camera) {
+  const cam = camera || {};
+  const specs = cam.specs || cam;
+  const mp = specs.megapixels || cam.megapixels || 2;
+  const resX = specs.resolutionX || cam.resolutionX || (
+    mp === 12 ? 4000 :
+    mp === 8 ? 3840 :
+    mp === 5 ? 2592 :
+    mp === 4 ? 2688 :
+    mp === 2 ? 1920 :
+    Math.round(Math.sqrt((16 / 9) * mp) * 1000) || 1920
+  );
+  const hfov = specs.hfov || cam.hfov || cam.fov || cam.fovAngle || 90;
+  const hfovRad = (hfov * Math.PI) / 180;
+  const tanHalf = Math.max(0.01, Math.tan(hfovRad / 2));
+  const maxDist = specs.rangeDay || cam.rangeDay || specs.range || cam.range || 30;
+
+  const calcDist = (tPpm) => {
+    let d;
+    if (specs.type === "fisheye" || cam.type === "fisheye" || hfov >= 180) {
+      d = (resX / (Math.PI * tPpm)) * 0.35;
+    } else {
+      d = resX / (2 * tPpm * tanHalf);
+    }
+    return Math.min(maxDist, Math.max(0.2, d));
+  };
+
+  return {
+    identification: calcDist(250),
+    recognition: calcDist(125),
+    observation: calcDist(62),
+    detection: calcDist(25),
+    maxDist
+  };
 }
 /**
  * Recommends hardware based on camera count.

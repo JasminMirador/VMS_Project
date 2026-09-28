@@ -6,6 +6,8 @@ import "./UserManagementPage.css";
 
 const API = import.meta.env.VITE_API_URL || "";
 
+import { encryptPassword, getPublicKey } from "../../utils/crypto";
+
 function getAuthHeaders() {
   const token = localStorage.getItem("miradorai_token");
   return token ? { 
@@ -128,10 +130,12 @@ export default function UserManagementPage() {
     }
 
     try {
+      const pubKey = await getPublicKey(API);
+      const encryptedPassword = await encryptPassword(createForm.password, pubKey);
       const res = await fetch(`${API}/api/auth/users`, {
         method: "POST",
         headers: getAuthHeaders(),
-        body: JSON.stringify(createForm)
+        body: JSON.stringify({ ...createForm, password: encryptedPassword })
       });
       const data = await res.json();
       if (res.ok && data.success) {
@@ -186,7 +190,8 @@ export default function UserManagementPage() {
       allowedCameras: editForm.allowedCameras
     };
     if (editForm.newPassword) {
-      payload.password = editForm.newPassword;
+      const pubKey = await getPublicKey(API);
+      payload.password = await encryptPassword(editForm.newPassword, pubKey);
     }
 
     try {

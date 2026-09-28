@@ -2260,7 +2260,7 @@
   left: 20px;
   top: 50%;
   transform: translateY(-50%);
-  z-index: 10;
+  z-index: 1040;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -2937,3 +2937,1280 @@
 .mv-inspector-content .mv-zone-cam-item:hover .mv-zone-cam-item__name {
   color: var(--text-primary) !important;
 }
+
+/* ══════════════════════════════════════════════════════════════
+   FLOOR COLUMN WITH PREVIEW CARDS (Designer View Style)
+   ══════════════════════════════════════════════════════════════ */
+.mv-floors-sidebar {
+  width: 220px;
+  background: var(--bg-base);
+  border-right: 0.5px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow: hidden;
+  user-select: none;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  height: 100%;
+  position: relative;
+  z-index: 5;
+}
+
+.mv-floors-sidebar--collapsed {
+  width: 40px;
+}
+
+.mv-floors-sidebar__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 0.5px solid var(--border);
+  background: var(--bg-base);
+  flex-shrink: 0;
+}
+
+.mv-floors-sidebar--collapsed .mv-floors-sidebar__header {
+  padding: 12px;
+  justify-content: center;
+}
+
+.mv-floors-sidebar__title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted, #7a8499);
+  white-space: nowrap;
+}
+
+.mv-floors-sidebar__add-btn {
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  border-radius: 4px;
+  color: #60a5fa;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  transition: all 0.15s ease;
+}
+
+.mv-floors-sidebar__add-btn:hover {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: #60a5fa;
+  color: #93c5fd;
+}
+
+.mv-floors-sidebar__toggle-btn {
+  background: transparent;
+  border: none;
+  color: #60a5fa;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  outline: none;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.mv-floors-sidebar__toggle-btn:hover {
+  color: var(--teal);
+}
+
+.mv-floors-sidebar__list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.mv-floors-panel__collapsed-list {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.mv-floor-card-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+}
+
+.mv-floor-card-idx {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  width: 14px;
+  margin-top: 6px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.mv-floor-card-idx.active {
+  color: var(--teal);
+}
+
+.mv-floor-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+}
+
+.mv-floor-card:hover {
+  transform: translateY(-1px);
+}
+
+.mv-floor-card.active {
+  border: 1.5px solid var(--teal) !important;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.15) !important;
+  transform: translateY(-1px);
+}
+
+.mv-floor-card:hover .mv-floor-del-btn {
+  opacity: 1 !important;
+}
+
+.mv-floor-del-btn:hover {
+  background: #ef4444 !important;
+  color: #ffffff !important;
+  transform: scale(1.05);
+}
+
+.mv-floor-card img {
+  transition: transform 0.3s ease;
+}
+
+.mv-floor-card:hover img {
+  transform: scale(1.02);
+}
+
+.mv-floor-card__thumb {
+  height: 80px;
+  background: var(--bg-hover);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.mv-floor-card__img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0.85;
+}
+
+.mv-floor-card__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.mv-floor-card__body {
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-elevated);
+}
+
+.mv-floor-card__name-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.mv-floor-card__name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.mv-floor-card__name.active {
+  color: var(--teal);
+}
+
+.mv-floor-card__input {
+  font-size: 11px;
+  background: var(--bg-base);
+  border: 1px solid var(--teal);
+  border-radius: 3px;
+  color: var(--text-primary);
+  padding: 1px 4px;
+  width: 100%;
+  outline: none;
+}
+
+.mv-floor-card__meta {
+  font-size: 9.5px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+/* ── LIGHT THEME ADAPTIVITY FOR FLOOR DRAFTS PANEL & CARDS ── */
+[data-theme="light"] .mv-floors-sidebar {
+  background: var(--bg-surface);
+  border-color: var(--border);
+}
+
+[data-theme="light"] .mv-floors-sidebar__header {
+  background: var(--bg-surface);
+  border-color: var(--border);
+}
+
+[data-theme="light"] .mv-floors-sidebar__title {
+  color: var(--text-muted);
+}
+
+[data-theme="light"] .mv-floors-sidebar__add-btn {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.35);
+  color: #2563eb;
+}
+
+[data-theme="light"] .mv-floors-sidebar__add-btn:hover {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: #2563eb;
+  color: #1d4ed8;
+}
+
+[data-theme="light"] .mv-floors-sidebar__toggle-btn {
+  color: #2563eb;
+}
+
+[data-theme="light"] .mv-floors-sidebar__toggle-btn:hover {
+  color: var(--teal);
+  background: rgba(5, 150, 105, 0.1);
+}
+
+[data-theme="light"] .mv-floors-sidebar__list {
+  scrollbar-color: var(--border-light) transparent;
+}
+
+[data-theme="light"] .mv-floor-card {
+  background: var(--bg-surface);
+  border-color: var(--border);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] .mv-floor-card.active {
+  box-shadow: 0 0 12px rgba(5, 150, 105, 0.2) !important;
+  border-color: var(--teal) !important;
+}
+
+[data-theme="light"] .mv-floor-card__thumb {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+[data-theme="light"] .mv-floor-card__body {
+  background: var(--bg-surface);
+}
+
+[data-theme="light"] .mv-floor-card__name {
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .mv-floor-card__name.active {
+  color: var(--teal);
+}
+
+[data-theme="light"] .mv-floor-card__meta {
+  color: var(--text-secondary);
+}
+
+[data-theme="light"] .mv-floor-hud-btn {
+  background: var(--bg-surface) !important;
+  border-color: var(--border) !important;
+  color: var(--text-primary) !important;
+}
+
+[data-theme="light"] .mv-floor-hud-btn--active {
+  background: var(--teal-subtle) !important;
+  border-color: var(--teal) !important;
+  color: var(--teal) !important;
+}
+
+/* ── Canvas & HUD Light Theme Adaptations ── */
+[data-theme="light"] .mv-canvas-wrap {
+  background: #cbd5e1;
+}
+
+[data-theme="light"] .mv-zoom-hud {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: var(--border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .mv-zoom-hud-btn {
+  color: var(--text-muted);
+}
+
+[data-theme="light"] .mv-zoom-hud-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .mv-zoom-hud-pct {
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .mv-zoom-hud-divider {
+  background: var(--border);
+}
+
+[data-theme="light"] .mv-zone-draw-overlay {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #d97706;
+}
+
+[data-theme="light"] .mv-active-zone-badge {
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .mv-scale-bar-overlay {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .mv-hint__title {
+  color: var(--text-muted);
+}
+
+[data-theme="light"] .mv-hint__sub {
+  color: var(--text-secondary);
+}
+
+[data-theme="light"] .mv-tooltip {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+[data-theme="light"] .mv-ctx-menu {
+  background: var(--bg-surface);
+  border-color: var(--border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="light"] .mv-ctx-menu button {
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .mv-ctx-menu button:hover {
+  background: var(--bg-hover);
+}
+
+/* ── Camera Specs & Placed Card Contrast in Inspector ── */
+.mv-inspector-content .mv-cam-item--expanded {
+  opacity: 1 !important;
+  background: var(--bg-elevated) !important;
+  border-color: var(--teal) !important;
+}
+
+.mv-cam-specs {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+[data-theme="light"] .mv-cam-specs {
+  background: rgba(0, 0, 0, 0.04);
+  border-top-color: var(--border) !important;
+}
+
+[data-theme="light"] .mv-inspector-content .mv-cam-item {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme="light"] .mv-inspector-content .mv-cam-item:hover {
+  background: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+}
+
+[data-theme="light"] .mv-inspector-content .mv-cam-item--placed {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme="light"] .mv-inspector-content .mv-cam-item--expanded {
+  background: #ffffff !important;
+  border-color: var(--teal) !important;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.15) !important;
+}
+
+/* ── 3D Parts Measurement Overlay Panel ── */
+.mv-parts-panel {
+  position: absolute;
+  top: 14px;
+  z-index: 9;
+  background: rgba(15, 23, 42, 0.92);
+  color: #f8fafc;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  max-width: 380px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  font-family: inherit;
+  transition: left 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mv-parts-btn {
+  font-size: 10.5px;
+  cursor: pointer;
+  padding: 3px 7px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  border-radius: 4px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.mv-parts-btn:hover {
+  background: var(--teal-subtle, rgba(16, 185, 129, 0.2));
+  border-color: var(--teal, #10b981);
+  color: #ffffff;
+}
+
+[data-theme="light"] .mv-parts-panel {
+  background: rgba(255, 255, 255, 0.95);
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="light"] .mv-parts-btn {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+}
+
+[data-theme="light"] .mv-parts-btn:hover {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: #10b981;
+  color: #059669;
+}
+
+/* ── Layout Calibration Control Panel (Theme Adaptive) ── */
+.mv-calib-panel {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 1040;
+  width: 350px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100% - 32px);
+  background: var(--bg-surface, #0f172a);
+  color: var(--text-primary, #f8fafc);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(24px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: inherit;
+  animation: mvCalibPanelIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes mvCalibPanelIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.mv-calib-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+}
+
+.mv-calib-panel__title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mv-calib-panel__icon {
+  color: var(--teal, #10b981);
+}
+
+.mv-calib-panel__title {
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--text-primary, #f8fafc);
+}
+
+.mv-calib-panel__close {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary, #94a3b8);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mv-calib-panel__close:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+/* Calibration Type Radio Cards */
+.mv-calib-types {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px 6px 16px;
+}
+
+.mv-calib-type-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--bg-base, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.mv-calib-type-card:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.07));
+  border-color: var(--border-light, rgba(255, 255, 255, 0.18));
+}
+
+.mv-calib-type-card--active {
+  background: var(--teal-subtle, rgba(16, 185, 129, 0.12)) !important;
+  border-color: var(--teal, #10b981) !important;
+  box-shadow: 0 0 10px var(--teal-glow, rgba(16, 185, 129, 0.2));
+}
+
+.mv-calib-type-card__radio {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.mv-radio-dot {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--text-muted, #64748b);
+  background: transparent;
+  transition: all 0.15s ease;
+}
+
+.mv-radio-dot.active {
+  border-color: var(--teal, #10b981);
+  background: var(--teal, #10b981);
+  box-shadow: inset 0 0 0 2.5px var(--bg-surface, #0f172a);
+}
+
+.mv-calib-type-card__info {
+  flex: 1;
+}
+
+.mv-calib-type-card__label {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-primary, #f8fafc);
+}
+
+.mv-calib-type-card--active .mv-calib-type-card__label {
+  color: var(--teal, #10b981);
+}
+
+.mv-calib-type-card__desc {
+  font-size: 11px;
+  color: var(--text-secondary, #94a3b8);
+  line-height: 1.35;
+  margin-top: 2px;
+}
+
+/* Calibration Content Area */
+.mv-calib-content {
+  padding: 8px 16px 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+.mv-calib-content::-webkit-scrollbar {
+  width: 4px;
+}
+.mv-calib-content::-webkit-scrollbar-thumb {
+  background: var(--border-light, rgba(255, 255, 255, 0.2));
+  border-radius: 4px;
+}
+
+/* Guide & Steps */
+.mv-calib-guide {
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.mv-calib-guide__step {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 11.5px;
+  color: var(--text-primary, #e2e8f0);
+  line-height: 1.4;
+}
+
+.mv-calib-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--teal, #10b981);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* Form Inputs */
+.mv-calib-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mv-calib-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.mv-calib-input-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mv-calib-input {
+  flex: 1;
+  background: var(--bg-input, rgba(0, 0, 0, 0.35));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.15));
+  color: var(--text-primary, #f8fafc);
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  outline: none;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+
+.mv-calib-input:focus {
+  border-color: var(--teal, #10b981);
+  box-shadow: 0 0 0 2px var(--teal-subtle, rgba(16, 185, 129, 0.2));
+}
+
+.mv-calib-select {
+  background: var(--bg-input, rgba(0, 0, 0, 0.35));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.15));
+  color: var(--text-primary, #f8fafc);
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.mv-calib-select option {
+  background: var(--bg-surface, #0f172a);
+  color: var(--text-primary, #f8fafc);
+}
+
+/* Scale & PPM Badge */
+.mv-calib-ppm-badge {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--teal-subtle, rgba(16, 185, 129, 0.1));
+  border: 1px solid var(--teal, rgba(16, 185, 129, 0.3));
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 11.5px;
+  color: var(--text-primary, #f8fafc);
+}
+
+.mv-calib-ppm-badge strong {
+  color: var(--teal, #10b981);
+  font-family: monospace;
+  font-size: 12px;
+}
+
+/* Helper Banner */
+.mv-calib-helper-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--text-secondary, #cbd5e1);
+  line-height: 1.35;
+}
+
+.mv-calib-helper-banner svg {
+  color: var(--teal, #10b981);
+  flex-shrink: 0;
+}
+
+/* Advanced Reference List */
+.mv-calib-ref-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mv-calib-ref-list__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-secondary, #94a3b8);
+  padding: 0 2px;
+}
+
+.mv-calib-btn-sm {
+  background: var(--teal-subtle, rgba(16, 185, 129, 0.15));
+  border: 1px solid var(--teal, rgba(16, 185, 129, 0.35));
+  color: var(--teal, #34d399);
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mv-calib-btn-sm:hover {
+  background: var(--teal-subtle, rgba(16, 185, 129, 0.28));
+  border-color: var(--teal, #10b981);
+}
+
+.mv-calib-empty-hint {
+  font-size: 11px;
+  color: var(--text-muted, #7a8499);
+  background: var(--bg-base, rgba(255, 255, 255, 0.02));
+  border: 1px dashed var(--border, rgba(255, 255, 255, 0.1));
+  border-radius: 6px;
+  padding: 10px 12px;
+  text-align: center;
+}
+
+.mv-calib-ref-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-base, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 6px;
+  padding: 7px 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mv-calib-ref-item:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.06));
+  border-color: var(--border-light, rgba(255, 255, 255, 0.16));
+}
+
+.mv-calib-ref-item--active {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.08));
+  border-color: var(--teal, #10b981) !important;
+}
+
+.mv-calib-ref-item__left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mv-calib-ref-item__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.mv-calib-ref-item__meta {
+  display: flex;
+  flex-direction: column;
+}
+
+.mv-calib-ref-item__name {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-primary, #f8fafc);
+}
+
+.mv-calib-ref-item__pixels {
+  font-size: 10px;
+  color: var(--text-muted, #7a8499);
+  font-family: monospace;
+}
+
+.mv-calib-ref-item__right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mv-calib-ref-item__dist {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--teal, #34d399);
+  font-family: monospace;
+}
+
+.mv-calib-action-btn {
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  color: var(--text-secondary, #cbd5e1);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mv-calib-action-btn:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.16));
+  color: var(--text-primary, #ffffff);
+}
+
+.mv-calib-action-btn.danger {
+  color: var(--red, #f87171);
+}
+
+.mv-calib-action-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.mv-calib-inline-edit {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mv-calib-input-xs {
+  width: 58px;
+  background: var(--bg-input, #0f172a);
+  border: 1px solid var(--teal, #10b981);
+  color: var(--text-primary, #f8fafc);
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  outline: none;
+}
+
+.mv-calib-select-xs {
+  background: var(--bg-input, #0f172a);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.15));
+  color: var(--text-primary, #f8fafc);
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 10px;
+  outline: none;
+}
+
+.mv-calib-btn-xs {
+  background: var(--teal, #10b981);
+  color: #ffffff;
+  border: none;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 10px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+/* Calibration Quality Status Card */
+.mv-calib-status-card {
+  background: var(--bg-base, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mv-calib-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+}
+
+.mv-calib-status-label {
+  color: var(--text-secondary, #94a3b8);
+}
+
+.mv-calib-quality-tag {
+  font-weight: 700;
+  font-size: 10.5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.mv-calib-quality-tag.excellent {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.mv-calib-quality-tag.good {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+}
+
+.mv-calib-quality-tag.poor {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+}
+
+.mv-calib-distrib-tag {
+  font-weight: 600;
+  font-size: 10.5px;
+  color: var(--text-primary, #e2e8f0);
+}
+
+/* Preview Grid Toggle */
+.mv-calib-preview-toggle {
+  padding: 4px 2px;
+}
+
+.mv-calib-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-secondary, #cbd5e1);
+  cursor: pointer;
+  user-select: none;
+}
+
+.mv-calib-checkbox-label input[type="checkbox"] {
+  accent-color: var(--teal, #10b981);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+/* Panel Footer & Actions */
+.mv-calib-panel__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.03));
+  border-top: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  gap: 8px;
+}
+
+.mv-calib-footer-left {
+  display: flex;
+  align-items: center;
+}
+
+.mv-calib-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mv-calib-btn {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 13px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.mv-calib-btn--primary {
+  background: var(--teal, #10b981);
+  color: #ffffff;
+  border: 1px solid transparent;
+  box-shadow: 0 2px 8px var(--teal-glow, rgba(16, 185, 129, 0.3));
+}
+
+.mv-calib-btn--primary:hover:not(:disabled) {
+  background: #059669;
+  box-shadow: 0 4px 12px var(--teal-glow, rgba(16, 185, 129, 0.45));
+}
+
+.mv-calib-btn--primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.mv-calib-btn--secondary {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.08));
+  color: var(--text-primary, #e2e8f0);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.15));
+}
+
+.mv-calib-btn--secondary:hover {
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.14));
+}
+
+.mv-calib-btn--danger-link {
+  background: transparent;
+  color: var(--red, #f87171);
+  border: 1px solid transparent;
+  padding: 6px 8px;
+  font-size: 11.5px;
+}
+
+.mv-calib-btn--danger-link:hover {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+/* ── Light Theme Adaptivity for Calibration Panel ── */
+[data-theme="light"] .mv-calib-panel {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.14), 0 0 0 1px rgba(0, 0, 0, 0.04) !important;
+}
+
+[data-theme="light"] .mv-calib-panel__header {
+  background: #f8fafc !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
+[data-theme="light"] .mv-calib-panel__title {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .mv-calib-panel__close {
+  color: #64748b !important;
+}
+
+[data-theme="light"] .mv-calib-type-card {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+[data-theme="light"] .mv-calib-type-card:hover {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+}
+
+[data-theme="light"] .mv-calib-type-card--active {
+  background: rgba(16, 185, 129, 0.08) !important;
+  border-color: #10b981 !important;
+}
+
+[data-theme="light"] .mv-radio-dot {
+  border-color: #94a3b8 !important;
+}
+
+[data-theme="light"] .mv-radio-dot.active {
+  box-shadow: inset 0 0 0 2.5px #ffffff !important;
+}
+
+[data-theme="light"] .mv-calib-type-card__label {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .mv-calib-type-card__desc {
+  color: #64748b !important;
+}
+
+[data-theme="light"] .mv-calib-guide {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+[data-theme="light"] .mv-calib-guide__step {
+  color: #334155 !important;
+}
+
+[data-theme="light"] .mv-calib-label {
+  color: #475569 !important;
+}
+
+[data-theme="light"] .mv-calib-input,
+[data-theme="light"] .mv-calib-select {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .mv-calib-select option {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .mv-calib-ppm-badge {
+  background: #f0fdf4 !important;
+  border-color: #bbf7d0 !important;
+  color: #166534 !important;
+}
+
+[data-theme="light"] .mv-calib-helper-banner {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #475569 !important;
+}
+
+[data-theme="light"] .mv-calib-empty-hint {
+  background: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #64748b !important;
+}
+
+[data-theme="light"] .mv-calib-ref-item {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+[data-theme="light"] .mv-calib-ref-item:hover {
+  background: #f1f5f9 !important;
+}
+
+[data-theme="light"] .mv-calib-ref-item__name {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .mv-calib-action-btn {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+}
+
+[data-theme="light"] .mv-calib-status-card {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+[data-theme="light"] .mv-calib-distrib-tag {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .mv-calib-checkbox-label {
+  color: #334155 !important;
+}
+
+[data-theme="light"] .mv-calib-panel__footer {
+  background: #f8fafc !important;
+  border-top: 1px solid #e2e8f0 !important;
+}
+
+[data-theme="light"] .mv-calib-btn--secondary {
+  background: #f1f5f9 !important;
+  color: #334155 !important;
+  border: 1px solid #cbd5e1 !important;
+}
+
+[data-theme="light"] .mv-calib-btn--secondary:hover {
+  background: #e2e8f0 !important;
+}
+
+/* Coordinates badge in Camera List Item */
+.mv-cam-coords-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  margin-top: 3px;
+}
+
+[data-theme="light"] .mv-cam-coords-badge {
+  background: rgba(16, 185, 129, 0.1);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+

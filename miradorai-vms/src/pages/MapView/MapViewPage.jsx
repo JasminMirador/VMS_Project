@@ -13,6 +13,22 @@ import { drawCamera, getCamTypeFromName, renderMapViewSnapshot } from "./MapDraw
 import WebRTCPlayer_MediaMTX from "../../components/shared/WebRTCPlayer_MediaMTX";
 import { AlertPopup } from "../LiveView/LiveViewPage";
 import "../LiveView/LiveViewPage.css";
+import { renderGltfToImage } from "./GltfFloorRenderer";
+import { renderHtmlToImage } from "./HtmlFloorRenderer";
+import Gltf3DViewer from "./Gltf3DViewer";
+import { saveFloorsDB, loadFloorsDB, saveZonesDB, loadZonesDB } from "./mapIndexedDB";
+import CalibrationOverlay from "./CalibrationOverlay";
+import CalibrationPanel from "./CalibrationPanel";
+import logoImg from "../../assets/logo.jpg";
+import {
+  buildStandardCalibration,
+  buildAdvancedCalibration,
+  getLocalPpm,
+  layoutToWorld,
+  worldToLayout,
+  calculatePhysicalDistance,
+  getPixelDistance,
+} from "./LayoutCalibrationEngine";
 
 const API = import.meta.env.VITE_API_URL;
 const MAP_ID = "default";
@@ -39,10 +55,48 @@ function getAuthHeaders() {
 // ── LocalStorage ──────────────────────────────────────────────────────
 const LS_KEY      = "miradorai_map_floors_v2_" + MAP_ID;
 const LS_ZONE_KEY = "miradorai_map_zones_v1_" + MAP_ID;
-function lsSave(v)     {}
-function lsLoad()      { return null; }
-function lsZoneSave(v) {}
-function lsZoneLoad()  { return null; }
+
+function lsSave(v) {
+  try {
+    if (!Array.isArray(v)) return;
+    // Strip heavy Base64 models & oversized image URLs to strictly avoid exceeding 5MB browser localStorage quota
+    const lightweight = v.map(f => ({
+      ...f,
+      imageDataUrl: (f.imageDataUrl && f.imageDataUrl.length < 80000) ? f.imageDataUrl : null,
+      modelDataUrl: null, // Full 3D GLB models are persisted via MongoDB backend API
+    }));
+    localStorage.setItem(LS_KEY, JSON.stringify(lightweight));
+  } catch (e) {
+    // If quota still exceeded, clear old cache gracefully without breaking the UI
+    try { localStorage.removeItem(LS_KEY); } catch {}
+  }
+}
+
+function lsLoad() {
+  try {
+    const v = localStorage.getItem(LS_KEY);
+    return v ? JSON.parse(v) : null;
+  } catch {
+    return null;
+  }
+}
+
+function lsZoneSave(v) {
+  try {
+    localStorage.setItem(LS_ZONE_KEY, JSON.stringify(v));
+  } catch (e) {
+    console.warn("[MapView] lsZoneSave failed:", e);
+  }
+}
+
+function lsZoneLoad() {
+  try {
+    const v = localStorage.getItem(LS_ZONE_KEY);
+    return v ? JSON.parse(v) : null;
+  } catch {
+    return null;
+  }
+}
 
 // ── API ───────────────────────────────────────────────────────────────
 async function apiGetMap() {
@@ -81,17 +135,61 @@ async function apiSaveZones(zones) {
 }
 
 // ── Normalise camera list ─────────────────────────────────────────────
-function normalizeCams(data) {
-  return (Array.isArray(data) ? data : []).map(d => ({
-    id:     d.stream_key || d.stream_key || d.ip,
-    name:   d.device_name || d.name || `Camera @ ${d.ip}`,
-    ip:     d.ip,
-    ws_url: d.ws_url,
-    status: (d.stream_status === "offline" || d.stream_status === "unavailable" || d.status === "offline" || d.enabled === false) ? "offline" : "online",
-    group_id: d.group_id || "default",
-    stream_key: d.stream_key || d.stream_key,
-    enabled: d.enabled !== false,
-  }));
+function normalizeCams(data, models = []) {
+  return (Array.isArray(data) ? data : []).map(d => {
+    
+    const searchStrings = [d.model, d.device_name, d.name].filter(Boolean).map(s => s.toLowerCase());
+    
+    let bestMatch = null;
+    let highestScore = 0;
+    
+    for (const m of models) {
+      const mModel = (m.model || "").toLowerCase();
+      const mSeries = (m.series || "").toLowerCase();
+      const mBrand = (m.brand || "").toLowerCase();
+      
+      let score = 0;
+      
+      searchStrings.forEach(str => {
+        if (mModel && str === mModel) score += 20;
+        else if (mModel && str.includes(mModel)) score += 10;
+        else {
+           const normM = mModel.replace(/[^a-z0-9]/g, "").replace(/^dh/, "");
+           const normS = str.replace(/[^a-z0-9]/g, "").replace(/^dh/, "");
+           if (normM && normS.includes(normM)) score += 8;
+           else if (normM && normM.length >= 6 && normS.includes(normM.substring(0, 8))) score += 5;
+           else if (normM && normM.length >= 6 && normS.includes(normM.substring(0, 6))) score += 3;
+        }
+        
+        if (mSeries && str.includes(mSeries)) score += 4;
+        if (mBrand && str.includes(mBrand)) score += 1;
+      });
+      
+      if (score > highestScore) {
+        highestScore = score;
+        bestMatch = m;
+      }
+    }
+    
+    // Require a score >= 5 so we don't falsely match different models that share the same prefix (e.g. 'ipchdw' = 3 points)
+    const match = highestScore >= 5 ? bestMatch : null;
+    
+    console.log(`[DEBUG] normalizeCams IP: ${d.ip} | model: ${d.model} | score: ${highestScore} | match: ${match ? match.model : 'NONE'}`);
+
+    return {
+      id:     d.stream_key || d.stream_key || d.ip,
+      name:   d.device_name || d.name || `Camera @ ${d.ip}`,
+      ip:     d.ip,
+      model:  d.model || match?.model || null,
+      manufacturer: d.manufacturer || match?.brand || null,
+      specs:  match || null,
+      ws_url: d.ws_url,
+      status: (d.stream_status === "offline" || d.stream_status === "unavailable" || d.status === "offline" || d.enabled === false) ? "offline" : "online",
+      group_id: d.group_id || "default",
+      stream_key: d.stream_key || d.stream_key,
+      enabled: d.enabled !== false,
+    };
+  });
 }
 
 // ── Read enabled alert types from Action Rules ────────────────────
@@ -330,6 +428,7 @@ function ZoneNameModal({ onSave, onCancel, existingNames }) {
   function handleSave() {
     const trimmed = name.trim();
     if (!trimmed)                           { setErr("Zone name is required."); return; }
+    if (!/^[a-zA-Z0-9 _-]+$/.test(trimmed)) { setErr("Zone Name can only contain alphanumeric characters, spaces, dashes, and underscores."); return; }
     if (existingNames.includes(trimmed))    { setErr("A zone with this name already exists."); return; }
     onSave(trimmed);
   }
@@ -635,7 +734,17 @@ export default function MapViewPage() {
   const draggingRef     = useRef(null);
   const draggingCamZoneRef = useRef(null);
   const rotatingRef     = useRef(null);
+  const draggingLabelIdxRef = useRef(null);
+  const labelDragStartRef = useRef(null);
   const panStartRef     = useRef(null);
+  const [isPanLocked, setIsPanLocked] = useState(false);
+  const isPanLockedRef = useRef(false);
+  const togglePanLock = useCallback(() => {
+    const next = !isPanLockedRef.current;
+    isPanLockedRef.current = next;
+    setIsPanLocked(next);
+    panStartRef.current = null;
+  }, []);
   const hoveredIdxRef   = useRef(-1);
   const dragCamRef      = useRef(null);
   const markersRef      = useRef([]);
@@ -645,6 +754,7 @@ export default function MapViewPage() {
   const mouseDownPosRef = useRef(null);
   const authFailedRef   = useRef(false);
   const canvasApiRef    = useRef(null);
+  const gltfViewerRef   = useRef(null);
   const floorsRef       = useRef([]);
 
   // Zone drawing refs
@@ -673,7 +783,13 @@ export default function MapViewPage() {
     return markers.filter(m => user.allowedCameras.includes(String(m.camId)));
   }, [markers, user]);
   const [floors,           setFloors]           = useState(() => [makeFloor(1)]);
-  const [activeFloor, setActiveFloor] = useState(0);
+  const [activeFloor, setActiveFloor] = useState(() => {
+    const saved = localStorage.getItem("miradorai_active_floor_index");
+    return saved !== null ? Number(saved) : 0;
+  });
+  useEffect(() => {
+    localStorage.setItem("miradorai_active_floor_index", String(activeFloor));
+  }, [activeFloor]);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const exportMenuRef = useRef(null);
 
@@ -755,6 +871,36 @@ export default function MapViewPage() {
   const draftZonesRef = useRef([]);
   useEffect(() => { draftZonesRef.current = draftZones; }, [draftZones]);
   const [isDetectingZones, setIsDetectingZones] = useState(false);
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem("miradorai_viewMode") || "2d");
+  useEffect(() => { localStorage.setItem("miradorai_viewMode", viewMode); }, [viewMode]);
+
+  // ── Calibration & Measurement State ──
+  const [calibType, setCalibType] = useState("standard");
+  const calibTypeRef = useRef("standard");
+  useEffect(() => { calibTypeRef.current = calibType; }, [calibType]);
+
+  const [calibRefs, setCalibRefs] = useState([]);
+  const calibRefsRef = useRef([]);
+  useEffect(() => { calibRefsRef.current = calibRefs; }, [calibRefs]);
+
+  const [activeCalibRefId, setActiveCalibRefId] = useState(null);
+  const activeCalibRefIdRef = useRef(null);
+  useEffect(() => { activeCalibRefIdRef.current = activeCalibRefId; }, [activeCalibRefId]);
+
+  const [calibHandleDrag, setCalibHandleDrag] = useState(null);
+  const calibHandleDragRef = useRef(null);
+  useEffect(() => { calibHandleDragRef.current = calibHandleDrag; }, [calibHandleDrag]);
+
+  const [drawingCalibLine, setDrawingCalibLine] = useState(null);
+  const drawingCalibLineRef = useRef(null);
+  useEffect(() => { drawingCalibLineRef.current = drawingCalibLine; }, [drawingCalibLine]);
+
+  const [measureLine, setMeasureLine] = useState(null);
+  const measureLineRef = useRef(null);
+  useEffect(() => { measureLineRef.current = measureLine; }, [measureLine]);
+
+  const [showPreviewGrid, setShowPreviewGrid] = useState(false);
+  const [calibPanelOpen, setCalibPanelOpen] = useState(false);
 
   const [popupState, setPopupState] = useState({
     show: false,
@@ -808,7 +954,7 @@ export default function MapViewPage() {
 
   const { isConnected: isWsConnected, eventsByTopic } = useWebSocket(["alerts"]);
 
-  // Process incoming real-time alerts from WebSocket
+  // Fetch active alert counts periodically
   useEffect(() => {
     const alertEnvelope = eventsByTopic.alerts;
     if (alertEnvelope && alertEnvelope.data) {
@@ -872,10 +1018,14 @@ export default function MapViewPage() {
     return () => clearInterval(interval);
   }, [isWsConnected, loadCounts]);
 
-
-
   const [highlightedCamId, setHighlightedCamId] = useState(null);
   const [sidebarExpanded,  setSidebarExpanded]  = useState(false);
+  const [floorPanelCollapsed, setFloorPanelCollapsed] = useState(false);
+  const [editingFloorIdx, setEditingFloorIdx] = useState(null);
+  const [editingFloorName, setEditingFloorName] = useState("");
+  const [expandedVersions, setExpandedVersions] = useState({});
+  const [editingVersionId, setEditingVersionId] = useState(null);
+  const [editingVersionName, setEditingVersionName] = useState("");
 
   // Keep refs in sync
   useEffect(() => { floorsRef.current   = floors; }, [floors]);
@@ -911,19 +1061,55 @@ export default function MapViewPage() {
     if (!wrap || !img) return;
     const W = wrap.clientWidth, H = wrap.clientHeight;
     
-    const leftMargin = 65;
-    const rightPanelWidth = inspectorExpanded ? 265 : 0;
-    const visibleW = W - rightPanelWidth - leftMargin;
+    // If the layout hasn't settled yet, wait a moment and try again
+    if (W < 100 || H < 100) {
+      setTimeout(fitImage, 100);
+      return;
+    }
     
-    const s = Math.min(visibleW / img.width, (H - 40) / img.height) * 0.96;
+    const leftMargin = floorPanelCollapsed ? 65 : 225;
+    const rightMargin = inspectorExpanded ? 285 : 20;
+    const topMargin = 20;
+    const bottomMargin = 40;
+    const visibleW = Math.max(100, W - rightMargin - leftMargin);
+    const visibleH = Math.max(100, H - topMargin - bottomMargin);
+    
+    const s = Math.max(0.01, Math.min(visibleW / img.width, visibleH / img.height) * 0.94);
     scaleRef.current  = s;
     offsetRef.current = {
       x: leftMargin + (visibleW - img.width * s) / 2,
-      y: (H - img.height * s) / 2,
+      y: topMargin + (visibleH - img.height * s) / 2,
     };
     setZoomPct(Math.round(s * 100));
     canvasApiRef.current?.drawAll();
-  }, [inspectorExpanded]);
+  }, [inspectorExpanded, floorPanelCollapsed]);
+
+  // Robustly handle container layout settling
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+
+    let hasInitiallyFitted = false;
+
+    const ro = new ResizeObserver((entries) => {
+      for (let entry of entries) {
+        const { width, height } = entry.contentRect;
+        // If container has a valid size
+        if (width > 100 && height > 100) {
+          if (!hasInitiallyFitted && floorImgRef.current) {
+            hasInitiallyFitted = true;
+            fitImage();
+          }
+        } else {
+          // If container is hidden or tiny (e.g., display: none tab switch), reset so it refits when shown again
+          hasInitiallyFitted = false;
+        }
+      }
+    });
+
+    ro.observe(wrap);
+    return () => ro.disconnect();
+  }, [fitImage]);
 
   // ── Switch active floor ───────────────────────────────────────────
   const loadFloor = useCallback((idx, floorList) => {
@@ -931,10 +1117,46 @@ export default function MapViewPage() {
     if (!fl) return;
     markersRef.current = fl.markers || [];
     setMarkers([...(fl.markers || [])]);
+    setShowHeatmap(Boolean(fl.showHeatmap));
+    setVirtualMode(Boolean(fl.virtualMode));
+    if (fl.modelDataUrl) {
+      if (!fl.calibration || !fl.calibration.enabled) {
+        const autoCal = {
+          enabled: true,
+          mode: "3d",
+          ppm: fl.ppm || 25.0,
+          unit: "meters",
+          references: [],
+          imageDimensions: { width: 1000, height: 1000 },
+          timestamp: Date.now()
+        };
+        fl.calibration = autoCal;
+      }
+      setCalibType("3d");
+      calibTypeRef.current = "3d";
+      setCalibRefs([]);
+      calibRefsRef.current = [];
+    } else if (fl.calibration) {
+      setCalibType(fl.calibration.mode || "standard");
+      calibTypeRef.current = fl.calibration.mode || "standard";
+      setCalibRefs(fl.calibration.references || []);
+      calibRefsRef.current = fl.calibration.references || [];
+    } else {
+      setCalibRefs([]);
+      calibRefsRef.current = [];
+    }
     if (fl.imageDataUrl) {
       const img   = new Image();
-      img.onload  = () => { floorImgRef.current = img; setHasFloor(true); fitImage(); };
+      img.onload  = () => { 
+        floorImgRef.current = img; 
+        setHasFloor(true); 
+        fitImage(); 
+        wrapRef.current?.__vtReposition?.();
+      };
       img.src     = fl.imageDataUrl;
+    } else if (fl.modelDataUrl) {
+      floorImgRef.current = null;
+      setHasFloor(true);
     } else {
       floorImgRef.current = null;
       setHasFloor(false);
@@ -947,23 +1169,26 @@ export default function MapViewPage() {
     if (floorImgRef.current) {
       fitImage();
     }
-  }, [inspectorExpanded, fitImage]);
+  }, [inspectorExpanded, floorPanelCollapsed, fitImage]);
 
   const applyZoom = useCallback((delta, cx, cy) => {
     const prev = scaleRef.current;
     const next = Math.min(8, Math.max(0.08, prev + delta));
     scaleRef.current  = next;
-    offsetRef.current = {
-      x: cx - (cx - offsetRef.current.x) * (next / prev),
-      y: cy - (cy - offsetRef.current.y) * (next / prev),
-    };
+    if (!isPanLockedRef.current) {
+      offsetRef.current = {
+        x: cx - (cx - offsetRef.current.x) * (next / prev),
+        y: cy - (cy - offsetRef.current.y) * (next / prev),
+      };
+    }
     setZoomPct(Math.round(next * 100));
     canvasApiRef.current?.drawAll();
     wrapRef.current?.__vtReposition?.();
   }, []);
 
-  // ── Persist floors ────────────────────────────────────────────────
+  // ── Persist floors (IndexedDB + LocalStorage + Backend API) ────────
   const persistFloors = useCallback((updated) => {
+    saveFloorsDB(MAP_ID, updated);
     lsSave(updated);
     if (authFailedRef.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -971,21 +1196,26 @@ export default function MapViewPage() {
       setSaving(true); setSaveErr(false);
       try { await apiSaveMap(updated); }
       catch (e) {
-        if (e.message === "401") { authFailedRef.current = true; setSaveErr(true); }
+        console.error("[MapView] persistFloors failed:", e);
+        setSaveErr(true);
+        if (e.message === "401") authFailedRef.current = true;
       }
       finally { setSaving(false); }
     }, 800);
   }, []);
 
-  // ── Persist zones to backend ──────────────────────────────────────
+  // ── Persist zones to backend & IndexedDB ───────────────────────────
   const persistZones = useCallback((updated) => {
+    saveZonesDB(MAP_ID, updated);
     lsZoneSave(updated);
     if (authFailedRef.current) return;
     if (zoneTimerRef.current) clearTimeout(zoneTimerRef.current);
     zoneTimerRef.current = setTimeout(async () => {
       try { await apiSaveZones(updated); }
       catch (e) {
-        if (e.message === "401") { authFailedRef.current = true; setSaveErr(true); }
+        console.error("[MapView] persistZones failed:", e);
+        setSaveErr(true);
+        if (e.message === "401") authFailedRef.current = true;
       }
     }, 800);
   }, []);
@@ -1003,19 +1233,49 @@ export default function MapViewPage() {
 
   // ── Init ─────────────────────────────────────────────────────────
   useEffect(() => {
-    const cachedZones = lsZoneLoad();
-    if (cachedZones?.length) {
-      setZones(cachedZones);
-      zonesRef.current = cachedZones;
-    }
-
     async function init() {
-      const cached = lsLoad();
-      if (cached?.length) {
-        setFloors(cached);
-        floorsRef.current = cached;
-        loadFloor(0, cached);
+      // 1. Restore from IndexedDB first (retains full HD plans & 3D models without size limits)
+      const dbFloors = await loadFloorsDB(MAP_ID);
+      const dbZones = await loadZonesDB(MAP_ID);
+
+      if (dbZones?.length) {
+        setZones(dbZones);
+        zonesRef.current = dbZones;
+      } else {
+        const cachedZones = lsZoneLoad();
+        if (cachedZones?.length) {
+          setZones(cachedZones);
+          zonesRef.current = cachedZones;
+        }
       }
+
+      const savedFloorIdx = Number(localStorage.getItem("miradorai_active_floor_index") || 0);
+
+      if (dbFloors?.length) {
+        setFloors(dbFloors);
+        floorsRef.current = dbFloors;
+        const validIdx = savedFloorIdx < dbFloors.length ? savedFloorIdx : 0;
+        setActiveFloor(validIdx);
+        loadFloor(validIdx, dbFloors);
+      } else {
+        const cached = lsLoad();
+        if (cached?.length) {
+          setFloors(cached);
+          floorsRef.current = cached;
+          const validIdx = savedFloorIdx < cached.length ? savedFloorIdx : 0;
+          setActiveFloor(validIdx);
+          loadFloor(validIdx, cached);
+        }
+      }
+
+      let models = [];
+      try {
+        const mr = await fetch(`${API}/api/designer/camera-models`, { headers: getAuthHeaders() });
+        if (mr.ok) {
+          const mj = await mr.json();
+          models = mj.cameras || [];
+        }
+      } catch {}
 
       let cams = [];
       try {
@@ -1023,11 +1283,11 @@ export default function MapViewPage() {
         if (r.status === 401) { authFailedRef.current = true; }
         else if (r.ok) {
           const j = await r.json();
-          cams = normalizeCams(j.devices || j.cameras || []);
+          cams = normalizeCams(j.devices || j.cameras || [], models);
         }
       } catch {}
       if (!cams.length) {
-        try { cams = normalizeCams(JSON.parse(localStorage.getItem("miradorai_devices") || "[]")); }
+        try { cams = normalizeCams(JSON.parse(localStorage.getItem("miradorai_devices") || "[]"), models); }
         catch {}
       }
       setCameras(cams);
@@ -1035,23 +1295,81 @@ export default function MapViewPage() {
       try {
         const data = await apiGetMap();
 
-        if (data.zones?.length && !cachedZones?.length) {
+        if (data.zones?.length && !dbZones?.length) {
           setZones(data.zones);
           zonesRef.current = data.zones;
+          saveZonesDB(MAP_ID, data.zones);
           lsZoneSave(data.zones);
         }
 
         if (data.floors?.length) {
-          setFloors(data.floors);
-          floorsRef.current = data.floors;
-          lsSave(data.floors);
-          loadFloor(0, data.floors);
+          // Merge with local dbFloors so full modelDataUrl/imageDataUrl and any locally created extra floors are never lost
+          const maxLength = Math.max(data.floors.length, (dbFloors || []).length);
+          const mergedFloors = [];
+          for (let i = 0; i < maxLength; i++) {
+            const df = data.floors[i];
+            const localF = (dbFloors || [])[i];
+            if (df && localF) {
+              const is3D = Boolean(df.modelDataUrl || localF.modelDataUrl);
+              const ppmVal = df.ppm || localF.ppm || df.calibration?.ppm || localF.calibration?.ppm || (is3D ? 25.0 : null);
+              const calib = df.calibration || localF.calibration || (is3D ? {
+                enabled: true,
+                mode: "3d",
+                ppm: ppmVal || 25.0,
+                unit: "meters",
+                references: [],
+                imageDimensions: { width: 1000, height: 1000 },
+                timestamp: Date.now()
+              } : null);
+              mergedFloors.push({
+                ...df,
+                name: df.name || localF.name,
+                imageDataUrl: df.imageDataUrl || localF.imageDataUrl || null,
+                modelDataUrl: df.modelDataUrl || localF.modelDataUrl || null,
+                ppm: ppmVal,
+                calibration: calib,
+                markers: (df.markers && df.markers.length) ? df.markers : (localF.markers || []),
+                showHeatmap: localF.showHeatmap ?? df.showHeatmap,
+                virtualMode: localF.virtualMode ?? df.virtualMode,
+              });
+            } else if (df) {
+              const is3D = Boolean(df.modelDataUrl);
+              const ppmVal = df.ppm || df.calibration?.ppm || (is3D ? 25.0 : null);
+              const calib = df.calibration || (is3D ? {
+                enabled: true,
+                mode: "3d",
+                ppm: ppmVal || 25.0,
+                unit: "meters",
+                references: [],
+                imageDimensions: { width: 1000, height: 1000 },
+                timestamp: Date.now()
+              } : null);
+              mergedFloors.push({
+                ...df,
+                calibration: calib,
+                ppm: ppmVal,
+              });
+            } else if (localF) {
+              mergedFloors.push(localF);
+            }
+          }
+          setFloors(mergedFloors);
+          floorsRef.current = mergedFloors;
+          saveFloorsDB(MAP_ID, mergedFloors);
+          lsSave(mergedFloors);
+          const activeIdx = Number(localStorage.getItem("miradorai_active_floor_index") || 0);
+          const validIdx = activeIdx < mergedFloors.length ? activeIdx : 0;
+          setActiveFloor(validIdx);
+          loadFloor(validIdx, mergedFloors);
           setStatus("Map restored — select a camera then click to place");
         } else if (data.markers?.length || data.floor_plan) {
+          const calib = data.calibration || null;
           const migrated = [{
             id:           "floor_1",
             name:         "Floor 1",
             imageDataUrl: data.floor_plan || null,
+            ppm:          data.ppm || calib?.ppm || null,
+            calibration:  calib,
             markers:      (data.markers || []).map(m => ({
               ...m,
               fovAngle:  m.fovAngle  || 60,
@@ -1060,23 +1378,73 @@ export default function MapViewPage() {
           }];
           setFloors(migrated);
           floorsRef.current = migrated;
+          saveFloorsDB(MAP_ID, migrated);
           lsSave(migrated);
-          loadFloor(0, migrated);
+          const activeIdx = Number(localStorage.getItem("miradorai_active_floor_index") || 0);
+          const validIdx = activeIdx < migrated.length ? activeIdx : 0;
+          setActiveFloor(validIdx);
+          loadFloor(validIdx, migrated);
           setStatus("Map restored — select a camera then click to place");
-        } else if (!cached) {
+        } else if (!dbFloors?.length) {
           setStatus("Import a floor plan to start placing cameras");
         } else {
           setStatus("Map restored from cache — select a camera then click to place");
         }
       } catch (e) {
         if (e.message === "401") authFailedRef.current = true;
-        setStatus(cached ? "Map restored from cache" : "Import a floor plan to start");
+        setStatus(dbFloors?.length ? "Map restored from storage" : "Import a floor plan to start");
       } finally {
         setPageLoad(false);
       }
     }
+    
+    // Fallback: force loading false after 5 seconds just in case API hangs
+    const fallbackTimer = setTimeout(() => {
+      setPageLoad(false);
+    }, 5000);
+
     init();
+    
+    return () => clearTimeout(fallbackTimer);
   }, []); // eslint-disable-line
+
+  // ── Auto-refresh models/cameras ──────────────────────────────
+  useEffect(() => {
+    let interval = setInterval(async () => {
+      try {
+        let models = [];
+        const mr = await fetch(`${API}/api/designer/camera-models`, { headers: getAuthHeaders() });
+        if (mr.ok) {
+          const mj = await mr.json();
+          models = mj.cameras || [];
+        }
+
+        let rawCams = [];
+        const r = await fetch(`${API}/api/cameras`, { headers: getAuthHeaders() });
+        if (r.ok) {
+          const j = await r.json();
+          rawCams = j.devices || j.cameras || [];
+        }
+        if (!rawCams.length) {
+          try {
+            rawCams = JSON.parse(localStorage.getItem("miradorai_devices") || "[]");
+          } catch {}
+        }
+        
+        setCameras(prev => {
+          const newCams = normalizeCams(rawCams, models);
+          // Only update state if something changed (JSON.stringify comparison)
+          if (JSON.stringify(newCams) !== JSON.stringify(prev)) {
+            return newCams;
+          }
+          return prev;
+        });
+      } catch (err) {
+        console.warn("Failed to auto-refresh cameras/models", err);
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   // ── Wheel zoom ────────────────────────────────────────────────────
   useEffect(() => {
@@ -1100,10 +1468,16 @@ export default function MapViewPage() {
     const el = wrapRef.current;
     if (!el) return { x: 0, y: 0 };
     const r = el.getBoundingClientRect();
-    return {
-      x: (ex - r.left  - offsetRef.current.x) / scaleRef.current,
-      y: (ey - r.top   - offsetRef.current.y) / scaleRef.current,
-    };
+    const rawX = (ex - r.left  - offsetRef.current.x) / scaleRef.current;
+    const rawY = (ey - r.top   - offsetRef.current.y) / scaleRef.current;
+    const img = floorImgRef.current;
+    if (img && img.width > 0 && img.height > 0) {
+      return {
+        x: Math.max(12, Math.min(img.width - 12, rawX)),
+        y: Math.max(12, Math.min(img.height - 12, rawY)),
+      };
+    }
+    return { x: rawX, y: rawY };
   }
 
   function nearestMarker(ix, iy) {
@@ -1112,6 +1486,25 @@ export default function MapViewPage() {
     markersRef.current.forEach((m, i) => {
       const d = Math.hypot(m.x - ix, m.y - iy);
       if (d < bestD) { bestD = d; best = i; }
+    });
+    return best;
+  }
+
+  function nearestLabel(ix, iy) {
+    let best = -1;
+    markersRef.current.forEach((m, i) => {
+      const cam = cameras.find(c => c.id === m.camId) || { name: m.camName || m.camId };
+      const displayLabel = m.camName || cam.name || `Camera ${i + 1}`;
+      const tw = displayLabel.length * 7 + 10;
+      const lo = m.labelOffset || { dx: 0, dy: 0 };
+      const labelCenterX = m.x + lo.dx;
+      const labelTopY = m.y - 24 + lo.dy;
+      const bx = labelCenterX - tw / 2 - 7;
+      const labelW = tw + 14;
+      const labelH = 18;
+      if (ix >= bx && ix <= bx + labelW && iy >= labelTopY && iy <= labelTopY + labelH) {
+        best = i;
+      }
     });
     return best;
   }
@@ -1142,6 +1535,7 @@ export default function MapViewPage() {
 
   // ── Zoom to zone ──────────────────────────────────────────────────
   function zoomToZone(zone) {
+    if (isPanLockedRef.current) return;
     const wrap = wrapRef.current;
     if (!wrap || zone.polygon.length < 2) return;
     const bounds = polygonBounds(zone.polygon);
@@ -1165,6 +1559,7 @@ export default function MapViewPage() {
 
   // ── Zoom to a specific camera marker ─────────────────────────────
   function zoomToCamera(camId) {
+    if (isPanLockedRef.current) return;
     const marker = markersRef.current.find(m => m.camId === camId);
     if (!marker) return;
     const wrap = wrapRef.current;
@@ -1191,6 +1586,50 @@ export default function MapViewPage() {
       return;
     }
 
+    if (modeRef.current === "calibrate") {
+      if (e.buttons !== 1) {
+        if (calibHandleDragRef.current || drawingCalibLineRef.current) {
+          calibHandleDragRef.current = null;
+          drawingCalibLineRef.current = null;
+          setCalibHandleDrag(null);
+          setDrawingCalibLine(null);
+        }
+        return;
+      }
+      if (calibHandleDragRef.current) {
+        const { refId, handle } = calibHandleDragRef.current;
+        const updated = calibRefsRef.current.map(r => {
+          if (r.id !== refId) return r;
+          const next = { ...r };
+          if (handle === "start") next.start = p;
+          else next.end = p;
+          next.pixelDistance = getPixelDistance(next.start, next.end);
+          return next;
+        });
+        calibRefsRef.current = updated;
+        setCalibRefs(updated);
+        return;
+      }
+      if (drawingCalibLineRef.current) {
+        const updatedLine = { ...drawingCalibLineRef.current, end: p };
+        drawingCalibLineRef.current = updatedLine;
+        setDrawingCalibLine(updatedLine);
+        return;
+      }
+      return;
+    }
+
+    if (modeRef.current === "measure") {
+      if (measureLineRef.current && e.buttons === 1) {
+        const nearCamIdx = nearestMarker(p.x, p.y);
+        const endPt = nearCamIdx >= 0 ? { x: markersRef.current[nearCamIdx].x, y: markersRef.current[nearCamIdx].y } : p;
+        const updatedMeasure = { ...measureLineRef.current, end: endPt };
+        measureLineRef.current = updatedMeasure;
+        setMeasureLine(updatedMeasure);
+      }
+      return;
+    }
+
     if (rotatingRef.current !== null) {
       const previewIdx = markersRef.current.length;
       const isPreview  = rotatingRef.current === previewIdx;
@@ -1207,6 +1646,20 @@ export default function MapViewPage() {
         setMarkers([...markersRef.current]);
         canvasApiRef.current?.drawAll();
       }
+      return;
+    }
+
+    // ── Label dragging ──────────────────────────────────────────
+    if (draggingLabelIdxRef.current !== null && labelDragStartRef.current) {
+      const idx = draggingLabelIdxRef.current;
+      const start = labelDragStartRef.current;
+      const newDx = start.initialDx + (p.x - start.mx);
+      const newDy = start.initialDy + (p.y - start.my);
+      const updated = [...markersRef.current];
+      updated[idx] = { ...updated[idx], labelOffset: { dx: newDx, dy: newDy } };
+      markersRef.current = updated;
+      setMarkers([...updated]);
+      canvasApiRef.current?.drawAll();
       return;
     }
 
@@ -1230,13 +1683,17 @@ export default function MapViewPage() {
     }
 
     if (panStartRef.current && modeRef.current === "pan") {
-      offsetRef.current = {
-        x: e.clientX - panStartRef.current.mx,
-        y: e.clientY - panStartRef.current.my,
-      };
-      canvasApiRef.current?.drawAll();
-      wrapRef.current?.__vtReposition?.();
-      return;
+      if (isPanLockedRef.current) {
+        panStartRef.current = null;
+      } else {
+        offsetRef.current = {
+          x: e.clientX - panStartRef.current.mx,
+          y: e.clientY - panStartRef.current.my,
+        };
+        canvasApiRef.current?.drawAll();
+        wrapRef.current?.__vtReposition?.();
+        return;
+      }
     }
 
     const idx = nearestMarker(p.x, p.y);
@@ -1293,19 +1750,90 @@ export default function MapViewPage() {
       return;
     }
 
+    if (modeRef.current === "calibrate") {
+      // 1. Check if clicking endpoints
+      for (const r of calibRefsRef.current) {
+        const sDist = Math.hypot(p.x - r.start.x, p.y - r.start.y);
+        if (sDist < 18 / scaleRef.current) {
+          calibHandleDragRef.current = { refId: r.id, handle: "start" };
+          setCalibHandleDrag({ refId: r.id, handle: "start" });
+          setActiveCalibRefId(r.id);
+          activeCalibRefIdRef.current = r.id;
+          return;
+        }
+        const eDist = Math.hypot(p.x - r.end.x, p.y - r.end.y);
+        if (eDist < 18 / scaleRef.current) {
+          calibHandleDragRef.current = { refId: r.id, handle: "end" };
+          setCalibHandleDrag({ refId: r.id, handle: "end" });
+          setActiveCalibRefId(r.id);
+          activeCalibRefIdRef.current = r.id;
+          return;
+        }
+      }
+
+      // 2. Check if clicking along the line segment
+      for (const r of calibRefsRef.current) {
+        const x1 = r.start.x, y1 = r.start.y, x2 = r.end.x, y2 = r.end.y;
+        const l2 = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
+        let dist = 999;
+        if (l2 === 0) {
+          dist = Math.hypot(p.x - x1, p.y - y1);
+        } else {
+          let t = ((p.x - x1) * (x2 - x1) + (p.y - y1) * (y2 - y1)) / l2;
+          t = Math.max(0, Math.min(1, t));
+          dist = Math.hypot(p.x - (x1 + t * (x2 - x1)), p.y - (y1 + t * (y2 - y1)));
+        }
+        if (dist < 14 / scaleRef.current) {
+          setActiveCalibRefId(r.id);
+          activeCalibRefIdRef.current = r.id;
+          setCalibPanelOpen(true);
+          return;
+        }
+      }
+
+      // 3. Otherwise start drawing a new reference line
+      const newLine = { start: p, end: p };
+      drawingCalibLineRef.current = newLine;
+      setDrawingCalibLine(newLine);
+      return;
+    }
+
+    if (modeRef.current === "measure") {
+      const nearCamIdx = nearestMarker(p.x, p.y);
+      const startPt = nearCamIdx >= 0 ? { x: markersRef.current[nearCamIdx].x, y: markersRef.current[nearCamIdx].y } : p;
+      const newM = { start: startPt, end: startPt };
+      measureLineRef.current = newM;
+      setMeasureLine(newM);
+      return;
+    }
+
     const rotIdx = nearDirectionHandle(p.x, p.y);
     if (rotIdx >= 0 && modeRef.current === "place") {
       rotatingRef.current = rotIdx;
       return;
     }
 
+    // Check if clicking on a camera label → start label drag
+    const labelIdx = nearestLabel(p.x, p.y);
+    if (labelIdx >= 0 && modeRef.current === "place") {
+      draggingLabelIdxRef.current = labelIdx;
+      const m = markersRef.current[labelIdx];
+      const lo = m.labelOffset || { dx: 0, dy: 0 };
+      labelDragStartRef.current = { mx: p.x, my: p.y, initialDx: lo.dx, initialDy: lo.dy };
+      setSelectedIdx(labelIdx);
+      return;
+    }
+
     const idx = nearestMarker(p.x, p.y);
-    if (modeRef.current === "pan") {
+    if ((modeRef.current === "pan" || e.button === 1 || e.button === 2) && !isPanLockedRef.current) {
       panStartRef.current = {
         mx: e.clientX - offsetRef.current.x,
         my: e.clientY - offsetRef.current.y,
       };
       return;
+    }
+    if (isPanLockedRef.current) {
+      panStartRef.current = null;
     }
     if (idx >= 0) {
       setSelectedIdx(idx);
@@ -1328,7 +1856,7 @@ export default function MapViewPage() {
         setZoneAlert("⚠ Camera cannot be placed outside the selected zone.");
         return;
       }
-      setPendingFov(60);
+      setPendingFov(selectedCamRef.current?.specs?.hfov || 60);
       setPendingDirection(0);
       setPendingPos(p);
       setPendingCam(selectedCamRef.current);
@@ -1373,12 +1901,60 @@ export default function MapViewPage() {
   const onMouseUp = useCallback(e => {
     if (modeRef.current === "zone") return;
 
+    if (modeRef.current === "calibrate") {
+      if (calibHandleDragRef.current) {
+        calibHandleDragRef.current = null;
+        setCalibHandleDrag(null);
+        return;
+      }
+      if (drawingCalibLineRef.current) {
+        const curLine = drawingCalibLineRef.current;
+        const dPx = getPixelDistance(curLine.start, curLine.end);
+        if (dPx >= 8) {
+          const newRef = {
+            id: "ref_" + Date.now(),
+            start: curLine.start,
+            end: curLine.end,
+            pixelDistance: dPx,
+            realDistance: 10.0,
+            unit: "meters",
+            realDistanceMeters: 10.0,
+          };
+          let updatedRefs = [];
+          if (calibTypeRef.current === "standard") {
+            updatedRefs = [newRef];
+          } else {
+            updatedRefs = [...calibRefsRef.current, newRef];
+          }
+          calibRefsRef.current = updatedRefs;
+          setCalibRefs(updatedRefs);
+          setActiveCalibRefId(newRef.id);
+          activeCalibRefIdRef.current = newRef.id;
+        }
+        drawingCalibLineRef.current = null;
+        setDrawingCalibLine(null);
+        return;
+      }
+      return;
+    }
+
+    if (modeRef.current === "measure") {
+      return;
+    }
+
     if (rotatingRef.current !== null) {
       const previewIdx = markersRef.current.length;
       if (rotatingRef.current !== previewIdx) {
         updateMarkers([...markersRef.current]);
       }
       rotatingRef.current = null;
+      return;
+    }
+
+    if (draggingLabelIdxRef.current !== null) {
+      updateMarkers([...markersRef.current]);
+      draggingLabelIdxRef.current = null;
+      labelDragStartRef.current = null;
       return;
     }
 
@@ -1410,6 +1986,17 @@ export default function MapViewPage() {
     }
   }, [cameras, updateMarkers]);
 
+  // Global mouse up for calibration & measurement dragging
+  useEffect(() => {
+    const handleGlobalMouseUp = (e) => {
+      if (drawingCalibLineRef.current || calibHandleDragRef.current) {
+        onMouseUp(e);
+      }
+    };
+    window.addEventListener("mouseup", handleGlobalMouseUp);
+    return () => window.removeEventListener("mouseup", handleGlobalMouseUp);
+  }, [onMouseUp]);
+
   const onContextMenu = useCallback(e => {
     e.preventDefault();
     if (!floorImgRef.current) return;
@@ -1429,7 +2016,7 @@ export default function MapViewPage() {
       dragCamRef.current = null;
       return;
     }
-    setPendingFov(60);
+    setPendingFov(dragCamRef.current?.specs?.hfov || 60);
     setPendingDirection(0);
     setPendingPos(p);
     setPendingCam(dragCamRef.current);
@@ -1551,6 +2138,102 @@ export default function MapViewPage() {
   function handleFileChange(e) {
     const file = e.target.files[0];
     if (!file) return;
+
+    const ext = file.name.toLowerCase().split(".").pop();
+
+    // ── .gltf / .glb → load 3D model and generate 2D fallback ─────
+    if (ext === "gltf" || ext === "glb") {
+      setStatus("Loading 3D model…");
+
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        const modelDataUrl = ev.target.result;
+        
+        try {
+          // Keep generating the 2D snapshot for map mode
+          const { dataUrl: imageDataUrl, ppm, partsReport, embeddedMarkers } = await renderGltfToImage(file);
+          console.log(`[MapView] Generated GLB 2D snapshot. Computed absolute PPM: ${ppm}`);
+          
+          const restoredMarkers = embeddedMarkers && embeddedMarkers.length > 0
+            ? embeddedMarkers
+            : (floorsRef.current[activeFloor]?.markers || []);
+
+          const img = new Image();
+          img.onload = () => {
+            floorImgRef.current = img;
+            setHasFloor(true);
+            setStatus(
+              embeddedMarkers && embeddedMarkers.length > 0
+                ? `3D model loaded — restored ${embeddedMarkers.length} camera(s) from design!`
+                : "3D model loaded — select a camera to place"
+            );
+            fitImage();
+          };
+          img.src = imageDataUrl;
+          
+          const auto3dCalib = {
+            enabled: true,
+            mode: "3d",
+            ppm: ppm || 25.0,
+            unit: "meters",
+            references: [],
+            imageDimensions: { width: 1000, height: 1000 },
+            timestamp: Date.now()
+          };
+
+          const updated = floorsRef.current.map((f, i) =>
+            i === activeFloor ? { ...f, imageDataUrl, modelDataUrl, ppm, calibration: auto3dCalib, partsReport, markers: restoredMarkers } : f
+          );
+          setFloors(updated);
+          floorsRef.current = updated;
+          persistFloors(updated);
+          if (restoredMarkers && restoredMarkers.length > 0) {
+            updateMarkers(restoredMarkers);
+          }
+          
+          // Switch to true 3D viewer mode
+          setViewMode("3d");
+        } catch (err) {
+          console.error("[MapView] GLTF/GLB load failed:", err);
+          setStatus("Failed to load 3D model — " + (err.message || "unknown error"));
+        }
+      };
+      
+      // Read the file as base64 so we can pass it directly into the 3D viewer without network requests
+      reader.readAsDataURL(file);
+      e.target.value = "";
+      return;
+    }
+
+    // ── .html → render HTML to 2D image ───────────────────────────
+    if (ext === "html" || ext === "htm") {
+      setStatus("Rendering HTML floor plan…");
+      renderHtmlToImage(file)
+        .then(({ dataUrl }) => {
+          const img = new Image();
+          img.onload = () => {
+            floorImgRef.current = img;
+            setHasFloor(true);
+            setStatus("HTML floor plan loaded — select a camera then click to place");
+            fitImage();
+          };
+          img.src = dataUrl;
+          const updated = floorsRef.current.map((f, i) =>
+            i === activeFloor ? { ...f, imageDataUrl: dataUrl } : f
+          );
+          setFloors(updated);
+          floorsRef.current = updated;
+          persistFloors(updated);
+        })
+        .catch((err) => {
+          console.error("[MapView] HTML render failed:", err);
+          setStatus("Failed to load HTML floor plan — " + (err.message || "unknown error"));
+        });
+      e.target.value = "";
+      return;
+    }
+
+    // ── Image files (JPEG, PNG, etc.) — existing flow ─────────────
     const reader = new FileReader();
     reader.onload = ev => {
       const dataUrl = ev.target.result;
@@ -1575,30 +2258,60 @@ export default function MapViewPage() {
 
   // ── Floor management ──────────────────────────────────────────────
   function addFloor() {
-    const updated = [...floorsRef.current, makeFloor(floorsRef.current.length + 1)];
+    const nextNum = floorsRef.current.length + 1;
+    const newFloor = makeFloor(nextNum);
+    const updated = [...floorsRef.current, newFloor];
     setFloors(updated);
     floorsRef.current = updated;
     persistFloors(updated);
-    setActiveFloor(updated.length - 1);
-    loadFloor(updated.length - 1, updated);
+    const newIdx = updated.length - 1;
+    setActiveFloor(newIdx);
+    loadFloor(newIdx, updated);
+    setActiveZoneId(null);
+    activeZoneIdRef.current = null;
+    setHighlightedCamId(null);
+    setSelectedCam(null);
+    selectedCamRef.current = null;
+    setStatus(`${newFloor.name} added`);
   }
 
   function switchFloor(idx) {
     if (idx === activeFloor) return;
+    const currentFl = floorsRef.current[activeFloor];
+    if (currentFl) {
+      currentFl.showHeatmap = showHeatmap;
+      currentFl.virtualMode = virtualMode;
+      currentFl.markers = markersRef.current;
+    }
     setActiveFloor(idx);
     loadFloor(idx);
     setActiveZoneId(null);
     activeZoneIdRef.current = null;
     setHighlightedCamId(null);
+    setExpandedCamId(null);
+  }
+
+  function renameFloor(idx, newName) {
+    if (!newName || !newName.trim()) return;
+    const updated = floors.map((f, i) => i === idx ? { ...f, name: newName.trim() } : f);
+    setFloors(updated);
+    floorsRef.current = updated;
+    persistFloors(updated);
+    setStatus(`Floor renamed to "${newName.trim()}"`);
   }
 
   function deleteFloor(idx) {
-    if (floors.length === 1) {
+    if (floors.length <= 1) {
       alert("Cannot delete the last floor.");
       return;
     }
-    const deletedFloorId = floors[idx]?.id;
-    showConfirm("Delete Floor", `Delete ${floors[idx]?.name} and all its cameras?`, () => {
+    const targetFloor = floors[idx];
+    const deletedFloorId = targetFloor?.id;
+    const floorLabel = (targetFloor?.name && !/^Floor \d+$/i.test(targetFloor.name.trim()))
+      ? targetFloor.name
+      : `Floor ${idx + 1}`;
+
+    showConfirm("Delete Floor", `Delete ${floorLabel} and all its cameras?`, () => {
       const updatedZones = zones
         .filter(z => z.floorIndex !== idx)
         .map(z => z.floorIndex > idx ? { ...z, floorIndex: z.floorIndex - 1 } : z);
@@ -1606,10 +2319,18 @@ export default function MapViewPage() {
       zonesRef.current = updatedZones;
       persistZones(updatedZones);
 
-      const updatedFloors = floors.filter((_, i) => i !== idx);
+      const updatedFloors = floors
+        .filter((_, i) => i !== idx)
+        .map((f, i) => {
+          if (!f.name || /^Floor \d+$/i.test(f.name.trim())) {
+            return { ...f, name: `Floor ${i + 1}` };
+          }
+          return f;
+        });
+
       const newActiveFloor = activeFloor >= updatedFloors.length
         ? updatedFloors.length - 1
-        : activeFloor === idx ? 0 : activeFloor > idx ? activeFloor - 1 : activeFloor;
+        : activeFloor === idx ? (idx > 0 ? idx - 1 : 0) : activeFloor > idx ? activeFloor - 1 : activeFloor;
 
       setFloors(updatedFloors);
       floorsRef.current = updatedFloors;
@@ -1624,8 +2345,61 @@ export default function MapViewPage() {
       setActiveZoneId(null);
       activeZoneIdRef.current = null;
       setHighlightedCamId(null);
-      setStatus(`${floors[idx]?.name} deleted`);
+      setStatus(`${floorLabel} deleted`);
     });
+  }
+
+  function restoreVersion(floorIdx, vId) {
+    const floor = floors[floorIdx];
+    if (!floor || !floor.versions) return;
+    const v = floor.versions.find(ver => ver.id === vId);
+    if (!v) return;
+    const updated = floors.map((f, i) => i === floorIdx ? {
+      ...f,
+      imageDataUrl: v.floorPlan || v.imageDataUrl || f.imageDataUrl,
+      modelDataUrl: v.modelDataUrl || f.modelDataUrl,
+      markers: v.placed ? v.placed.map(p => ({
+        id: p.id,
+        camId: p.id || p.camera?.id,
+        x: p.x,
+        y: p.y,
+        direction: p.direction || 0,
+        camName: p.camera?.name || p.name || "",
+        camIp: p.camera?.ip || p.ip || "",
+      })) : (v.markers || f.markers),
+      ppm: v.ppm || f.ppm
+    } : f);
+    setFloors(updated);
+    floorsRef.current = updated;
+    persistFloors(updated);
+    loadFloor(floorIdx, updated);
+  }
+
+  function renameVersion(floorIdx, vId, newName) {
+    if (!newName || !newName.trim()) return;
+    const updated = floors.map((f, i) => {
+      if (i !== floorIdx || !f.versions) return f;
+      return {
+        ...f,
+        versions: f.versions.map(v => v.id === vId ? { ...v, name: newName.trim() } : v)
+      };
+    });
+    setFloors(updated);
+    floorsRef.current = updated;
+    persistFloors(updated);
+  }
+
+  function deleteVersion(floorIdx, vId) {
+    const updated = floors.map((f, i) => {
+      if (i !== floorIdx || !f.versions) return f;
+      return {
+        ...f,
+        versions: f.versions.filter(v => v.id !== vId)
+      };
+    });
+    setFloors(updated);
+    floorsRef.current = updated;
+    persistFloors(updated);
   }
 
   // ── Mode helpers ──────────────────────────────────────────────────
@@ -1652,12 +2426,127 @@ export default function MapViewPage() {
     selectedCamRef.current = null;
     setDrawingPoints([]);
     drawingPointsRef.current = [];
+    setCalibPanelOpen(false);
     setStatus("Click to add zone points — click near the first point to close & save");
+  }
+
+  function setCalibrateMode() {
+    modeRef.current = "calibrate";
+    setMode("calibrate");
+    setCalibPanelOpen(true);
+    setMeasureLine(null);
+    setDrawingCalibLine(null);
+    setDrawingPoints([]);
+    drawingPointsRef.current = [];
+    setSelectedCam(null);
+    selectedCamRef.current = null;
+    const currentFloor = floorsRef.current[activeFloor];
+    if (currentFloor?.calibration?.references?.length) {
+      setCalibRefs([...currentFloor.calibration.references]);
+      setCalibType(currentFloor.calibration.mode || "standard");
+    }
+    setStatus("Calibration mode: Click & drag over a known distance to calibrate");
+    canvasApiRef.current?.drawAll();
+  }
+
+  function setMeasureMode() {
+    modeRef.current = "measure";
+    setMode("measure");
+    setCalibPanelOpen(false);
+    setDrawingCalibLine(null);
+    setDrawingPoints([]);
+    drawingPointsRef.current = [];
+    setSelectedCam(null);
+    selectedCamRef.current = null;
+    setStatus("Measure mode: Click & drag between points on the map");
+    canvasApiRef.current?.drawAll();
+  }
+
+  function handleApplyCalibration() {
+    if (!floorImgRef.current) {
+      alert("No floor plan image loaded.");
+      return;
+    }
+    if (calibRefs.length === 0) {
+      alert("Please draw at least one reference line.");
+      return;
+    }
+    try {
+      const imgDims = { width: floorImgRef.current.width, height: floorImgRef.current.height };
+      let newCalib = null;
+      if (calibType === "standard") {
+        newCalib = buildStandardCalibration(calibRefs[0], imgDims);
+      } else {
+        newCalib = buildAdvancedCalibration(calibRefs, imgDims);
+      }
+      
+      const updatedFloors = floorsRef.current.map((f, i) => {
+        if (i !== activeFloor) return f;
+        return {
+          ...f,
+          calibration: newCalib,
+          ppm: newCalib.ppm,
+        };
+      });
+
+      // Update camera markers with world coordinates
+      const updatedMarkers = markersRef.current.map(m => ({
+        ...m,
+        worldPos: layoutToWorld(newCalib, m.x, m.y),
+      }));
+
+      setFloors(updatedFloors);
+      floorsRef.current = updatedFloors;
+      persistFloors(updatedFloors);
+      updateMarkers(updatedMarkers);
+      setCalibPanelOpen(false);
+      setMode("place");
+      modeRef.current = "place";
+      
+      showAlert(
+        "Calibration Applied",
+        newCalib.mode === "standard"
+          ? `Standard calibration applied successfully.\nGlobal scale: ${newCalib.ppm.toFixed(2)} px/m.`
+          : `Advanced spatial transformation applied successfully with ${newCalib.references.length} reference measurements.`
+      );
+      canvasApiRef.current?.drawAll();
+    } catch (err) {
+      console.error("[MapView] Calibration failed:", err);
+      alert("Calibration failed: " + err.message);
+    }
+  }
+
+  function handleClearCalibration() {
+    showConfirm(
+      "Clear Calibration",
+      "Clear calibration? Camera positions and distance measurements will return to uncalibrated layout coordinates.",
+      () => {
+        const updatedFloors = floorsRef.current.map((f, i) => {
+          if (i !== activeFloor) return f;
+          return {
+            ...f,
+            calibration: null,
+            ppm: null,
+          };
+        });
+        setFloors(updatedFloors);
+        floorsRef.current = updatedFloors;
+        persistFloors(updatedFloors);
+        setCalibRefs([]);
+        setCalibPanelOpen(false);
+        setMode("place");
+        modeRef.current = "place";
+        setStatus("Calibration cleared");
+        canvasApiRef.current?.drawAll();
+      }
+    );
   }
 
   // ── Placement confirmation ────────────────────────────────────────
   function confirmPlacement() {
     if (!pendingPos || !pendingCam) return;
+    const activeCal = floorsRef.current[activeFloor]?.calibration;
+    const worldPos = layoutToWorld(activeCal, pendingPos.x, pendingPos.y);
     const next = [
       ...markersRef.current.filter(m => m.camId !== pendingCam.id),
       {
@@ -1666,6 +2555,7 @@ export default function MapViewPage() {
         camIp:     pendingCam.ip,
         x:         pendingPos.x,
         y:         pendingPos.y,
+        worldPos:  worldPos,
         fovAngle:  pendingFov,
         direction: pendingDirection,
       },
@@ -1731,166 +2621,97 @@ export default function MapViewPage() {
   //  - Camera name label (FIX 5)
   //  - Zone clipping per camera (FIX 6) — caller must pass ctx already clipped if needed
 
+  // ── Export 3D GLB Model ───────────────────────────────────────────
+  function export3DModelGLB() {
+    const currentFloor = floorsRef.current[activeFloor];
+    const floorName = currentFloor?.name || `Floor_${activeFloor + 1}`;
+    if (gltfViewerRef.current?.exportGLB) {
+      gltfViewerRef.current.exportGLB(floorName);
+      setStatus("Exported 3D GLB model with cameras and volumetric FOV beams");
+    } else {
+      alert("3D viewer is not initialized for GLB export.");
+    }
+    setShowExportMenu(false);
+  }
+
+  // ── Export 3D Top-Down 2D Snapshot (pristine top view without altering current 3D viewport angle) ──
+  function export3DTopDownSnapshot(isHeatmap = false) {
+    const currentFloor = floorsRef.current[activeFloor];
+    const floorName = currentFloor?.name || `Floor_${activeFloor + 1}`;
+    if (gltfViewerRef.current?.exportTopDownSnapshot) {
+      gltfViewerRef.current.exportTopDownSnapshot(floorName, isHeatmap);
+      setStatus(isHeatmap ? "Exported 3D top-down heatmap snapshot" : "Exported 3D top-down 2D design snapshot");
+    } else {
+      exportMapPNG(isHeatmap ? "heatmap" : "design");
+    }
+    setShowExportMenu(false);
+  }
+
   // ── Export PNG ────────────────────────────────────────────────────
-  // Z-order: 1 Floor → 2 Zones → 3 Cameras (clipped) → 4 Labels
-  // FIX 7: correct z-order is enforced by the sequence below.
-  function exportMapPNG(exportMode = "design") {
+  async function exportMapPNG(exportMode = "design") {
+    // If user clicked while on a 3D floor
+    if (exportMode === "glb") {
+      export3DModelGLB();
+      return;
+    }
+    if (floorsRef.current[activeFloor]?.modelDataUrl) {
+      export3DTopDownSnapshot(exportMode === "heatmap");
+      return;
+    }
+
     const img = floorImgRef.current;
     if (!img) return;
 
+    // Preload logo image
+    let logoElem = null;
+    try {
+      logoElem = new Image();
+      logoElem.src = logoImg;
+      if (!logoElem.complete) {
+        await new Promise(resolve => {
+          logoElem.onload = resolve;
+          logoElem.onerror = resolve;
+        });
+      }
+    } catch (e) {}
+
+    const padTop = 16;
+    const padLeft = 16;
+    const padRight = 16;
+    const padBottom = 46;
+
     const oc  = document.createElement("canvas");
-    oc.width  = img.width;
-    oc.height = img.height;
+    oc.width  = img.width + padLeft + padRight;
+    oc.height = img.height + padTop + padBottom;
     const ctx = oc.getContext("2d");
 
-    const floorZones = zonesRef.current.filter(z => z.floorIndex === activeFloor);
+    const activeFloorObj = floorsRef.current[activeFloor] || floors[activeFloor] || {};
+    const floorPpm = activeFloorObj.calibration?.ppm || activeFloorObj.ppm || null;
+    const floorCalibration = activeFloorObj.calibration || null;
 
-    if (exportMode === "design") {
-      // ── SNAPSHOT MECHANISM: Exactly like MapCanvas ──────────────────
-      renderMapViewSnapshot(ctx, {
-        img,
-        markers: markersRef.current,
-        cameras,
-        zones: zonesRef.current,
-        activeFloor,
-        highlightedCamId: null,
-        iconScale: iconScale
-      });
-
-      // If intensity heatmap is toggled ON in the UI, include it in the snapshot
-      if (showHeatmap) {
-        const hcvs = document.createElement("canvas");
-        hcvs.width = oc.width; hcvs.height = oc.height;
-        const hctx = hcvs.getContext("2d");
-
-        const heatmapMarkers = markersRef.current.map(m => ({
-          camId: m.camId, x: m.x, y: m.y, fovAngle: m.fovAngle, direction: m.direction
-        }));
-        
-        const foundLevels = drawHeatmapToContext(hctx, hcvs.width, hcvs.height, {
-          markers: heatmapMarkers,
-          cameras: cameras,
-          scale: 1,
-          offset: { x: 0, y: 0 },
-          activeZone: zonesRef.current.find(z => z.id === activeZoneIdRef.current) || null,
-          floorImg: img,
-          step: 2,
-          clear: true
-        });
-
-        ctx.globalAlpha = 0.85;
-        ctx.drawImage(hcvs, 0, 0);
-        ctx.globalAlpha = 1.0;
-        
-        // Draw legend for intensity heatmap
-        drawHeatmapLegendToCanvas(ctx, oc.width, oc.height, { foundLevels, compact: true });
-      }
-
-      // Also draw zones (UI style)
-      floorZones.forEach(zone => {
-        if (zone.polygon.length < 2) return;
-        ctx.save();
-        ctx.beginPath();
-        zone.polygon.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
-        ctx.closePath();
-        const isActive = zone.id === activeZoneIdRef.current;
-        ctx.fillStyle = zone.color + (isActive ? "1a" : "0d");
-        ctx.fill();
-        ctx.strokeStyle = zone.color;
-        ctx.lineWidth   = isActive ? 2.5 : 1.5;
-        ctx.globalAlpha = isActive ? 1.0 : 0.55;
-        if (!isActive) ctx.setLineDash([6, 3]);
-        ctx.stroke();
-        ctx.globalAlpha = 1.0;
-        ctx.setLineDash([]); 
-
-        // Vertex dots
-        zone.polygon.forEach(p => {
-          ctx.beginPath(); ctx.arc(p.x, p.y, isActive ? 4 : 3, 0, Math.PI * 2);
-          ctx.fillStyle = zone.color; ctx.globalAlpha = isActive ? 0.9 : 0.5; ctx.fill();
-          ctx.strokeStyle = "#fff"; ctx.lineWidth = 1; ctx.stroke(); ctx.globalAlpha = 1;
-        });
-
-        // Zone label badge removed per user request
-
-        ctx.restore();
-      });
-
-    } else if (exportMode === "heatmap") {
-      // 0. Base floor plan
-      ctx.drawImage(img, 0, 0);
-
-      // 1. Draw Heatmap to a temporary canvas
-      const hcvs = document.createElement("canvas");
-      hcvs.width = oc.width; hcvs.height = oc.height;
-      const hctx = hcvs.getContext("2d");
-
-      const heatmapMarkers = markersRef.current.map(m => ({
-        camId: m.camId, x: m.x, y: m.y, fovAngle: m.fovAngle, direction: m.direction
-      }));
-      
-      const foundLevels = drawHeatmapToContext(hctx, hcvs.width, hcvs.height, {
-        markers: heatmapMarkers,
-        cameras: cameras,
-        scale: 1,
-        offset: { x: 0, y: 0 },
-        activeZone: zonesRef.current.find(z => z.id === activeZoneIdRef.current) || null,
-        allZones: floorZones,
-        floorImg: img,
-        step: 2,
-        clear: true
-      });
-
-      // 2. Composite heatmap onto the floor plan
-      ctx.globalAlpha = 0.85; 
-      ctx.drawImage(hcvs, 0, 0);
-      ctx.globalAlpha = 1.0;
-
-      // 3. Draw Zones (Dashed lines, matching Designer View)
-      floorZones.forEach(zone => {
-        if (zone.polygon.length < 2) return;
-        ctx.save(); ctx.beginPath();
-        zone.polygon.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
-        ctx.closePath();
-        ctx.strokeStyle = zone.color; ctx.lineWidth = 1.5; ctx.setLineDash([5, 5]); ctx.stroke(); ctx.restore();
-      });
-
-      // 4. Draw Cameras on top (Premium pill style for Heatmap)
-      markersRef.current.forEach(m => {
-        const cameraObj = cameras.find(c => c.id === m.camId) || {
-          name: m.camName || m.camId,
-          type: getCamTypeFromName(m.camName),
-          rangeDay: 30,
-          hfov: m.fovAngle || 60
-        };
-      drawCamera(ctx, {
-        x: m.x, y: m.y, direction: m.direction,
-        camera: { ...cameraObj, model: cameraObj.name || cameraObj.model }
-      }, 8, {                        // ← radius 22 → 13 (smaller icon)
-        showLabel: false,             // ← no camera name
-        zones: floorZones,
-        activeZoneId: activeZoneIdRef.current,
-        showFov: false,
-      });
-      });
-
-      // 5. Draw Legend at top-right
-      drawHeatmapLegendToCanvas(ctx, oc.width, oc.height, { foundLevels, compact: true });
-    }
-
-    // ── Watermark: floor name ─────────────────────────────────────
-    const floorName = floorsRef.current[activeFloor]?.name || "Floor";
-    ctx.font         = "600 15px Inter, system-ui, sans-serif";
-    ctx.textAlign    = "left";
-    ctx.textBaseline = "bottom";
-    ctx.fillStyle = "rgba(0,0,0,0.55)";
-    ctx.fillText(floorName, 16, oc.height - 12);
-    ctx.fillStyle = "rgba(255,255,255,0.90)";
-    ctx.fillText(floorName, 14, oc.height - 14);
+    // Render exact high-fidelity snapshot matching on-screen appearance
+    renderMapViewSnapshot(ctx, {
+      img,
+      markers: markersRef.current,
+      cameras,
+      zones: zonesRef.current,
+      activeFloor,
+      highlightedCamId: null,
+      showHeatmap: exportMode === "heatmap",
+      exportMode,
+      ppm: floorPpm,
+      calibration: floorCalibration,
+      iconScale: iconScale,
+      logoImage: logoElem,
+      padTop,
+      padLeft,
+      padRight,
+      padBottom,
+    });
 
     // ── Download ──────────────────────────────────────────────────
     const a    = document.createElement("a");
-    a.download = exportMode === "heatmap" ? `${floorName.replace(/\s+/g, "_")}_heatmap.png` : `${floorName.replace(/\s+/g, "_")}_design.png`;
+    a.download = exportMode === "heatmap" ? `mirador_coverage_heatmap.png` : `mirador_design_layout.png`;
     a.href     = oc.toDataURL("image/png");
     a.click();
     setShowExportMenu(false);
@@ -1988,6 +2809,45 @@ export default function MapViewPage() {
                       <span className="mv-dropdown-card__desc">Drag to navigate the floor plan</span>
                     </div>
                     {mode === "pan" && <span className="mv-dropdown-card__check">✓</span>}
+                  </button>
+
+                  {/* Measure */}
+                  <button
+                    className={`mv-dropdown-card ${mode === "measure" ? "mv-dropdown-card--active" : ""}`}
+                    onClick={() => { setMeasureMode(); setModesDropdownOpen(false); }}
+                  >
+                    <div className="mv-dropdown-card__icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="26" height="26">
+                        <path d="M2 12h20M2 12l4-4M2 12l4 4M22 12l-4-4M22 12l4 4M7 9v6M12 9v6M17 9v6" />
+                      </svg>
+                    </div>
+                    <div className="mv-dropdown-card__body">
+                      <span className="mv-dropdown-card__label">Measure</span>
+                      <span className="mv-dropdown-card__desc">Measure distance between points</span>
+                    </div>
+                    {mode === "measure" && <span className="mv-dropdown-card__check">✓</span>}
+                  </button>
+
+                  {/* Calibrate */}
+                  <button
+                    className={`mv-dropdown-card ${mode === "calibrate" ? "mv-dropdown-card--active" : ""}`}
+                    onClick={() => { setCalibrateMode(); setModesDropdownOpen(false); }}
+                  >
+                    <div className="mv-dropdown-card__icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="26" height="26">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="22" y1="12" x2="18" y2="12"/>
+                        <line x1="6" y1="12" x2="2" y2="12"/>
+                        <line x1="12" y1="6" x2="12" y2="2"/>
+                        <line x1="12" y1="22" x2="12" y2="18"/>
+                        <circle cx="12" cy="12" r="3"/>
+                      </svg>
+                    </div>
+                    <div className="mv-dropdown-card__body">
+                      <span className="mv-dropdown-card__label">Calibrate</span>
+                      <span className="mv-dropdown-card__desc">Calibrate layout scale &amp; distortion</span>
+                    </div>
+                    {mode === "calibrate" && <span className="mv-dropdown-card__check">✓</span>}
                   </button>
 
                   {/* Draw Zone */}
@@ -2112,7 +2972,16 @@ export default function MapViewPage() {
                   {/* Heatmap */}
                   <button
                     className={`mv-dropdown-card ${showHeatmap ? "mv-dropdown-card--active" : ""}`}
-                    onClick={() => { setShowHeatmap(h => !h); }}
+                    onClick={() => {
+                      const next = !showHeatmap;
+                      setShowHeatmap(next);
+                      setFloors(prev => {
+                        const updated = prev.map((fl, i) => i === activeFloor ? { ...fl, showHeatmap: next } : fl);
+                        floorsRef.current = updated;
+                        persistFloors(updated);
+                        return updated;
+                      });
+                    }}
                   >
                     <div className="mv-dropdown-card__icon mv-dropdown-card__icon--heatmap">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="26" height="26">
@@ -2130,7 +2999,17 @@ export default function MapViewPage() {
                   {/* Virtual View */}
                   <button
                     className={`mv-dropdown-card ${virtualMode ? "mv-dropdown-card--active mv-dropdown-card--virtual" : ""}`}
-                    onClick={() => { setVirtualMode(v => !v); setExpandedCamId(null); }}
+                    onClick={() => {
+                      const next = !virtualMode;
+                      setVirtualMode(next);
+                      setExpandedCamId(null);
+                      setFloors(prev => {
+                        const updated = prev.map((fl, i) => i === activeFloor ? { ...fl, virtualMode: next } : fl);
+                        floorsRef.current = updated;
+                        persistFloors(updated);
+                        return updated;
+                      });
+                    }}
                   >
                     <div className="mv-dropdown-card__icon mv-dropdown-card__icon--virtual">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="26" height="26">
@@ -2200,6 +3079,68 @@ export default function MapViewPage() {
             </div>
           )}
 
+          {hasFloor && (floors[activeFloor]?.calibration?.enabled || floors[activeFloor]?.modelDataUrl ? (
+            <button
+              className="mv-calib-badge-btn"
+              onClick={floors[activeFloor]?.modelDataUrl ? undefined : setCalibrateMode}
+              title={
+                floors[activeFloor]?.modelDataUrl
+                  ? "3D layouts are inherently autocalibrated in real-world metric scale (1 unit = 1 meter)."
+                  : "Layout scale is calibrated. Click to recalibrate or adjust."
+              }
+              style={{
+                background: "rgba(16, 185, 129, 0.12)",
+                color: "#10b981",
+                padding: "4px 8px",
+                borderRadius: "4px",
+                fontSize: "12px",
+                fontWeight: "600",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "5px",
+                marginLeft: "8px",
+                cursor: floors[activeFloor]?.modelDataUrl ? "default" : "pointer",
+                border: "1px solid rgba(16, 185, 129, 0.35)",
+              }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" width="13" height="13">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>
+                {floors[activeFloor]?.modelDataUrl
+                  ? `3D Autocalibrated (${(floors[activeFloor]?.calibration?.ppm || floors[activeFloor]?.ppm || 25.0).toFixed(1)} px/m)`
+                  : floors[activeFloor]?.calibration?.mode === "advanced"
+                  ? "Calibrated (Advanced)"
+                  : `Calibrated (${floors[activeFloor]?.calibration?.ppm ? floors[activeFloor].calibration.ppm.toFixed(1) : (floors[activeFloor]?.ppm ? floors[activeFloor].ppm.toFixed(1) : "1.0")} px/m)`}
+              </span>
+            </button>
+          ) : (
+            <button 
+              className="mv-calib-warning" 
+              onClick={setCalibrateMode}
+              title="This floor plan has no scale calibration. Click to calibrate layout scale."
+              style={{
+                background: "#fef3c7",
+                color: "#92400e",
+                padding: "4px 8px",
+                borderRadius: "4px",
+                fontSize: "12px",
+                fontWeight: "600",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
+                marginLeft: "8px",
+                cursor: "pointer",
+                border: "1px solid #fcd34d"
+              }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              Not calibrated
+            </button>
+          ))}
+
           {saving  && <span className="mv-saving">● Saving…</span>}
           {saveErr && (
             <span className="mv-save-err" title="Auth failed — saved to cache only">
@@ -2230,7 +3171,7 @@ export default function MapViewPage() {
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept="image/*,.gltf,.glb,.html,.htm"
               style={{ display: "none" }}
               onChange={handleFileChange}
             />
@@ -2253,27 +3194,97 @@ export default function MapViewPage() {
 
               {showExportMenu && (
                 <div className="mv-export-menu">
-                  <button className="mv-export-item" onClick={() => exportMapPNG("design")}>
-                    <div className="mv-export-item__icon">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-                        <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 21V9" />
-                      </svg>
-                    </div>
-                    <div className="mv-export-item__label">
-                      <span>Download Design</span>
-                    </div>
-                  </button>
-                  <button className="mv-export-item" onClick={() => exportMapPNG("heatmap")}>
-                    <div className="mv-export-item__icon mv-export-item__icon--heatmap">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-                        <circle cx="12" cy="12" r="3" />
-                        <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-                      </svg>
-                    </div>
-                    <div className="mv-export-item__label">
-                      <span>Download Heatmap</span>
-                    </div>
-                  </button>
+                  {floors[activeFloor]?.modelDataUrl ? (
+                    <>
+                      {/* 1. Download Design (.glb) */}
+                      <button className="mv-export-item" onClick={export3DModelGLB}>
+                        <div className="mv-export-item__icon" style={{ color: "#1D9E75" }}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                          </svg>
+                        </div>
+                        <div className="mv-export-item__label">
+                          <span>Download Design (.glb)</span>
+                          <small style={{ fontSize: "10px", opacity: 0.6, display: "block" }}>With 3D cameras &amp; solid beams</small>
+                        </div>
+                      </button>
+
+                      {/* 2. Download Design 2D */}
+                      <button className="mv-export-item" onClick={() => export3DTopDownSnapshot(false)}>
+                        <div className="mv-export-item__icon">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                            <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 21V9" />
+                          </svg>
+                        </div>
+                        <div className="mv-export-item__label">
+                          <span>Download Design 2D</span>
+                          <small style={{ fontSize: "10px", opacity: 0.6, display: "block" }}>Pristine top-down 2D snapshot</small>
+                        </div>
+                      </button>
+
+                      {/* 3. Download Heatmap 2D */}
+                      <button
+                        className="mv-export-item"
+                        disabled={!showHeatmap}
+                        title={!showHeatmap ? "Enable the Heatmap layer to download heatmap 2D" : "Download 2D top-down heatmap snapshot"}
+                        style={{
+                          opacity: !showHeatmap ? 0.45 : 1,
+                          cursor: !showHeatmap ? "not-allowed" : "pointer"
+                        }}
+                        onClick={() => { if (showHeatmap) export3DTopDownSnapshot(true); }}
+                      >
+                        <div className="mv-export-item__icon mv-export-item__icon--heatmap" style={{ opacity: showHeatmap ? 1 : 0.5 }}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                            <circle cx="12" cy="12" r="3" />
+                            <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                          </svg>
+                        </div>
+                        <div className="mv-export-item__label">
+                          <span>Download Heatmap 2D</span>
+                          <small style={{ fontSize: "10px", opacity: 0.6, display: "block" }}>{showHeatmap ? "Top-down coverage heatmap" : "Requires Heatmap layer active"}</small>
+                        </div>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {/* 2D Download Design */}
+                      <button className="mv-export-item" onClick={() => exportMapPNG("design")}>
+                        <div className="mv-export-item__icon">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                            <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 21V9" />
+                          </svg>
+                        </div>
+                        <div className="mv-export-item__label">
+                          <span>Download Design</span>
+                        </div>
+                      </button>
+
+                      {/* 2D Download Heatmap */}
+                      <button
+                        className="mv-export-item"
+                        disabled={!showHeatmap}
+                        title={!showHeatmap ? "Enable the Heatmap layer to download heatmap" : "Download Heatmap"}
+                        style={{
+                          opacity: !showHeatmap ? 0.45 : 1,
+                          cursor: !showHeatmap ? "not-allowed" : "pointer"
+                        }}
+                        onClick={() => { if (showHeatmap) exportMapPNG("heatmap"); }}
+                      >
+                        <div className="mv-export-item__icon mv-export-item__icon--heatmap" style={{ opacity: showHeatmap ? 1 : 0.5 }}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                            <circle cx="12" cy="12" r="3" />
+                            <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                          </svg>
+                        </div>
+                        <div className="mv-export-item__label">
+                          <span>Download Heatmap</span>
+                          <small style={{ fontSize: "10px", opacity: 0.6, display: "block" }}>{showHeatmap ? "Coverage heatmap" : "Requires Heatmap layer active"}</small>
+                        </div>
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -2285,6 +3296,21 @@ export default function MapViewPage() {
               </svg>
               Clear
             </button>
+
+            {/* {floors[activeFloor]?.modelDataUrl && (
+              <button
+                className={`mv-tbtn-new secondary`}
+                onClick={() => setViewMode(v => v === "3d" ? "2d" : "3d")}
+                title="Toggle between 3D viewer and 2D map"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="13" height="13">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                  <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                  <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                </svg>
+                {viewMode === "3d" ? "2D Map Mode" : "View in 3D"}
+              </button>
+            )} */}
 
             {/* ── Toolbox Dropdown ── */}
             <div style={{ position: "relative" }} ref={toolboxDropRef}>
@@ -2350,6 +3376,481 @@ export default function MapViewPage() {
       {/* ── Main Canvas Workspace ── */}
       <div className="mv-main">
 
+        {/* ── Left Sidebar (Floor Drafts matching Designer View) ── */}
+        {floors.length > 0 && (
+          <div
+            className={`mv-floors-sidebar ${floorPanelCollapsed ? "mv-floors-sidebar--collapsed" : ""}`}
+            style={{
+              width: floorPanelCollapsed ? "40px" : "220px",
+              background: "var(--bg-base)",
+              borderRight: "0.5px solid var(--border)",
+              display: "flex",
+              flexDirection: "column",
+              flexShrink: 0,
+              overflow: "hidden",
+              userSelect: "none",
+              transition: "width 0.3s ease",
+              height: "100%",
+              zIndex: 5
+            }}
+          >
+            {/* Toggle Button & Header */}
+            <div
+              style={{
+                padding: floorPanelCollapsed ? "12px" : "12px 14px",
+                borderBottom: "0.5px solid var(--border)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: floorPanelCollapsed ? "center" : "space-between"
+              }}
+            >
+              {!floorPanelCollapsed && (
+                <span
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: "700",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                    color: "var(--text-muted, #7a8499)"
+                  }}
+                >
+                  Floor Drafts ({floors.length})
+                </span>
+              )}
+
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                {!floorPanelCollapsed && (
+                  <button
+                    onClick={addFloor}
+                    style={{
+                      background: "rgba(59, 130, 246, 0.15)",
+                      border: "1px solid rgba(59, 130, 246, 0.4)",
+                      borderRadius: "4px",
+                      color: "#60a5fa",
+                      fontSize: "10px",
+                      padding: "2px 6px",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "2px",
+                      transition: "all 0.15s ease"
+                    }}
+                    title="Add a new blank floor layout draft"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" width="10" height="10">
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg>
+                    New
+                  </button>
+                )}
+                <button
+                  onClick={() => setFloorPanelCollapsed(!floorPanelCollapsed)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#60a5fa",
+                    padding: "0",
+                    cursor: "pointer",
+                    display: "flex",
+                    outline: "none"
+                  }}
+                  title={floorPanelCollapsed ? "Open Sidebar" : "Close Sidebar"}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                    {floorPanelCollapsed ? (
+                      <path d="M5 12h14M12 5l7 7-7 7" />
+                    ) : (
+                      <path d="M19 12H5M12 19l-7-7 7-7" />
+                    )}
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {/* List */}
+            <div
+              style={{
+                flex: 1,
+                overflowY: "auto",
+                padding: "10px",
+                display: floorPanelCollapsed ? "none" : "flex",
+                flexDirection: "column",
+                gap: "12px",
+                scrollbarWidth: "thin",
+                scrollbarColor: "var(--border) transparent"
+              }}
+            >
+              {floors.map((f, i) => {
+                const isActive = i === activeFloor;
+                const camCount = f.markers?.length || 0;
+                const zoneCount = zones.filter(z => z.floorIndex === i).length;
+                const floorDisplayName = f.name || `Floor ${i + 1}`;
+
+                return (
+                  <div key={f.id} style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    <div
+                      onClick={() => switchFloor(i)}
+                      style={{
+                        display: "flex",
+                        gap: "8px",
+                        cursor: "pointer",
+                        position: "relative",
+                        transition: "all 0.2s ease",
+                        padding: "4px",
+                        borderRadius: "6px",
+                        background: isActive ? "rgba(59, 130, 246, 0.05)" : "transparent"
+                      }}
+                    >
+                      {/* Slide index number */}
+                      <div
+                        style={{
+                          fontSize: "11px",
+                          fontWeight: "700",
+                          color: isActive ? "var(--teal)" : "var(--text-muted)",
+                          width: "14px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center"
+                        }}
+                      >
+                        {i + 1}
+                      </div>
+
+                      {/* Thumbnail Card Frame */}
+                      <div
+                        className={`mv-floor-card ${isActive ? "active" : ""}`}
+                        style={{
+                          flex: 1,
+                          display: "flex",
+                          flexDirection: "column",
+                          background: "var(--bg-elevated)",
+                          border: isActive ? "1.5px solid var(--teal)" : "1px solid var(--border)",
+                          borderRadius: "6px",
+                          overflow: "hidden",
+                          transition: "all 0.15s ease",
+                          boxShadow: isActive ? "0 0 10px rgba(16, 185, 129, 0.15)" : "none"
+                        }}
+                        onMouseEnter={e => {
+                          if (!isActive) {
+                            e.currentTarget.style.borderColor = "var(--border-light)";
+                          }
+                        }}
+                        onMouseLeave={e => {
+                          if (!isActive) {
+                            e.currentTarget.style.borderColor = "var(--border)";
+                          }
+                        }}
+                      >
+                        {/* Thumbnail Image area */}
+                        <div
+                          style={{
+                            height: "80px",
+                            background: "var(--bg-hover)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            position: "relative",
+                            borderBottom: "1px solid var(--border)",
+                            overflow: "hidden"
+                          }}
+                        >
+                          {f.modelDataUrl && (
+                            <div style={{
+                              position: "absolute",
+                              top: "4px",
+                              left: "4px",
+                              background: "rgba(29, 158, 117, 0.9)",
+                              color: "#fff",
+                              fontSize: "8.5px",
+                              fontWeight: "800",
+                              padding: "1px 5px",
+                              borderRadius: "3px",
+                              letterSpacing: "0.5px",
+                              zIndex: 2
+                            }}>
+                              3D
+                            </div>
+                          )}
+
+                          {f.imageDataUrl ? (
+                            <img
+                              src={f.imageDataUrl}
+                              alt={floorDisplayName}
+                              style={{
+                                width: "100%",
+                                height: "100%",
+                                objectFit: "contain",
+                                opacity: 0.85
+                              }}
+                            />
+                          ) : f.modelDataUrl ? (
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                gap: "4px",
+                                color: "var(--teal)"
+                              }}
+                            >
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="18" height="18">
+                                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                                <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+                                <line x1="12" y1="22.08" x2="12" y2="12" />
+                              </svg>
+                              <span style={{ fontSize: "9px", fontWeight: "600" }}>3D Model</span>
+                            </div>
+                          ) : (
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                gap: "4px",
+                                color: "var(--text-muted)"
+                              }}
+                            >
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="16" height="16">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                                <circle cx="8.5" cy="8.5" r="1.5" />
+                                <polyline points="21 15 16 10 5 21" />
+                              </svg>
+                              <span style={{ fontSize: "9px" }}>No Floor Plan</span>
+                            </div>
+                          )}
+
+                          {/* Floating delete button */}
+                          {floors.length > 1 && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteFloor(i);
+                              }}
+                              style={{
+                                position: "absolute",
+                                top: "4px",
+                                right: "4px",
+                                background: "rgba(239, 68, 68, 0.8)",
+                                border: "none",
+                                borderRadius: "4px",
+                                color: "#ffffff",
+                                padding: "2px",
+                                cursor: "pointer",
+                                opacity: 0,
+                                transition: "opacity 0.15s ease",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                zIndex: 2
+                              }}
+                              className="mv-floor-del-btn"
+                              title="Delete floor draft"
+                            >
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10">
+                                <polyline points="3 6 5 6 21 6" />
+                                <path d="M19 6l-1 14H6L5 6" />
+                                <line x1="10" y1="11" x2="10" y2="17" />
+                                <line x1="14" y1="11" x2="14" y2="17" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Description info */}
+                        <div style={{ padding: "6px 8px", display: "flex", flexDirection: "column", gap: "2px" }}>
+                          {editingFloorIdx === i ? (
+                            <input
+                              type="text"
+                              value={editingFloorName}
+                              onChange={e => setEditingFloorName(e.target.value)}
+                              onBlur={() => {
+                                if (editingFloorName.trim()) {
+                                  renameFloor(i, editingFloorName.trim());
+                                }
+                                setEditingFloorIdx(null);
+                              }}
+                              onKeyDown={e => {
+                                if (e.key === "Enter") {
+                                  if (editingFloorName.trim()) {
+                                    renameFloor(i, editingFloorName.trim());
+                                  }
+                                  setEditingFloorIdx(null);
+                                } else if (e.key === "Escape") {
+                                  setEditingFloorIdx(null);
+                                }
+                              }}
+                              onClick={e => e.stopPropagation()}
+                              autoFocus
+                              style={{
+                                background: "var(--bg-base)",
+                                border: "1px solid var(--teal)",
+                                borderRadius: "3px",
+                                color: "var(--text-primary)",
+                                fontSize: "11px",
+                                padding: "1px 4px",
+                                width: "100%",
+                                outline: "none"
+                              }}
+                            />
+                          ) : (
+                            <div
+                              onDoubleClick={(e) => {
+                                e.stopPropagation();
+                                setEditingFloorIdx(i);
+                                setEditingFloorName(floorDisplayName);
+                              }}
+                              style={{
+                                fontSize: "11px",
+                                fontWeight: "600",
+                                color: isActive ? "var(--teal)" : "var(--text-primary)",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between"
+                              }}
+                              title="Double click to rename"
+                            >
+                              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{floorDisplayName}</span>
+                              <svg
+                                viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10"
+                                style={{ opacity: 0.3, cursor: "pointer", flexShrink: 0 }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingFloorIdx(i);
+                                  setEditingFloorName(floorDisplayName);
+                                }}
+                              >
+                                <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                              </svg>
+                            </div>
+                          )}
+
+                          {/* Counts stats line */}
+                          <div style={{ fontSize: "9.5px", color: "var(--text-secondary)", marginTop: "2px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span>{camCount} Cam{camCount !== 1 ? "s" : ""} • {zoneCount} Zone{zoneCount !== 1 ? "s" : ""}</span>
+                            {f.versions && f.versions.length > 0 && (
+                              <div
+                                onClick={(e) => { e.stopPropagation(); setExpandedVersions(prev => ({ ...prev, [f.id]: !prev[f.id] })); }}
+                                style={{ cursor: "pointer", padding: "2px", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}
+                                title={expandedVersions[f.id] ? "Hide versions" : "Show versions"}
+                              >
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12"
+                                  style={{ transition: "transform 0.2s", transform: expandedVersions[f.id] ? "rotate(180deg)" : "rotate(0deg)" }}
+                                >
+                                  <polyline points="6 9 12 15 18 9" />
+                                </svg>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Versions Tree */}
+                    {f.versions && f.versions.length > 0 && expandedVersions[f.id] && (
+                      <div style={{ paddingLeft: "28px", display: "flex", flexDirection: "column", gap: "4px", position: "relative", paddingBottom: "4px" }}>
+                        <div style={{ position: "absolute", left: "14px", top: 0, bottom: "14px", width: "1px", background: "var(--border-light)" }}></div>
+                        {f.versions.map((v) => (
+                          <div
+                            key={v.id}
+                            onClick={(e) => { e.stopPropagation(); restoreVersion(i, v.id); }}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "8px",
+                              fontSize: "12px",
+                              color: "var(--text-primary)",
+                              cursor: "pointer",
+                              padding: "4px 8px",
+                              borderRadius: "4px",
+                              background: "var(--bg-elevated)",
+                              position: "relative",
+                              border: "0.5px solid var(--border-light)",
+                              transition: "all 0.15s"
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.borderColor = "var(--teal)"; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = "var(--bg-elevated)"; e.currentTarget.style.borderColor = "var(--border-light)"; }}
+                            title={`Restore ${v.name}`}
+                          >
+                            <div style={{ position: "absolute", left: "-14px", top: "50%", width: "10px", height: "1px", background: "var(--border-light)" }}></div>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10" style={{ flexShrink: 0, color: "var(--text-muted)" }}>
+                              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                              <polyline points="17 21 17 13 7 13 7 21" />
+                              <polyline points="7 3 7 8 15 8" />
+                            </svg>
+
+                            {editingVersionId === v.id ? (
+                              <input
+                                type="text"
+                                value={editingVersionName}
+                                onChange={e => setEditingVersionName(e.target.value)}
+                                onBlur={() => {
+                                  renameVersion(i, v.id, editingVersionName);
+                                  setEditingVersionId(null);
+                                }}
+                                onKeyDown={e => {
+                                  if (e.key === "Enter") {
+                                    renameVersion(i, v.id, editingVersionName);
+                                    setEditingVersionId(null);
+                                  } else if (e.key === "Escape") {
+                                    setEditingVersionId(null);
+                                  }
+                                }}
+                                onClick={e => e.stopPropagation()}
+                                autoFocus
+                                style={{
+                                  background: "var(--bg-input)", border: "1px solid var(--teal)", borderRadius: "3px", color: "var(--text-primary)",
+                                  fontSize: "12px", padding: "1px 4px", width: "100%", outline: "none"
+                                }}
+                              />
+                            ) : (
+                              <>
+                                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.name}</span>
+                                <span style={{ fontSize: "10px", color: "var(--text-secondary)", flexShrink: 0 }}>
+                                  ({v.placed ? v.placed.length : (v.markers ? v.markers.length : 0)})
+                                </span>
+                                <svg
+                                  viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10"
+                                  style={{ opacity: 0.6, cursor: "pointer", flexShrink: 0, marginLeft: "4px", color: "var(--text-secondary)" }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditingVersionId(v.id);
+                                    setEditingVersionName(v.name);
+                                  }}
+                                  title="Rename version"
+                                >
+                                  <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                                </svg>
+                                <svg
+                                  viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10"
+                                  style={{ opacity: 0.8, cursor: "pointer", flexShrink: 0, marginLeft: "4px", color: "#ef4444" }}
+                                  onMouseEnter={e => e.currentTarget.style.opacity = 1}
+                                  onMouseLeave={e => e.currentTarget.style.opacity = 0.8}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    deleteVersion(i, v.id);
+                                  }}
+                                  title="Delete version"
+                                >
+                                  <line x1="18" y1="6" x2="6" y2="18" />
+                                  <line x1="6" y1="6" x2="18" y2="18" />
+                                </svg>
+                              </>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* ── Map Workspace Container ── */}
         <div
           ref={wrapRef}
@@ -2362,44 +3863,96 @@ export default function MapViewPage() {
               <p className="mv-hint__title">Loading map…</p>
             </div>
           ) : (
-            <MapCanvas
-              ref={canvasApiRef}
-              cameras={filteredCameras}
-              markers={canvasMarkers}
-              floorImgRef={floorImgRef}
-              zones={zones.filter(z => z.floorIndex === activeFloor)}
-              scaleRef={scaleRef}
-              offsetRef={offsetRef}
-              hoveredIdxRef={hoveredIdxRef}
-              highlightedCamId={highlightedCamId}
-              showHeatmap={showHeatmap}
-              alertCounts={alertCounts}
-              onMouseMove={onMouseMove}
-              onMouseDown={onMouseDown}
-              onMouseUp={onMouseUp}
-              onMouseLeave={() => {
-                setTooltip(t => ({ ...t, visible: false }));
-                hoveredIdxRef.current = -1;
-                canvasApiRef.current?.drawAll();
-              }}
-              onContextMenu={onContextMenu}
-              iconScale={iconScale}
-              selectedIdx={selectedIdx}
-            />
-          )}
+            <>
+              {floors[activeFloor]?.modelDataUrl ? (
+                <Gltf3DViewer 
+                  ref={gltfViewerRef}
+                  modelUrl={floors[activeFloor].modelDataUrl} 
+                  markers={canvasMarkers}
+                  cameras={filteredCameras}
+                  showHeatmap={showHeatmap}
+                  floorPanelCollapsed={floorPanelCollapsed}
+                  isPanLocked={isPanLocked}
+                  imageSize={{
+                    width: floors[activeFloor]?.imageWidth || floorImgRef.current?.width || 2048,
+                    height: floors[activeFloor]?.imageHeight || floorImgRef.current?.height || 2048
+                  }}
+                  updateMarkers={updateMarkers}
+                />
+              ) : (
+                <>
+                  <MapCanvas
+                    ref={canvasApiRef}
+                    cameras={filteredCameras}
+                    markers={canvasMarkers}
+                    floorImgRef={floorImgRef}
+                    zones={zones.filter(z => z.floorIndex === activeFloor)}
+                    scaleRef={scaleRef}
+                    offsetRef={offsetRef}
+                    hoveredIdxRef={hoveredIdxRef}
+                    highlightedCamId={highlightedCamId}
+                    showHeatmap={showHeatmap}
+                    alertCounts={alertCounts}
+                    onMouseMove={onMouseMove}
+                    onMouseDown={onMouseDown}
+                    onMouseUp={onMouseUp}
+                    onMouseLeave={() => {
+                      setTooltip(t => ({ ...t, visible: false }));
+                      hoveredIdxRef.current = -1;
+                      canvasApiRef.current?.drawAll();
+                    }}
+                    onContextMenu={onContextMenu}
+                    iconScale={iconScale}
+                    selectedIdx={selectedIdx}
+                    ppm={floors[activeFloor]?.ppm}
+                    calibration={floors[activeFloor]?.calibration}
+                  />
 
-          {/* Zone SVG overlay */}
-          {!pageLoading && hasFloor && (
-            <ZoneOverlay
-              zones={zones.filter(z => z.floorIndex === activeFloor)}
-              draftZones={draftZones.filter(z => z.floorIndex === activeFloor)}
-              drawingPoints={drawingPoints}
-              activeZoneId={activeZoneId}
-              scaleRef={scaleRef}
-              offsetRef={offsetRef}
-              wrapRef={wrapRef}
-              mode={mode}
-            />
+                  {/* Zone SVG overlay */}
+                  {hasFloor && (
+                    <ZoneOverlay
+                      zones={zones.filter(z => z.floorIndex === activeFloor)}
+                      draftZones={draftZones.filter(z => z.floorIndex === activeFloor)}
+                      drawingPoints={drawingPoints}
+                      activeZoneId={activeZoneId}
+                      scaleRef={scaleRef}
+                      offsetRef={offsetRef}
+                      wrapRef={wrapRef}
+                      mode={mode}
+                    />
+                  )}
+
+                  {/* Calibration & Measurement Overlay */}
+                  {hasFloor && (
+                    <CalibrationOverlay
+                      mode={mode}
+                      calibration={floors[activeFloor]?.calibration}
+                      calibType={calibType}
+                      references={calibRefs}
+                      activeRefId={activeCalibRefId}
+                      activeHandle={calibHandleDrag}
+                      drawingLine={drawingCalibLine}
+                      measureLine={measureLine}
+                      showPreviewGrid={showPreviewGrid}
+                      scaleRef={scaleRef}
+                      offsetRef={offsetRef}
+                      wrapRef={wrapRef}
+                      floorImgRef={floorImgRef}
+                      onHandleMouseDown={(refId, handle, e) => {
+                        calibHandleDragRef.current = { refId, handle };
+                        setCalibHandleDrag({ refId, handle });
+                        setActiveCalibRefId(refId);
+                        activeCalibRefIdRef.current = refId;
+                      }}
+                      onRefClick={(refId) => {
+                        setActiveCalibRefId(refId);
+                        setCalibPanelOpen(true);
+                      }}
+                    />
+                  )}
+                </>
+              )}
+            </>
           )}
 
           {/* Empty-floor hint */}
@@ -2413,7 +3966,7 @@ export default function MapViewPage() {
               </div>
               <p className="mv-hint__title">No floor plan loaded</p>
               <p className="mv-hint__sub">
-                Click <strong>Import Floor Plan</strong> above to upload a JPEG or PNG
+                Click <strong>Import Floor Plan</strong> above to upload a JPEG, PNG, GLTF, GLB, or HTML file
               </p>
             </div>
           )}
@@ -2461,18 +4014,21 @@ export default function MapViewPage() {
             </div>
           )}
 
-          {/* Heatmap overlay */}
-          <HeatmapLayer
-            markers={filteredMarkers}
-            cameras={filteredCameras}
-            scaleRef={scaleRef}
-            offsetRef={offsetRef}
-            wrapRef={wrapRef}
-            showHeatmap={showHeatmap}
-            floorImgRef={floorImgRef}
-            activeZone={activeZoneId ? zones.find(z => z.id === activeZoneId) : null}
-            zones={zones.filter(z => z.floorIndex === activeFloor)}
-          />
+          {/* Heatmap overlay (2D only) */}
+          {!floors[activeFloor]?.modelDataUrl && showHeatmap && (
+            <HeatmapLayer
+              markers={canvasMarkers}
+              cameras={filteredCameras}
+              scaleRef={scaleRef}
+              offsetRef={offsetRef}
+              wrapRef={wrapRef}
+              showHeatmap={showHeatmap}
+              floorImgRef={floorImgRef}
+              activeZone={activeZoneId ? zones.find(z => z.id === activeZoneId) : null}
+              zones={zones.filter(z => z.floorIndex === activeFloor)}
+              onlyLegend={true}
+            />
+          )}
 
           {/* Virtual Map View */}
           <VirtualMapView
@@ -2487,6 +4043,7 @@ export default function MapViewPage() {
             onClose={() => setExpandedCamId(null)}
             onExpand={setExpandedCamId}
             alertCounts={alertCounts}
+            is3D={Boolean(floors[activeFloor]?.modelDataUrl)}
           />
 
           {/* Configuration panel modal */}
@@ -2533,38 +4090,60 @@ export default function MapViewPage() {
             </div>
           )}
 
-          {/* ── Floating Floor Selector HUD (Left Center) ── */}
-          {hasFloor && floors.length > 0 && (
-            <div className="mv-floor-hud">
-              <div className="mv-floor-hud__label">Floors</div>
-              {floors.map((f, i) => (
-                <button
-                  key={f.id}
-                  className={`mv-floor-hud-btn ${i === activeFloor ? "mv-floor-hud-btn--active" : ""}`}
-                  onClick={() => switchFloor(i)}
-                  title={f.name}
-                >
-                  <span className="mv-floor-hud-btn__text">{i + 1}</span>
-                  {f.markers?.length > 0 && (
-                    <span className="mv-floor-hud-btn__badge">{f.markers.length}</span>
-                  )}
-                  {floors.length > 1 && (
-                    <span
-                      className="mv-floor-hud-btn__del"
-                      onClick={e => { e.stopPropagation(); deleteFloor(i); }}
-                      title="Delete floor"
-                    >✕</span>
-                  )}
-                </button>
-              ))}
-              <button
-                className="mv-floor-hud-btn mv-floor-hud-btn--add"
-                onClick={addFloor}
-                title="Add Floor"
-              >
-                +
-              </button>
-            </div>
+          {/* Layout Calibration Control Panel */}
+          {mode === "calibrate" && calibPanelOpen && (
+            <CalibrationPanel
+              isOpen={calibPanelOpen}
+              calibType={calibType}
+              onSelectCalibType={(t) => {
+                setCalibType(t);
+                if (t === "standard" && calibRefs.length > 1) {
+                  setCalibRefs([calibRefs[0]]);
+                  setActiveCalibRefId(calibRefs[0].id);
+                }
+              }}
+              references={calibRefs}
+              activeRefId={activeCalibRefId}
+              isDrawingRef={Boolean(drawingCalibLine)}
+              showPreviewGrid={showPreviewGrid}
+              onTogglePreviewGrid={() => setShowPreviewGrid(prev => !prev)}
+              onStartAddRef={() => {
+                setStatus("Click & drag between two known points on the floor plan");
+              }}
+              onUpdateRefDistance={(refId, realDist, unit) => {
+                setCalibRefs(prev => prev.map(r => {
+                  if (r.id !== refId) return r;
+                  const meters = unit === "feet" ? realDist * 0.3048 : realDist;
+                  return {
+                    ...r,
+                    realDistance: realDist,
+                    unit,
+                    realDistanceMeters: meters,
+                  };
+                }));
+              }}
+              onDeleteRef={(refId) => {
+                setCalibRefs(prev => prev.filter(r => r.id !== refId));
+                if (activeCalibRefId === refId) {
+                  setActiveCalibRefId(null);
+                }
+              }}
+              onSelectRef={(refId) => {
+                setActiveCalibRefId(refId);
+              }}
+              onApplyCalibration={handleApplyCalibration}
+              onClearCalibration={handleClearCalibration}
+              onClose={() => {
+                setCalibPanelOpen(false);
+                setMode("place");
+                modeRef.current = "place";
+              }}
+              imageDimensions={
+                floorImgRef.current
+                  ? { width: floorImgRef.current.width, height: floorImgRef.current.height }
+                  : { width: 1000, height: 1000 }
+              }
+            />
           )}
 
           {/* ── Slide-out Tabbed Right Inspector Panel ── */}
@@ -2654,6 +4233,8 @@ export default function MapViewPage() {
                               isActive={selectedCam?.id === cam.id}
                               onSelect={selectCamera}
                               onDragStart={c => { dragCamRef.current = c; }}
+                              marker={canvasMarkers.find(m => m.camId === cam.id)}
+                              calibration={floors[activeFloor]?.calibration}
                             />
                           ))
 
@@ -2701,6 +4282,42 @@ export default function MapViewPage() {
           {/* ── Glassmorphic HUD Zoom Controls (Bottom Right) ── */}
           <div className="mv-zoom-hud">
             <button
+              className={`mv-zoom-hud-btn ${isPanLocked ? "active" : ""}`}
+              onClick={togglePanLock}
+              title={isPanLocked ? "Pan Locked (Click to unlock canvas panning)" : "Lock Pan (Click to freeze canvas position)"}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: "32px",
+                height: "30px",
+                padding: "0",
+                background: isPanLocked ? "rgba(239, 68, 68, 0.28)" : "transparent",
+                color: isPanLocked ? "#f87171" : "#e2e8f0",
+                border: isPanLocked ? "1px solid rgba(239, 68, 68, 0.6)" : "1px solid transparent",
+                borderRadius: "6px",
+                cursor: "pointer",
+                boxShadow: isPanLocked ? "0 0 12px rgba(239, 68, 68, 0.45)" : "none",
+                transform: isPanLocked ? "scale(1.1)" : "scale(1)",
+                transition: "all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)"
+              }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" width="20" height="20" style={{ transition: "transform 0.25s ease" }}>
+                {isPanLocked ? (
+                  <>
+                    <rect x="5" y="11" width="14" height="10" rx="2" ry="2" />
+                    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                  </>
+                ) : (
+                  <>
+                    <rect x="5" y="11" width="14" height="10" rx="2" ry="2" />
+                    <path d="M8 11V6a4 4 0 0 1 8 0" />
+                  </>
+                )}
+              </svg>
+            </button>
+            <div className="mv-zoom-hud-divider" />
+            <button
               className="mv-zoom-hud-btn"
               onClick={() => {
                 const el = wrapRef.current;
@@ -2722,7 +4339,17 @@ export default function MapViewPage() {
               +
             </button>
             <div className="mv-zoom-hud-divider" />
-            <button className="mv-zoom-hud-btn mv-zoom-hud-btn--fit" onClick={fitImage}>
+            <button
+              className="mv-zoom-hud-btn mv-zoom-hud-btn--fit"
+              onClick={() => {
+                if (floors[activeFloor]?.modelDataUrl) {
+                  gltfViewerRef.current?.fitView();
+                } else {
+                  fitImage();
+                }
+              }}
+              title="Fit entire floor layout into view"
+            >
               Fit
             </button>
           </div>
@@ -2949,3 +4576,4 @@ function ZoneOverlay({ zones, draftZones = [], drawingPoints, activeZoneId, scal
     </svg>
   );
 }
+

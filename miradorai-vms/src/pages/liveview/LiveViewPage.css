@@ -252,7 +252,7 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 4px;
-  z-index: 999;
+  z-index: 9999;
   box-shadow: var(--shadow-lg);
 }
 
@@ -817,13 +817,13 @@
    ALERTS PANEL
 ═══════════════════════════════════════════════════ */
 .lv-alerts-panel {
-  width: 380px;
-  min-width: 380px;
+  width: 400px;
+  min-width: 400px;
   background: var(--bg-base);
   border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
   transition: width 0.2s ease, min-width 0.2s ease;
   flex-shrink: 0;
 }
@@ -831,13 +831,14 @@
   width: 0 !important;
   min-width: 0 !important;
   border-left: none !important;
+  overflow: hidden !important;
 }
 
 .lv-alerts-panel__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: 18px 18px;
   background: transparent;
   border-bottom: 1px solid var(--border-light);
   gap: 8px;
@@ -845,11 +846,15 @@
 
 .lv-alerts-panel__filters-container {
   position: relative;
-  z-index: 100;
+  z-index: 500;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px;
+
+  gap: 7px;
+
+  padding: 12px 18px 14px;
+
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-light);
 }
@@ -927,7 +932,7 @@
 /* ── Filter Select Wrappers (Event Type & Camera) ── */
 .lv-alerts-panel__filters {
   display: flex;
-  gap: 8px;
+  gap: 10px;
 }
 
 .lv-select-wrapper {
@@ -995,8 +1000,11 @@
   color: var(--text-primary);
   border: none;
   border-radius: 10px;
-  padding: 8px 26px 8px 30px;
-  font-size: 13px;
+
+  /* Shorter filter boxes */
+  padding: 10px 26px 10px 32px;
+
+  font-size: 13.5px;
   font-weight: 600;
   outline: none;
   cursor: pointer;
@@ -1017,6 +1025,133 @@
   font-weight: 700;
 }
 
+/* ── Source Filter Segmented Control (All, Builtin, AI Analytics) ── */
+.lv-alerts-source-filters {
+  display: flex;
+  align-items: center;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px;
+  gap: 4px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.lv-source-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  border-radius: 7px;
+  padding: 7px 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+  white-space: nowrap;
+}
+
+.lv-source-btn svg {
+  color: var(--text-muted);
+  transition: color 0.2s ease, transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.lv-source-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.lv-source-btn:hover svg {
+  color: var(--text-primary);
+  transform: scale(1.08);
+}
+
+.lv-source-btn:active {
+  transform: scale(0.97);
+}
+
+.lv-source-btn.active {
+  background: rgba(16, 185, 129, 0.16);
+  border: 1px solid rgba(16, 185, 129, 0.42);
+  color: #34d399;
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.lv-source-btn.active svg {
+  color: #34d399;
+}
+
+/* ── Alert Source Filter Segmented Control (All, Builtin, AI Analytics) ── */
+.lv-alerts-source-filters {
+  display: flex;
+  align-items: center;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px;
+  gap: 4px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+  margin-bottom: 2px;
+}
+
+.lv-source-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  border-radius: 7px;
+  padding: 6px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+  white-space: nowrap;
+}
+
+.lv-source-btn svg {
+  color: var(--text-muted);
+  transition: color 0.2s ease, transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.lv-source-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.lv-source-btn:hover svg {
+  color: var(--text-primary);
+  transform: scale(1.08);
+}
+
+.lv-source-btn:active {
+  transform: scale(0.96);
+}
+
+.lv-source-btn.active {
+  background: rgba(16, 185, 129, 0.16);
+  border: 1px solid rgba(16, 185, 129, 0.42);
+  color: #34d399;
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.lv-source-btn.active svg {
+  color: #34d399;
+}
+
 /* ── Time Filter Segmented Control ── */
 .lv-alerts-time-filters {
   display: flex;
@@ -1024,8 +1159,8 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 3px;
-  gap: 4px;
+  padding: 5px;
+  gap: 6px;
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
@@ -1039,8 +1174,8 @@
   border: 1px solid transparent;
   color: var(--text-secondary);
   border-radius: 7px;
-  padding: 6px 8px;
-  font-size: 12.5px;
+  padding: 7px 8px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
@@ -1068,15 +1203,15 @@
 }
 
 .lv-time-btn.active {
-  background: linear-gradient(135deg, var(--teal) 0%, var(--teal-dim) 100%);
-  border-color: transparent;
-  color: #ffffff;
-  font-weight: 700;
-  box-shadow: 0 3px 10px var(--teal-glow), 0 1px 3px rgba(0, 0, 0, 0.15);
+  background: rgba(16, 185, 129, 0.16);
+  border: 1px solid rgba(16, 185, 129, 0.42);
+  color: #34d399;
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .lv-time-btn.active svg {
-  color: #ffffff;
+  color: #34d399;
 }
 
 /* ── Reset Filters Button ── */
@@ -1183,6 +1318,8 @@
 
 /* List */
 .lv-alerts-panel__list {
+  position: relative;
+  z-index: 1;
   flex: 1;
   overflow-y: auto;
   padding: 6px;
@@ -1212,9 +1349,11 @@
   transition: all 0.15s ease;
   box-shadow: none;
   position: relative;
+  z-index: 0;
   overflow: hidden;
   flex-shrink: 0;
 }
+
 .lv-alert-card::before {
   content: "";
   position: absolute;
@@ -1379,22 +1518,47 @@
 
 .lv-alert-card__row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
+  width: 100%;
+  min-width: 0;
 }
+
 .lv-alert-card__label {
-  font-size: 15px;
+  font-size: 14px;
   color: var(--text-secondary);
-  width: 60px;
+  width: 46px;
+  min-width: 46px;
   flex-shrink: 0;
 }
+
 .lv-alert-card__value {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
   font-size: 17px;
   font-weight: 500;
   color: var(--text-primary);
-  white-space: nowrap;
+
+  /* IMPORTANT: prevents text from going underneath snapshot */
+  white-space: normal;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.3;
+}
+
+.lv-alert-card__value--time {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.lv-alert-card__value--date {
+  color: var(--teal);
+  font-family: var(--font-mono);
+  font-weight: 600;
 }
 .lv-alert-card__value--time  { color: var(--text-primary); font-family: var(--font-mono); }
 .lv-alert-card__value--date  { color: var(--teal); font-family: var(--font-mono); font-weight: 600; }
@@ -2008,22 +2172,23 @@
 /* ── Split layout for Alert Card with Thumbnail ── */
 .lv-alert-card__layout {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: flex-start;
   justify-content: space-between;
 }
 
 .lv-alert-card__info {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
 .lv-alert-card__thumbnail-container {
-  width: 130px;
-  height: 90px;
+  width: 96px;
+  height: 72px;
   flex-shrink: 0;
   border-radius: 6px;
   overflow: hidden;
@@ -2621,4 +2786,715 @@
   0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
   70% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
   100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+}
+@keyframes pulse-teal {
+  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Sleek Professional Camera Pill Dock (Audio, Sparkle AI, Alerts)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.lv-cam__dock-pill {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  z-index: 300;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(8, 18, 34, 0.88);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 9999px;
+  padding: 3px 6px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+  user-select: none;
+  transition: all 0.2s ease;
+  min-height: 28px;
+  box-sizing: border-box;
+}
+
+.lv-cam__dock-pill:hover {
+  border-color: rgba(16, 185, 129, 0.45);
+  background: rgba(8, 20, 28, 0.95);
+}
+
+.lv-cam__dock-pill--compact {
+  bottom: 4px;
+  right: 4px;
+  padding: 1.5px 3.5px;
+  gap: 2.5px;
+  min-height: 19px;
+}
+
+.lv-cam__dock-pill--micro {
+  bottom: 3px;
+  right: 3px;
+  padding: 1px 3px;
+  gap: 2px;
+  min-height: 15px;
+}
+
+/* Base Item Inside Pill Dock */
+.lv-dock-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  border-radius: 9999px;
+  padding: 4px 8px;
+  color: #cbd5e1;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  outline: none;
+  position: relative;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+  min-height: 22px;
+  box-sizing: border-box;
+}
+
+.lv-dock-item:hover,
+.lv-dock-item:focus-visible {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+
+.lv-dock-item:active {
+  transform: scale(0.95);
+}
+
+.lv-cam__dock-pill--compact .lv-dock-item {
+  font-size: 9px;
+  padding: 1.5px 4px;
+  gap: 2px;
+  min-height: 15px;
+  font-weight: 600;
+}
+
+.lv-cam__dock-pill--micro .lv-dock-item {
+  font-size: 8px;
+  padding: 1px 3px;
+  gap: 1.5px;
+  min-height: 12px;
+}
+
+/* 1. Audio Item */
+.lv-dock-item--audio {
+  padding: 4px 6px;
+  color: #94a3b8;
+}
+
+.lv-dock-item--audio.is-active {
+  color: #10b981;
+}
+
+.lv-dock-item--audio.is-muted {
+  color: #94a3b8;
+}
+
+.lv-dock-item--audio:hover {
+  color: #ffffff;
+  background: rgba(16, 185, 129, 0.2);
+}
+
+.lv-dock-item__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lv-dock-item__icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.lv-cam__dock-pill--compact .lv-dock-item__icon svg {
+  width: 9.5px;
+  height: 9.5px;
+}
+
+.lv-cam__dock-pill--micro .lv-dock-item__icon svg {
+  width: 8px;
+  height: 8px;
+}
+
+/* 2. AI Sparkle Item (Greenish / Emerald Theme) */
+.lv-dock-item--ai {
+  color: #10b981;
+  font-weight: 700;
+  padding: 4px 9px;
+  gap: 5px;
+  background: rgba(16, 185, 129, 0.14);
+  border-radius: 9999px;
+}
+
+.lv-dock-sparkle {
+  width: 13px;
+  height: 13px;
+  color: #10b981;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.lv-cam__dock-pill--compact .lv-dock-sparkle {
+  width: 8.5px;
+  height: 8.5px;
+}
+
+.lv-cam__dock-pill--micro .lv-dock-sparkle {
+  width: 7px;
+  height: 7px;
+}
+
+.lv-dock-item--ai:hover .lv-dock-sparkle {
+  transform: scale(1.15) rotate(15deg);
+  color: #34d399;
+}
+
+.lv-dock-ai-text {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #10b981;
+  letter-spacing: 0.2px;
+}
+
+.lv-cam__dock-pill--compact .lv-dock-ai-text {
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.lv-cam__dock-pill--micro .lv-dock-ai-text {
+  font-size: 8px;
+}
+
+.lv-dock-item--ai:hover {
+  background: rgba(16, 185, 129, 0.24);
+}
+
+.lv-dock-item--ai:hover .lv-dock-ai-text {
+  color: #34d399;
+}
+
+/* 3. Alert Count Item with Chevron (Continuous Alert Blinking) */
+.lv-dock-item--alert {
+  color: #f87171;
+  padding: 4px 9px 4px 8px;
+  gap: 4px;
+  background: rgba(239, 68, 68, 0.16);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 9999px;
+  animation: lv-alert-badge-blink-dark 1.8s ease-in-out infinite;
+}
+
+.lv-dock-item--alert:hover {
+  background: rgba(239, 68, 68, 0.45) !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.7) !important;
+  animation-play-state: paused;
+}
+
+.lv-dock-alert-num {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: inherit;
+}
+
+.lv-cam__dock-pill--compact .lv-dock-alert-num {
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.lv-cam__dock-pill--micro .lv-dock-alert-num {
+  font-size: 8px;
+}
+
+.lv-dock-chevron {
+  width: 10px;
+  height: 10px;
+  color: inherit;
+  transition: transform 0.2s ease;
+}
+
+.lv-cam__dock-pill--compact .lv-dock-chevron {
+  width: 6.5px;
+  height: 6.5px;
+}
+
+.lv-cam__dock-pill--micro .lv-dock-chevron {
+  width: 5.5px;
+  height: 5.5px;
+}
+
+.lv-dock-item--alert:hover .lv-dock-chevron {
+  transform: translateY(1px);
+}
+
+@keyframes lv-alert-badge-blink-dark {
+  0%, 100% {
+    background: rgba(239, 68, 68, 0.16);
+    color: #fca5a5;
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+    border-color: rgba(239, 68, 68, 0.3);
+  }
+  50% {
+    background: rgba(239, 68, 68, 0.48);
+    color: #ffffff;
+    box-shadow: 0 0 14px rgba(239, 68, 68, 0.8);
+    border-color: #ef4444;
+  }
+}
+
+@keyframes lv-alert-badge-blink-light {
+  0%, 100% {
+    background: rgba(239, 68, 68, 0.12);
+    color: #dc2626;
+    border-color: rgba(239, 68, 68, 0.3);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    background: rgba(239, 68, 68, 0.32);
+    color: #991b1b;
+    border-color: #dc2626;
+    box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+  }
+}
+
+/* ── AI Configured Analytics Tooltip (Greenish / Emerald Theme) ── */
+.lv-dock-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  background-color: rgba(6, 20, 16, 0.96);
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  border-radius: 10px;
+  padding: 10px 14px;
+  min-width: 170px;
+  max-width: 240px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.75), 0 0 16px rgba(16, 185, 129, 0.2);
+  backdrop-filter: blur(14px);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 500;
+  animation: lv-dock-fade-up 0.15s ease-out;
+}
+
+.lv-dock-tooltip--dense {
+  min-width: 135px;
+  padding: 7px 10px;
+  gap: 5px;
+}
+
+.lv-dock-tooltip__header {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #10b981;
+  margin-bottom: 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 5px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lv-dock-tooltip--dense .lv-dock-tooltip__header {
+  font-size: 10px;
+  padding-bottom: 3px;
+  margin-bottom: 1px;
+}
+
+.lv-dock-tooltip__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #10b981;
+  box-shadow: 0 0 6px #10b981;
+  flex-shrink: 0;
+}
+
+.lv-dock-tooltip--dense .lv-dock-tooltip__dot {
+  width: 5px;
+  height: 5px;
+}
+
+.lv-dock-tooltip__list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.lv-dock-tooltip--dense .lv-dock-tooltip__list {
+  gap: 3px;
+}
+
+.lv-dock-tooltip__item {
+  font-size: 11.5px;
+  color: #e2e8f0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lv-dock-tooltip--dense .lv-dock-tooltip__item {
+  font-size: 10px;
+  color: #f1f5f9;
+  gap: 5px;
+}
+
+.lv-dock-tooltip__item-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background-color: #34d399;
+  flex-shrink: 0;
+}
+
+.lv-dock-tooltip--dense .lv-dock-tooltip__item-dot {
+  width: 4px;
+  height: 4px;
+}
+
+@keyframes lv-dock-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Light Theme Support for Sleek Pill Dock & Tooltip
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+[data-theme="light"] .lv-cam__dock-pill {
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.2), 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+[data-theme="light"] .lv-cam__dock-pill:hover {
+  border-color: #059669;
+  background: #ffffff;
+  box-shadow: 0 6px 22px rgba(15, 23, 42, 0.28);
+}
+
+[data-theme="light"] .lv-dock-item {
+  color: #1e293b;
+}
+
+[data-theme="light"] .lv-dock-item:hover,
+[data-theme="light"] .lv-dock-item:focus-visible {
+  background: rgba(15, 23, 42, 0.08);
+  color: #0f172a;
+}
+
+/* Light Theme Audio */
+[data-theme="light"] .lv-dock-item--audio {
+  color: #475569;
+}
+
+[data-theme="light"] .lv-dock-item--audio.is-active {
+  color: #059669;
+}
+
+[data-theme="light"] .lv-dock-item--audio.is-muted {
+  color: #64748b;
+}
+
+[data-theme="light"] .lv-dock-item--audio:hover {
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+}
+
+/* Light Theme AI Badge (Emerald Green) */
+[data-theme="light"] .lv-dock-item--ai {
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 9999px;
+}
+
+[data-theme="light"] .lv-dock-sparkle {
+  color: #059669;
+}
+
+[data-theme="light"] .lv-dock-ai-text {
+  color: #059669;
+  font-weight: 800;
+}
+
+[data-theme="light"] .lv-dock-item--ai:hover {
+  background: rgba(16, 185, 129, 0.24);
+  color: #047857;
+  border-color: #059669;
+}
+
+[data-theme="light"] .lv-dock-item--ai:hover .lv-dock-ai-text,
+[data-theme="light"] .lv-dock-item--ai:hover .lv-dock-sparkle {
+  color: #047857;
+}
+
+/* Light Theme Alerts Badge */
+[data-theme="light"] .lv-dock-item--alert {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 9999px;
+  animation: lv-alert-badge-blink-light 1.8s ease-in-out infinite;
+}
+
+[data-theme="light"] .lv-dock-alert-num {
+  color: inherit;
+  font-weight: 800;
+}
+
+[data-theme="light"] .lv-dock-chevron {
+  color: inherit;
+}
+
+[data-theme="light"] .lv-dock-item--alert:hover {
+  background: rgba(239, 68, 68, 0.3) !important;
+  color: #991b1b !important;
+  border-color: #dc2626 !important;
+  animation-play-state: paused;
+}
+
+/* Light Theme Configured Analytics Tooltip (Greenish Theme) */
+[data-theme="light"] .lv-dock-tooltip {
+  background-color: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-top: 3.5px solid #059669;
+  border-radius: 10px;
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.18), 0 2px 8px rgba(15, 23, 42, 0.06);
+}
+
+[data-theme="light"] .lv-dock-tooltip__header {
+  color: #047857;
+  font-weight: 700;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+[data-theme="light"] .lv-dock-tooltip__dot {
+  background-color: #059669;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+}
+
+[data-theme="light"] .lv-dock-tooltip__item {
+  color: #1e293b;
+  font-weight: 600;
+}
+
+[data-theme="light"] .lv-dock-tooltip__item-dot {
+  background-color: #059669;
+}
+
+[data-theme="light"] .lv-alerts-source-filters .lv-source-btn.active,
+[data-theme="light"] .lv-source-btn.active,
+[data-theme="light"] .lv-time-btn.active {
+  background: rgba(14, 168, 148, 0.14);
+  border: 1px solid rgba(14, 168, 148, 0.38);
+  color: #0d8a7a;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .lv-alerts-source-filters .lv-source-btn.active svg,
+[data-theme="light"] .lv-source-btn.active svg,
+[data-theme="light"] .lv-time-btn.active svg {
+  color: #0d8a7a;
+}
+
+/* ═══════════════════════════════════════════════════
+   ALERT SOURCE FILTERS
+   All / Builtin / AI Analytics
+═══════════════════════════════════════════════════ */
+
+.lv-alerts-source-filters {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+
+  padding: 4px;
+  gap: 4px;
+
+  min-height: 40px;
+
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.lv-alerts-source-filters .lv-source-btn {
+  flex: 1 1 0;
+  min-width: 0;
+
+  height: 32px;
+  min-height: 32px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  gap: 6px;
+
+  padding: 0 8px;
+
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+
+  color: var(--text-secondary);
+
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 600;
+
+  line-height: 1;
+
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.15s ease;
+}
+
+/* Icons */
+.lv-alerts-source-filters .lv-source-btn svg {
+  width: 14px;
+  height: 14px;
+
+  flex-shrink: 0;
+
+  color: var(--text-muted);
+
+  transition:
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+/* Hover */
+.lv-alerts-source-filters .lv-source-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.lv-alerts-source-filters .lv-source-btn:hover svg {
+  color: var(--text-primary);
+  transform: scale(1.05);
+}
+
+/* Active */
+.lv-alerts-source-filters .lv-source-btn.active {
+  background: rgba(16, 185, 129, 0.16);
+  border: 1px solid rgba(16, 185, 129, 0.42);
+  color: #34d399;
+  font-weight: 600;
+  box-shadow:
+    0 1px 4px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.lv-alerts-source-filters .lv-source-btn.active svg {
+  color: #34d399;
+}
+
+/* Click */
+.lv-alerts-source-filters .lv-source-btn:active {
+  transform: scale(0.98);
+}
+
+/* ── Alert Source Filters: Text Only ── */
+
+.lv-alerts-source-filters .lv-source-btn {
+  flex: 1 1 0;
+  min-width: 0;
+
+  height: 32px;
+  min-height: 32px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 0 10px;
+  gap: 0;
+
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1;
+
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.15s ease;
+}
+
+/* Hide all icons inside these buttons */
+.lv-alerts-source-filters .lv-source-btn svg {
+  display: none !important;
+}
+
+/* Hover */
+.lv-alerts-source-filters .lv-source-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* Active */
+.lv-alerts-source-filters .lv-source-btn.active {
+  background: rgba(16, 185, 129, 0.16);
+  border: 1px solid rgba(16, 185, 129, 0.42);
+  color: #34d399;
+  font-weight: 600;
+
+  box-shadow:
+    0 1px 4px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* Click */
+.lv-alerts-source-filters .lv-source-btn:active {
+  transform: scale(0.98);
 }

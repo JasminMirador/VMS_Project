@@ -79,6 +79,7 @@ export default function VirtualMapView({
   onClose,
   visible,
   alertCounts = {},
+  is3D = false,
 }) {
   const [, forceUpdate] = useState(0);
   const rafRef = useRef(null);
@@ -131,19 +132,27 @@ export default function VirtualMapView({
         const cam = cameras.find(c => c.id === m.camId);
         if (!cam) return null;
 
-        // Convert image coords → screen coords inside the wrap div
-        const sx = m.x * scale + offset.x;
-        const sy = m.y * scale + offset.y;
+        // Convert coordinates: If 3D projection available, use real-time 3D projected screen coordinates!
+        let sx, sy;
+        if (is3D && typeof wrapRef?.current?.__get3DCameraScreenPos === "function") {
+          const pos3D = wrapRef.current.__get3DCameraScreenPos(cam.id, i);
+          if (!pos3D || !pos3D.isVisible) return null;
+          sx = pos3D.sx;
+          sy = pos3D.sy;
+        } else {
+          sx = m.x * scale + offset.x;
+          sy = m.y * scale + offset.y;
+        }
 
         // Clamp so thumbnails don't disappear off the edges
         const wW = wrap.clientWidth;
         const wH = wrap.clientHeight;
-        if (sx < -20 || sx > wW + 20 || sy < -20 || sy > wH + 20) return null;
+        if (sx < -40 || sx > wW + 40 || sy < -40 || sy > wH + 40) return null;
 
         const isExpanded = expandedCamId === cam.id;
         const isOnline   = cam.status === "online";
 
-        const isRecording = activeRecorders.includes(cam.stream_key) || activeRecorders.includes(cam.stream_key) || activeRecorders.includes(cam.id);
+        const isRecording = activeRecorders.includes(cam.stream_key) || activeRecorders.includes(cam.id);
         return (
           <CamThumbnail
             key={cam.id}
@@ -180,77 +189,138 @@ export default function VirtualMapView({
   );
 }
 
-// ── Single camera thumbnail pinned to map position ────────────────
+// ── Single camera thumbnail pinned & fixable near camera position ──
 function CamThumbnail({ cam, marker, index, sx, sy, isExpanded, isOnline, isRecording, alertCount, onExpand, onClose, wrap }) {
-  const THUMB_W = 160;
-  const THUMB_H = 90;
+  const THUMB_W = 168;
+  const THUMB_H = 96;
   const [thumbLive, setThumbLive] = useState(false);
+  
+  // Custom user-dragged offset relative to camera icon (persisted in localStorage)
+  const [offset, setOffset] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(`vt_thumb_offset_${cam.id}`) || "null");
+      return saved && typeof saved.dx === "number" ? saved : { dx: 0, dy: 0 };
+    } catch {
+      return { dx: 0, dy: 0 };
+    }
+  });
 
-  // Position thumbnail so its bottom-centre aligns with the camera dot
-  // Clamp to ensure it doesn't get cut off or go off the top/sides of the canvas wrap
+  const isDraggingRef = useRef(false);
+  const dragStartRef = useRef({ startX: 0, startY: 0, initialDx: 0, initialDy: 0, moved: false });
+
+  const handlePointerDown = (e) => {
+    if (e.target.closest(".vt-thumb__expand") || e.target.closest("button") || e.button !== 0) return;
+    isDraggingRef.current = true;
+    dragStartRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      initialDx: offset.dx,
+      initialDy: offset.dy,
+      moved: false
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    e.stopPropagation();
+  };
+
+  const handlePointerMove = (e) => {
+    if (!isDraggingRef.current) return;
+    const deltaX = e.clientX - dragStartRef.current.startX;
+    const deltaY = e.clientY - dragStartRef.current.startY;
+    if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) {
+      dragStartRef.current.moved = true;
+    }
+    const newOffset = {
+      dx: dragStartRef.current.initialDx + deltaX,
+      dy: dragStartRef.current.initialDy + deltaY
+    };
+    setOffset(newOffset);
+  };
+
+  const handlePointerUp = (e) => {
+    if (!isDraggingRef.current) return;
+    isDraggingRef.current = false;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+      localStorage.setItem(`vt_thumb_offset_${cam.id}`, JSON.stringify(offset));
+    } catch {}
+    
+    // If not dragged, toggle expand
+    if (!dragStartRef.current.moved) {
+      if (isExpanded) {
+        onClose();
+      } else {
+        onExpand();
+      }
+    }
+  };
+
+  // Position thumbnail near camera icon + user offset
   const wrapW = wrap ? wrap.clientWidth : 1000;
   const wrapH = wrap ? wrap.clientHeight : 1000;
 
-  const left = Math.max(8, Math.min(wrapW - THUMB_W - 8, sx - THUMB_W / 2));
-  const top  = Math.max(8, Math.min(wrapH - THUMB_H - 8, sy - THUMB_H - 28)); // 28px above the dot
+  // Default placement: centered horizontally, placed 12px above camera dot
+  const targetX = sx - THUMB_W / 2 + (offset.dx || 0);
+  const targetY = sy - THUMB_H - 12 + (offset.dy || 0);
+
+  const left = Math.max(8, Math.min(wrapW - THUMB_W - 8, targetX));
+  const top  = Math.max(8, Math.min(wrapH - THUMB_H - 8, targetY));
 
   return (
     <div
       className={`vt-thumb ${isOnline ? "vt-thumb--online" : "vt-thumb--offline"} ${isExpanded ? "vt-thumb--expanded" : ""} ${localStorage.getItem("miradorai_show_event_ind") !== "false" && alertCount > 0 ? "vt-thumb--alert" : ""}`}
-      style={{ left, top, width: THUMB_W, height: THUMB_H }}
-      onClick={e => { e.stopPropagation(); isExpanded ? onClose() : onExpand(); }}
-      title={`${cam.name} — click to expand`}
+      style={{ left, top, width: THUMB_W, height: THUMB_H, touchAction: "none" }}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      title={`${cam.name} — Drag to reposition near camera, click to expand`}
     >
-      {/* Connector line from thumbnail down to camera dot */}
-      <div className="vt-thumb__connector" />
-
-      {/* Alert Badge */}
-      {alertCount > 0 && (
-        <div className="vt-thumb__alert-badge" title={`${alertCount} alert${alertCount !== 1 ? "s" : ""} — click to view`}>
-          {alertCount > 99 ? "99+" : alertCount}
-        </div>
-      )}
-
-      {/* Live feed or offline placeholder */}
-      {isOnline ? (
-        <div className="vt-thumb__feed">
-          <WebRTCPlayer_MediaMTX
-            key={cam.stream_key || cam.id}
-            streamKey={cam.stream_key || cam.id}
-            cameraId={cam.id}
-            onConnectChange={setThumbLive}
-            hideBandwidth={true}
-          />
-        </div>
-      ) : (
-        <div className="vt-thumb__offline">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="22" height="22">
-            <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
-            <line x1="1" y1="1" x2="23" y2="23" stroke="#ff4444" strokeWidth="2"/>
-          </svg>
-          <span>Offline</span>
-        </div>
-      )}
-
-      {/* Header bar */}
-      <div className="vt-thumb__bar">
-        <span className={`vt-thumb__dot ${thumbLive ? "vt-thumb__dot--online" : "vt-thumb__dot--offline"}`} />
-        <span className="vt-thumb__name">{cam.name}</span>
-        {thumbLive && localStorage.getItem("miradorai_show_rec_ind") !== "false" && isRecording && (
-          <span className="vt-rec-dot" />
+        {/* Alert Badge */}
+        {alertCount > 0 && (
+          <div className="vt-thumb__alert-badge" title={`${alertCount} alert${alertCount !== 1 ? "s" : ""} — click to view`}>
+            {alertCount > 99 ? "99+" : alertCount}
+          </div>
         )}
-        <span className="vt-thumb__num">#{index + 1}</span>
-        <button
-          className="vt-thumb__expand"
-          onClick={e => { e.stopPropagation(); isExpanded ? onClose() : onExpand(); }}
-          title="Expand"
-        >
-          {isExpanded ? "✕" : "⛶"}
-        </button>
+
+        {/* Live feed or offline placeholder */}
+        {isOnline ? (
+          <div className="vt-thumb__feed">
+            <WebRTCPlayer_MediaMTX
+              key={cam.stream_key || cam.id}
+              streamKey={cam.stream_key || cam.id}
+              cameraId={cam.id}
+              onConnectChange={setThumbLive}
+              hideBandwidth={true}
+            />
+          </div>
+        ) : (
+          <div className="vt-thumb__offline">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="22" height="22">
+              <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+              <line x1="1" y1="1" x2="23" y2="23" stroke="#ff4444" strokeWidth="2"/>
+            </svg>
+            <span>Offline</span>
+          </div>
+        )}
+
+        {/* Header bar */}
+        <div className="vt-thumb__bar" style={{ cursor: "grab" }}>
+          <span className={`vt-thumb__dot ${thumbLive ? "vt-thumb__dot--online" : "vt-thumb__dot--offline"}`} />
+          <span className="vt-thumb__name">{cam.name}</span>
+          {thumbLive && localStorage.getItem("miradorai_show_rec_ind") !== "false" && isRecording && (
+            <span className="vt-rec-dot" />
+          )}
+          <span className="vt-thumb__num">#{index + 1}</span>
+          <button
+            className="vt-thumb__expand"
+            onClick={e => { e.stopPropagation(); isExpanded ? onClose() : onExpand(); }}
+            title={isExpanded ? "Close" : "Expand"}
+          >
+            {isExpanded ? "✕" : "⛶"}
+          </button>
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
 // ── Full expanded feed overlay ────────────────────────────────────
 function ExpandedFeed({ cam, marker, onClose }) {

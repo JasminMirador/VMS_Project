@@ -62,27 +62,53 @@ export default function ConfigPanel({
         </div>
 
         {/* FOV angle picker */}
-        <div className="mv-modal__field">
-          <label className="mv-modal__label">Field of View (FOV)</label>
-          <div className="mv-angle-pills">
-            {FOV_ANGLES.map(a => (
-              <button
-                key={a}
-                className={`mv-angle-pill ${fovAngle === a ? "mv-angle-pill--active" : ""}`}
-                onClick={() => onFovChange(a)}
-                type="button"
-              >
-                {a}°
-              </button>
-            ))}
+        {!cam?.specs?.hfov ? (
+          <div className="mv-modal__field">
+            <label className="mv-modal__label">Field of View (FOV)</label>
+            <div className="mv-angle-pills">
+              {FOV_ANGLES.map(a => (
+                <button
+                  key={a}
+                  className={`mv-angle-pill ${fovAngle === a ? "mv-angle-pill--active" : ""}`}
+                  onClick={() => onFovChange(a)}
+                  type="button"
+                >
+                  {a}°
+                </button>
+              ))}
+            </div>
+            <p className="mv-modal__hint">
+              {fovAngle === 40  && "Narrow — long-range corridor / entrance"}
+              {fovAngle === 60  && "Standard — hallway or focused area"}
+              {fovAngle === 90  && "Wide — room corner or open space"}
+              {fovAngle === 120 && "Very wide — large open area"}
+            </p>
           </div>
-          <p className="mv-modal__hint">
-            {fovAngle === 40  && "Narrow — long-range corridor / entrance"}
-            {fovAngle === 60  && "Standard — hallway or focused area"}
-            {fovAngle === 90  && "Wide — room corner or open space"}
-            {fovAngle === 120 && "Very wide — large open area"}
-          </p>
-        </div>
+        ) : (
+          <div className="mv-modal__field" style={{ opacity: 0.8 }}>
+            <label className="mv-modal__label" style={{ display: "flex", justifyContent: "space-between" }}>
+              Field of View (FOV)
+              <span style={{ fontSize: "12px", color: "#10b981", fontWeight: 600 }}>✓ Datasheet match</span>
+            </label>
+            <div style={{
+              background: "var(--bg-card)",
+              padding: "10px 14px",
+              borderRadius: "6px",
+              border: "1px solid var(--border)",
+              color: "var(--text-primary)",
+              fontWeight: 500,
+              display: "flex",
+              alignItems: "center",
+              gap: "8px"
+            }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+              Locked to {cam.specs.hfov}°
+            </div>
+          </div>
+        )}
 
         {/* Direction slider */}
         <div className="mv-modal__field">

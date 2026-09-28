@@ -144,13 +144,12 @@ def event_playback(ip: str, time: str, request: Request = None, stream: int = 0)
                 if request:
                     base_url = str(request.base_url).rstrip("/")
                 else:
-                    base_url = "http://192.168.126.36"
+                    base_url = "http://192.168.126.200"
                 encoded_time = urllib.parse.quote(time)
                 clipUrl = f"{base_url}/api/event-playback/hls/{ip}/{encoded_time}/index.m3u8"
                 return Response(
                     content=json.dumps({"clipUrl": clipUrl}).encode(),
-                    media_type="application/json",
-                    headers={"Access-Control-Allow-Origin": "*"}
+                    media_type="application/json"
                 )
 
         # ── 2. Build candidate camera_id list ────────────────────────
@@ -289,7 +288,6 @@ def event_playback(ip: str, time: str, request: Request = None, stream: int = 0)
                     content=f'{{"error":"{msg}"}}'.encode(),
                     status_code=404,
                     media_type="application/json",
-                    headers={"Access-Control-Allow-Origin": "*"},
                 )
 
         if not enc_path.startswith("minio:") and not os.path.exists(enc_path):
@@ -297,7 +295,6 @@ def event_playback(ip: str, time: str, request: Request = None, stream: int = 0)
                 content=f'{{"error":"File not found on disk or MinIO: {enc_path}"}}'.encode(),
                 status_code=404,
                 media_type="application/json",
-                headers={"Access-Control-Allow-Origin": "*"},
             )
 
         # ── 6. Seek offset ────────────────────────────────────────────
@@ -340,7 +337,6 @@ def event_playback(ip: str, time: str, request: Request = None, stream: int = 0)
                 content=f'{{"error":"Decryption failed: {str(dec_err)}"}}'.encode(),
                 status_code=500,
                 media_type="application/json",
-                headers={"Access-Control-Allow-Origin": "*"},
             )
 
         try:
@@ -376,7 +372,6 @@ def event_playback(ip: str, time: str, request: Request = None, stream: int = 0)
                 content=b'{"error":"Failed to extract clip from recording"}',
                 status_code=500,
                 media_type="application/json",
-                headers={"Access-Control-Allow-Origin": "*"},
             )
 
         # ── 9. Save clip as encrypted .enc ────────────────────────────
@@ -454,11 +449,11 @@ def event_playback(ip: str, time: str, request: Request = None, stream: int = 0)
                     "Content-Disposition": "inline",
                     "Accept-Ranges":       "bytes",
                     "Cache-Control":       "no-store",
-                    "Access-Control-Allow-Origin":   "*",
-                    "Access-Control-Allow-Methods":  "GET, OPTIONS",
-                    "Access-Control-Allow-Headers":  "*",
+                    
+                    
+                    
                     "Access-Control-Expose-Headers": "Content-Length, Content-Type, X-Server-IP, X-Camera-IP",
-                    "X-Server-IP": "192.168.126.36",
+                    "X-Server-IP": "192.168.126.200",
                     "X-Camera-IP": ip,
                 },
             )
@@ -473,7 +468,7 @@ def event_playback(ip: str, time: str, request: Request = None, stream: int = 0)
         if request:
             base_url = str(request.base_url).rstrip("/")
         else:
-            base_url = "http://192.168.126.36"
+            base_url = "http://192.168.126.200"
 
         encoded_time = urllib.parse.quote(time)
         clipUrl = f"{base_url}/api/event-playback/hls/{ip}/{encoded_time}/index.m3u8"
@@ -485,11 +480,6 @@ def event_playback(ip: str, time: str, request: Request = None, stream: int = 0)
                         "clipUrl": clipUrl,
                     }).encode(),
                     media_type="application/json",
-                    headers={
-                        "Access-Control-Allow-Origin":  "*",
-                        "Access-Control-Allow-Methods": "GET, OPTIONS",
-                        "Access-Control-Allow-Headers": "*",
-                    },
                 )
     except Exception as e:
         import traceback
@@ -498,7 +488,6 @@ def event_playback(ip: str, time: str, request: Request = None, stream: int = 0)
             content=f'{{"error":"{str(e)}"}}'.encode(),
             status_code=500,
             media_type="application/json",
-            headers={"Access-Control-Allow-Origin": "*"},
         )
 
 @router.post("/api/event-playback")
@@ -694,7 +683,6 @@ def event_snapshot(ip: str, time: str):
                     content=f'{{"error":"{msg}"}}'.encode(),
                     status_code=404,
                     media_type="application/json",
-                    headers={"Access-Control-Allow-Origin": "*"},
                 )
 
         if not enc_path.startswith("minio:") and not os.path.exists(enc_path):
@@ -702,7 +690,6 @@ def event_snapshot(ip: str, time: str):
                 content=f'{{"error":"File not found: {enc_path}"}}'.encode(),
                 status_code=404,
                 media_type="application/json",
-                headers={"Access-Control-Allow-Origin": "*"},
             )
 
         # ── 6. Seek offset ────────────────────────────────────────────
@@ -778,7 +765,6 @@ def event_snapshot(ip: str, time: str):
                 content=b'{"error":"Failed to extract snapshot frame"}',
                 status_code=500,
                 media_type="application/json",
-                headers={"Access-Control-Allow-Origin": "*"},
             )
 
         with open(output_path, "rb") as f:
@@ -794,9 +780,9 @@ def event_snapshot(ip: str, time: str):
             media_type="image/jpeg",
             headers={
                 "Cache-Control": "max-age=86400",
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, OPTIONS",
-                "Access-Control-Allow-Headers": "*",
+                
+                
+                
             },
         )
     except Exception as e:
@@ -806,7 +792,6 @@ def event_snapshot(ip: str, time: str):
             content=f'{{"error":"{str(e)}"}}'.encode(),
             status_code=500,
             media_type="application/json",
-            headers={"Access-Control-Allow-Origin": "*"},
         )
 
 @router.post("/api/event-playback/snapshot")
@@ -848,11 +833,7 @@ def event_playback_hls(ip: str, time_str: str, filename: str):
     from datetime import datetime, timezone, timedelta
     from fastapi.responses import FileResponse
 
-    headers = {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, OPTIONS",
-        "Access-Control-Allow-Headers": "*",
-    }
+    headers={}
 
     try:
         time_val = urllib.parse.unquote(time_str)
@@ -1152,7 +1133,6 @@ def play_event_clip(ip: str, time: str):
             content=b'{"error":"Clip not found"}',
             status_code=404,
             media_type="application/json",
-            headers={"Access-Control-Allow-Origin": "*"},
         )
 
     enc_path = doc.get("file_path", "")
@@ -1161,7 +1141,6 @@ def play_event_clip(ip: str, time: str):
             content=b'{"error":"Clip file missing on disk or MinIO"}',
             status_code=404,
             media_type="application/json",
-            headers={"Access-Control-Allow-Origin": "*"},
         )
 
     from fastapi.responses import StreamingResponse
@@ -1179,9 +1158,9 @@ def play_event_clip(ip: str, time: str):
             "Content-Disposition": "inline",
             "Accept-Ranges":       "bytes",
             "Cache-Control":       "no-store",
-            "Access-Control-Allow-Origin":   "*",
-            "Access-Control-Allow-Methods":  "GET, OPTIONS",
-            "Access-Control-Allow-Headers":  "*",
+            
+            
+            
             "Access-Control-Expose-Headers": "Content-Length, Content-Type",
         },
     )
