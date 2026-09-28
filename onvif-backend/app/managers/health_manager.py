@@ -9,6 +9,62 @@ from app.adapters.hikvision_adapter import pull_hikvision_events
 from app.core import mqtt_publisher
 
 from app.core.ws_manager import ws_manager
+import os
+import subprocess
+import tempfile
+from app.utils import minio_client
+
+import time
+
+_snapshot_cache = {}
+
+def _capture_mediamtx_snapshot(ip: str, time_iso: str) -> str:
+    current_time = time.time()
+    
+    # 1. Check strict 1.0-second cache to prevent CPU spikes on millisecond gaps
+    if ip in _snapshot_cache:
+        cached_data = _snapshot_cache[ip]
+        if current_time - cached_data["timestamp"] <= 1.0:
+            print(f"[SNAPSHOT] Using cached image for {ip} (millisecond alert burst)")
+            return cached_data["url"]
+            
+    ip_prefix = ip.replace(".", "_")
+    stream_url = f"rtsp://127.0.0.1:8554/{ip_prefix}"
+    temp_jpg = tempfile.mktemp(suffix=".jpg")
+    
+    # 2. Base FFmpeg command (removed strict no-buffer flags to allow normal connection)
+    cmd = [
+        "ffmpeg", "-y",
+        "-rtsp_transport", "tcp",
+        "-i", stream_url,
+        "-vframes", "1",
+        "-q:v", "2",
+        temp_jpg
+    ]
+    try:
+        # 3. Increase timeout to 8.0 seconds for safety
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=8.0)
+        if os.path.exists(temp_jpg) and os.path.getsize(temp_jpg) > 0:
+            time_safe = time_iso.replace(":", "-")
+            minio_key = f"alert_snapshots/{ip_prefix}/{time_safe}.jpg"
+            minio_client.upload_file(minio_key, temp_jpg)
+            os.remove(temp_jpg)
+            
+            final_url = f"minio:{minio_key}"
+            
+            # Update cache on success
+            _snapshot_cache[ip] = {"url": final_url, "timestamp": current_time}
+            
+            return final_url
+    except Exception as e:
+        print(f"[SNAPSHOT] Live frame capture failed for {ip}: {e}")
+        
+    if os.path.exists(temp_jpg):
+        try:
+            os.remove(temp_jpg)
+        except Exception:
+            pass
+    return ""
 
 _previous_camera_statuses = {}
 
@@ -289,6 +345,11 @@ async def analytics_poll_loop(ip: str, port: int, username: str, password: str, 
                                 except ValueError:
                                     alert["total"] = count_val
                                     alert["human"] = count_val
+
+                        # ── Instant MediaMTX Snapshot Capture ──
+                        snapshot_url = await asyncio.to_thread(_capture_mediamtx_snapshot, ip, now_iso)
+                        if snapshot_url:
+                            alert["snapshot_url"] = snapshot_url
 
                         if analytics_col is not None:
                             res = analytics_col.insert_one(alert)
