@@ -394,6 +394,9 @@ export default function ManualSearchModal({
     if (!user.trim()) e.user = "Please enter the username.";
     if (!pass.trim()) e.pass = "Please enter the password.";
     if (port && (isNaN(port) || +port < 1 || +port > 65535)) e.port = "1–65535";
+    if (cameraName && !/^[a-zA-Z0-9 _-]+$/.test(cameraName.trim())) {
+      e.cameraName = "Camera Name can only contain alphanumeric characters, spaces, dashes, and underscores.";
+    }
     return e;
   };
 
@@ -401,6 +404,9 @@ export default function ManualSearchModal({
     const e = {};
     if (!rtspUrl.trim()) e.rtspUrl = "RTSP URL is required";
     else if (!rtspUrl.toLowerCase().startsWith("rtsp://")) e.rtspUrl = "URL must start with rtsp://";
+    if (cameraName && !/^[a-zA-Z0-9 _-]+$/.test(cameraName.trim())) {
+      e.cameraName = "Camera Name can only contain alphanumeric characters, spaces, dashes, and underscores.";
+    }
     return e;
   };
 
@@ -623,11 +629,15 @@ export default function ManualSearchModal({
               </label>
               <input
                 tabIndex={1}
-                className="msm-input"
+                className={`msm-input ${errors.cameraName ? "error" : ""}`}
                 placeholder="e.g. Front Gate Camera"
                 value={cameraName}
-                onChange={(e) => setCameraName(e.target.value)}
+                onChange={(e) => {
+                  setCameraName(e.target.value);
+                  setErrors((s) => ({ ...s, cameraName: "" }));
+                }}
               />
+              {errors.cameraName && <span className="msm-error-msg">{errors.cameraName}</span>}
             </div>
 
             {/* Group */}

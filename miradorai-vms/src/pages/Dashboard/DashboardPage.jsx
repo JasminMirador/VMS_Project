@@ -2228,7 +2228,7 @@ const DashboardPage = () => {
             classification: a.type || "—",
             event: a.scenario || a.feature || a.subType || "—",
             details: a.employeeName || a.label || a.vehicleType || a.message || "—",
-            status: (a.acknowledged_at && (a.resolved_at || a.status === "Resolved")) ? "Acknowledged & Resolved" : (a.status === "Resolved" || a.resolved_at) ? "Resolved" : (a.status === "Acknowledged" || a.acknowledged_at) ? "Acknowledged" : "Active"
+            status: (a.acknowledged_at && (a.resolved_at || a.status === "Resolved")) ? "Resolved" : (a.status === "Resolved" || a.resolved_at) ? "Resolved" : (a.status === "Acknowledged" || a.acknowledged_at) ? "Acknowledged" : "Active"
           }));
           
           setReportData(formatted);
@@ -2671,7 +2671,7 @@ const DashboardPage = () => {
           fetch(`${API_BASE}/api/dashboard/summary`, { headers: getAuthHeaders() }),
           fetch(`${API_BASE}/api/storage/management`, { headers: getAuthHeaders() }),
           fetch(`${API_BASE}/api/dashboard/events`, { headers: getAuthHeaders() }),
-          fetch(`${API_BASE}/api/cameras/`, { headers: getAuthHeaders() }),
+          fetch(`${API_BASE}/api/cameras`, { headers: getAuthHeaders() }),
           fetch(`${API_BASE}/api/recordings/status`, { headers: getAuthHeaders() }).catch(() => null),
           fetch(`${API_BASE}/api/health`, { headers: getAuthHeaders() }).catch(() => null),
           fetch(`${API_BASE}/api/infrastructure/metrics`, { headers: getAuthHeaders() }).catch(() => null),
@@ -3238,7 +3238,14 @@ const DashboardPage = () => {
                       >
                         <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }}>
                           <span style={{ fontSize: "13.5px", fontWeight: "600", color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {cam.name}
+                            {(() => {
+                              const match = cameras?.find(c => 
+                                c.ip === cam.ip || 
+                                c.ip_address === cam.ip || 
+                                (cam.id && (c.id === cam.id || c._id === cam.id))
+                              );
+                              return match?.name || match?.device_name || match?.camera_name || cam.name;
+                            })()}
                           </span>
                           <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>{cam.ip}</span>
                         </div>
@@ -3454,7 +3461,7 @@ const DashboardPage = () => {
                   </button>
                   {statusDropdownOpen && (
                     <ul className="report-dropdown-menu">
-                      {[{v: "all", l: "All"}, {v: "Active", l: "Active"}, {v: "Acknowledged", l: "Acknowledged"}, {v: "Acknowledged & Resolved", l: "Acknowledged & Resolved"}].map(opt => (
+                      {[{v: "all", l: "All"}, {v: "Active", l: "Active"}, {v: "Acknowledged", l: "Acknowledged"}, {v: "Resolved", l: "Resolved"}].map(opt => (
                         <li key={opt.v} className={`report-dropdown-item ${reportAnalyticsStatus === opt.v ? "active" : ""}`} onClick={() => { setReportAnalyticsStatus(opt.v); setStatusDropdownOpen(false); }}>
                           {opt.l}
                         </li>

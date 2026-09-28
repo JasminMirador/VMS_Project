@@ -2109,7 +2109,7 @@ const Gltf3DViewer = forwardRef(function Gltf3DViewer({
         
         if (updateMarkers && moveDist >= 6) {
            setLocalMarkers(current => {
-             updateMarkers(current);
+             setTimeout(() => updateMarkers(current), 0);
              return current;
            });
         }

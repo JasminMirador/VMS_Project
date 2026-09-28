@@ -664,6 +664,10 @@ function PTZSection({ device, caps, onCall, showToast }) {
 
   const savePreset = async () => {
     if (!newPresetName.trim()) return;
+    if (!/^[a-zA-Z0-9 _-]+$/.test(newPresetName.trim())) {
+      showToast("Preset Name can only contain alphanumeric characters, spaces, dashes, and underscores.", "error");
+      return;
+    }
     const res = await onCall("/api/camera/ptz/preset/save", {
       ip: device.ip, port: device.port || 80,
       username: device.username || "", password: device.password || "",

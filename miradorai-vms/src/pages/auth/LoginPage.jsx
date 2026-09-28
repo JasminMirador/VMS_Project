@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../../context/AuthContext";
+import { useTheme } from "../../context/ThemeContext";
 import "./LoginPage.css";
 import useActivityLogger from "../../hooks/useActivityLogger";
 import SpecularButton from "../../components/shared/SpecularButton";
@@ -14,17 +15,17 @@ const PasswordRules = ({ password }) => {
   ];
 
   return (
-    <div style={{ marginTop: '8px', fontSize: '12px' }}>
+    <div className="password-rules">
       {rules.map((rule, idx) => {
         const passed = rule.test(password || "");
         return (
-          <div key={idx} style={{ display: 'flex', alignItems: 'center', marginBottom: '4px', color: passed ? '#10b981' : '#6b7280' }}>
+          <div key={idx} className={`password-rule ${passed ? 'passed' : ''}`}>
             {passed ? (
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2" fill="none" style={{ marginRight: '6px' }}><polyline points="20 6 9 17 4 12"/></svg>
             ) : (
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2" fill="none" style={{ marginRight: '6px' }}><circle cx="12" cy="12" r="10"/></svg>
             )}
-            <span style={{ textDecoration: passed ? 'line-through' : 'none' }}>{rule.label}</span>
+            <span>{rule.label}</span>
           </div>
         )
       })}
@@ -33,8 +34,9 @@ const PasswordRules = ({ password }) => {
 };
 
 const LoginPage = () => {
-  const { login, completeLogin,  oauthLogin, accounts, signup } = useAuth();
-  const [activeForm, setActiveForm] = useState("signin"); // "signin" | "forgot" | "signup"
+  const { login, completeLogin, signup, finalizeSignup, forgotPassword, resetPassword } = useAuth();
+  const { theme } = useTheme();
+  const [activeForm, setActiveForm] = useState("signin"); // "signin" | "forgot" | "signup" | "verify"
   const [role, setRole] = useState("admin");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -61,25 +63,26 @@ const LoginPage = () => {
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
   // Sign Up Form
-  const [signUpEmail, setSignUpEmail] = useState("");
-  const [signUpPassword, setSignUpPassword] = useState("");
-  const [signUpConfirm, setSignUpConfirm] = useState("");
+  const [signUpEmail, setSignUpEmail] = useState(localStorage.getItem("pendingSignupEmail") || "");
   const [signUpError, setSignUpError] = useState("");
   const [signUpSuccess, setSignUpSuccess] = useState("");
 
-  const [oauthMessage, setOauthMessage] = useState("");
-  const [oauthError, setOauthError] = useState("");
-  const [showGoogleChooser, setShowGoogleChooser] = useState(false);
-  const [googleAccount, setGoogleAccount] = useState("");
-
+  // Verify OTP Form
+  const [verifyOtp, setVerifyOtp] = useState("");
+  const [verifyPassword, setVerifyPassword] = useState("");
+  const [verifyConfirm, setVerifyConfirm] = useState("");
+  const [verifyError, setVerifyError] = useState("");
+  const [verifySuccess, setVerifySuccess] = useState("");
+  const [isResending, setIsResending] = useState(false);
 
   // Forgot Password Form
-  // const [forgotEmail, setForgotEmail] = useState("");
-  // const [forgotError, setForgotError] = useState("");
-  // const [forgotStep, setForgotStep] = useState("email");
-  // const [resetNewPassword, setResetNewPassword] = useState("");
-  // const [resetConfirm, setResetConfirm] = useState("");
-  // const [forgotSuccess, setForgotSuccess] = useState("");
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotError, setForgotError] = useState("");
+  const [forgotStep, setForgotStep] = useState("email");
+  const [resetOtp, setResetOtp] = useState("");
+  const [resetNewPassword, setResetNewPassword] = useState("");
+  const [resetConfirm, setResetConfirm] = useState("");
+  const [forgotSuccess, setForgotSuccess] = useState("");
   const [requiresCaptcha, setRequiresCaptcha] = useState(false);
   const [captchaId, setCaptchaId] = useState(null);
   const [captchaText, setCaptchaText] = useState("");
@@ -210,71 +213,89 @@ const LoginPage = () => {
 
     await new Promise((resolve) => setTimeout(resolve, 500));
 
-    const result = await signup(signUpEmail, signUpPassword, signUpConfirm, role);
+    const result = await signup(signUpEmail, role);
     if (!result.success) {
       setSignUpError(result.error);
     } else {
       setSignUpSuccess(result.message);
-      logAction("User signed up", "auth", { email: signUpEmail });
+      logAction("User requested signup", "auth", { email: signUpEmail });
+      localStorage.setItem("pendingSignupEmail", signUpEmail);
       setTimeout(() => {
-        setActiveForm("signin");
-        setSignInEmail(signUpEmail);
-        setSignUpEmail("");
-        setSignUpPassword("");
-        setSignUpConfirm("");
-        setSignUpSuccess("");
-      }, 2000);
+        setActiveForm("verify");
+      }, 3000);
     }
     setIsLoading(false);
   };
 
-  const handleGoogleLogin = () => {
-    setOauthError("");
-    setOauthMessage("");
-
-    const firstChoice = accounts && accounts.length ? accounts[0].email : "";
-    setGoogleAccount(firstChoice);
-    setShowGoogleChooser(true);
-  };
-
-  const performGoogleLogin = async () => {
-    setOauthError("");
-    setOauthMessage("");
-
-    if (!googleAccount) {
-      setOauthError("Please select a Google account first.");
+  const handleResendOtp = async () => {
+    const emailToVerify = signUpEmail.trim();
+    if (!emailToVerify) {
+      setVerifyError("Please enter your email first");
       return;
     }
+    
+    setIsResending(true);
+    setVerifyError("");
+    setVerifySuccess("");
+    try {
+      const res = await fetch("/api/auth/signup/resend-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: emailToVerify })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setVerifyError(data.detail || "Failed to resend OTP");
+      } else {
+        setVerifySuccess(data.message || "OTP resent successfully");
+      }
+    } catch (err) {
+      setVerifyError("Network error. Could not resend OTP.");
+    } finally {
+      setIsResending(false);
+    }
+  };
 
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    setVerifyError("");
+    setVerifySuccess("");
     setIsLoading(true);
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    const result = oauthLogin("google", role, googleAccount);
-
-    if (!result.success) {
-      setOauthError(result.error);
+    if (verifyPassword !== verifyConfirm) {
+      setVerifyError("Passwords do not match");
       setIsLoading(false);
       return;
     }
 
-    const selectedExisting = accounts.find((acc) => acc.email === googleAccount);
-    if (selectedExisting && selectedExisting.role && selectedExisting.role !== role) {
-      setRole(selectedExisting.role);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    // If they navigated directly, signUpEmail might be empty, so we should allow them to type it in.
+    const emailToVerify = signUpEmail.trim();
+    if (!emailToVerify) {
+      setVerifyError("Please enter your email");
+      setIsLoading(false);
+      return;
     }
 
-    // 🔥 Activity log — Google OAuth login
-    logAction("User logged in", "auth", { email: googleAccount, method: "google" });
-
-    setOauthMessage(result.message || "Logged in with Google successfully");
+    const result = await finalizeSignup(emailToVerify, verifyOtp, verifyPassword);
+    if (!result.success) {
+      setVerifyError(result.error);
+    } else {
+      setVerifySuccess(result.message);
+      logAction("User finalized signup", "auth", { email: emailToVerify });
+      localStorage.removeItem("pendingSignupEmail");
+      setTimeout(() => {
+        setActiveForm("signin");
+        setSignInEmail(emailToVerify);
+        setSignUpEmail("");
+        setVerifyOtp("");
+        setVerifyPassword("");
+        setVerifyConfirm("");
+        setVerifySuccess("");
+      }, 3000);
+    }
     setIsLoading(false);
-    setShowGoogleChooser(false);
-  };
-
-  const cancelGoogleLogin = () => {
-    setShowGoogleChooser(false);
-    setOauthError("");
-    setOauthMessage("");
   };
 
   const handleForgotPassword = async (e) => {
@@ -297,7 +318,7 @@ const LoginPage = () => {
       setForgotStep("reset");
       setIsLoading(false);
     } else {
-      const result = await resetPassword(forgotEmail, resetNewPassword, resetConfirm);
+      const result = await resetPassword(forgotEmail, resetOtp, resetNewPassword, resetConfirm);
       if (!result.success) {
         setForgotError(result.error);
         setIsLoading(false);
@@ -306,6 +327,7 @@ const LoginPage = () => {
 
       setForgotSuccess(result.message);
       setForgotEmail("");
+      setResetOtp("");
       setResetNewPassword("");
       setResetConfirm("");
       setForgotStep("email");
@@ -319,7 +341,7 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="login-page">
+    <div className={`login-page ${theme === "light" ? "light" : "dark"}`} data-theme={theme}>
       <div className="login-container">
         {/* Logo/Title */}
         <div className="login-header">
@@ -334,7 +356,7 @@ const LoginPage = () => {
         {/* Sign In Form */}
         {activeForm === "signin" && showChangePassword && (
           <form onSubmit={handleForcedPasswordChange} className="auth-form">
-            <p style={{ color: '#d1d5db', fontSize: '14px', marginBottom: '16px' }}>Your account requires a password change.</p>
+            <p className="theme-description">Your account requires a password change.</p>
             <div className="form-group">
               <label>New Password</label>
               <div className="password-input-wrapper">
@@ -370,7 +392,7 @@ const LoginPage = () => {
                   <button 
                     type="button"
                     onClick={() => setActiveSessionWarning(null)}
-                    style={{ background: 'rgba(255,255,255,0.05)', color: '#d1d5db', border: '1px solid rgba(255,255,255,0.1)', padding: '8px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
+                    className="session-cancel-btn"
                   >
                     Cancel
                   </button>
@@ -380,7 +402,7 @@ const LoginPage = () => {
                       completeLogin(activeSessionWarning.user, activeSessionWarning.token, activeSessionWarning.session_id);
                       logAction("User logged in (concurrent)", "auth", { email: signInEmail });
                     }}
-                    style={{ background: 'rgba(59, 130, 246, 0.2)', color: '#93c5fd', border: '1px solid rgba(59, 130, 246, 0.4)', padding: '8px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}
+                    className="session-continue-btn"
                   >
                     Continue Anyway
                   </button>
@@ -389,7 +411,7 @@ const LoginPage = () => {
             )}
 
             
-            <SpecularButton type="submit" size="md" radius={8} tint="#10b981" tintOpacity={0.1} blur={4} textColor="#f0fff8" lineColor="#10b981" baseColor="#0d3326" intensity={1.2} shineSize={12} shineFade={38} thickness={1} followMouse proximity={220} disabled={isLoading || !newPassword || !confirmNewPassword} className="login-specular-btn">
+            <SpecularButton type="submit" size="md" radius={8} tint="#10b981" tintOpacity={0.1} blur={4} textColor={theme === "light" ? "#065f46" : "#f0fff8"} lineColor="#10b981" baseColor={theme === "light" ? "#ecfdf5" : "#0d3326"} intensity={1.2} shineSize={12} shineFade={38} thickness={1} followMouse proximity={220} disabled={isLoading || !newPassword || !confirmNewPassword} className="login-specular-btn">
               {isLoading ? "Updating..." : "Change Password"}
             </SpecularButton>
             <button type="button" onClick={() => setShowChangePassword(false)} className="link-btn" style={{ marginTop: '16px', display: 'block', width: '100%' }}>Cancel</button>
@@ -398,7 +420,7 @@ const LoginPage = () => {
 
         {activeForm === "signin" && showMfaInput && (
           <form onSubmit={handleSignIn} className="auth-form">
-            <p style={{ color: '#d1d5db', fontSize: '14px', marginBottom: '16px' }}>Two-Factor Authentication is enabled on this account.</p>
+            <p className="theme-description">Two-Factor Authentication is enabled on this account.</p>
             <div className="form-group">
               <label>Authenticator Code</label>
               <input type="text" placeholder="6-digit code" value={mfaCode} onChange={(e) => setMfaCode(e.target.value)} disabled={isLoading} required maxLength="6" />
@@ -411,7 +433,7 @@ const LoginPage = () => {
                   <button 
                     type="button"
                     onClick={() => setActiveSessionWarning(null)}
-                    style={{ background: 'rgba(255,255,255,0.05)', color: '#d1d5db', border: '1px solid rgba(255,255,255,0.1)', padding: '8px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
+                    className="session-cancel-btn"
                   >
                     Cancel
                   </button>
@@ -421,7 +443,7 @@ const LoginPage = () => {
                       completeLogin(activeSessionWarning.user, activeSessionWarning.token, activeSessionWarning.session_id);
                       logAction("User logged in (concurrent)", "auth", { email: signInEmail });
                     }}
-                    style={{ background: 'rgba(59, 130, 246, 0.2)', color: '#93c5fd', border: '1px solid rgba(59, 130, 246, 0.4)', padding: '8px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}
+                    className="session-continue-btn"
                   >
                     Continue Anyway
                   </button>
@@ -430,7 +452,7 @@ const LoginPage = () => {
             )}
 
             
-            <SpecularButton type="submit" size="md" radius={8} tint="#10b981" tintOpacity={0.1} blur={4} textColor="#f0fff8" lineColor="#10b981" baseColor="#0d3326" intensity={1.2} shineSize={12} shineFade={38} thickness={1} followMouse proximity={220} disabled={isLoading || !mfaCode || mfaCode.length < 6} className="login-specular-btn">
+            <SpecularButton type="submit" size="md" radius={8} tint="#10b981" tintOpacity={0.1} blur={4} textColor={theme === "light" ? "#065f46" : "#f0fff8"} lineColor="#10b981" baseColor={theme === "light" ? "#ecfdf5" : "#0d3326"} intensity={1.2} shineSize={12} shineFade={38} thickness={1} followMouse proximity={220} disabled={isLoading || !mfaCode || mfaCode.length < 6} className="login-specular-btn">
               {isLoading ? "Verifying..." : "Verify"}
             </SpecularButton>
             <button type="button" onClick={() => setShowMfaInput(false)} className="link-btn" style={{ marginTop: '16px', display: 'block', width: '100%' }}>Cancel</button>
@@ -484,7 +506,7 @@ const LoginPage = () => {
             <div className="form-group">
               <div className="password-header">
                 <label>Password</label>
-                {/* <a
+                <a
                   href="#"
                   onClick={(e) => {
                     e.preventDefault();
@@ -495,7 +517,7 @@ const LoginPage = () => {
                   className="forgot-link"
                 >
                   Forgot password?
-                </a> */}
+                </a>
               </div>
               <div className="password-input-wrapper">
                 <input
@@ -574,7 +596,7 @@ const LoginPage = () => {
                   <button 
                     type="button"
                     onClick={() => setActiveSessionWarning(null)}
-                    style={{ background: 'rgba(255,255,255,0.05)', color: '#d1d5db', border: '1px solid rgba(255,255,255,0.1)', padding: '8px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
+                    className="session-cancel-btn"
                   >
                     Cancel
                   </button>
@@ -584,7 +606,7 @@ const LoginPage = () => {
                       completeLogin(activeSessionWarning.user, activeSessionWarning.token, activeSessionWarning.session_id);
                       logAction("User logged in (concurrent)", "auth", { email: signInEmail });
                     }}
-                    style={{ background: 'rgba(59, 130, 246, 0.2)', color: '#93c5fd', border: '1px solid rgba(59, 130, 246, 0.4)', padding: '8px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}
+                    className="session-continue-btn"
                   >
                     Continue Anyway
                   </button>
@@ -605,9 +627,9 @@ const LoginPage = () => {
               tint="#10b981"
               tintOpacity={0.10}
               blur={4}
-              textColor="#f0fff8"
+              textColor={theme === "light" ? "#065f46" : "#f0fff8"}
               lineColor="#10b981"
-              baseColor="#0d3326"
+              baseColor={theme === "light" ? "#ecfdf5" : "#0d3326"}
               intensity={1.2}
               shineSize={12}
               shineFade={38}
@@ -620,93 +642,28 @@ const LoginPage = () => {
               {isLoading ? "Signing in..." : "Log in"}
             </SpecularButton>
 
-            <div style={{ textAlign: "center", marginTop: "1rem", fontSize: "0.9rem", color: "#9ca3af" }}>
-              Don't have an account?{" "}
-              <a href="#" onClick={(e) => { e.preventDefault(); setActiveForm("signup"); }} style={{ color: "#10b981", textDecoration: "none" }}>
-                Sign up
-              </a>
-            </div>
-
-            {/* Google Login */}
-            <button
-              type="button"
-              className="btn-google"
-              disabled={isLoading}
-              onClick={handleGoogleLogin}
-            >
-              <svg viewBox="0 0 24 24" width="18" height="18">
-                <text x="0" y="16" fontSize="16">G</text>
-              </svg>
-              Continue with Google
-            </button>
-
-            {showGoogleChooser && (
-              <div className="google-chooser">
-                <p>Select a Google account:</p>
-                <select
-                  value={googleAccount}
-                  onChange={(e) => setGoogleAccount(e.target.value)}
-                  disabled={isLoading}
-                >
-                  <option value="">-- Choose account --</option>
-                  {accounts && accounts.length > 0 ? (
-                    accounts.map((acct) => (
-                      <option key={acct.email} value={acct.email}>
-                        {acct.email} ({acct.role})
-                      </option>
-                    ))
-                  ) : (
-                    <>
-                      <option value="google.user@example.com">google.user@example.com</option>
-                      <option value="admin.google@example.com">admin.google@example.com</option>
-                      <option value="client.google@example.com">client.google@example.com</option>
-                    </>
-                  )}
-                </select>
-                <div className="google-chooser-actions">
-                  <SpecularButton
-                    type="button"
-                    size="md"
-                    radius={8}
-                    tint="#10b981"
-                    tintOpacity={0.10}
-                    blur={4}
-                    textColor="#f0fff8"
-                    lineColor="#10b981"
-                    baseColor="#0d3326"
-                    intensity={1.2}
-                    shineSize={12}
-                    shineFade={38}
-                    thickness={1}
-                    followMouse
-                    proximity={220}
-                    onClick={performGoogleLogin}
-                    disabled={isLoading || !googleAccount}
-                    className="login-specular-btn"
-                  >
-                    Sign in with Google
-                  </SpecularButton>
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={cancelGoogleLogin}
-                    disabled={isLoading}
-                  >
-                    Cancel
-                  </button>
-                </div>
+            {role === "admin" && (
+              <div className="login-footer-links">
+                Don't have an account?{" "}
+                <a href="#" onClick={(e) => { e.preventDefault(); setActiveForm("signup"); }} className="login-footer-link">
+                  Sign up
+                </a>
+                <br/><br/>
+                Have an OTP?{" "}
+                <a href="#" onClick={(e) => { e.preventDefault(); setActiveForm("verify"); }} className="login-footer-link">
+                  Finalize Account
+                </a>
               </div>
             )}
 
-            {oauthError && <div className="error-message">{oauthError}</div>}
-            {oauthMessage && <div className="success-message">{oauthMessage}</div>}
+
 
           </form>
         )}
 
 
         {/* Forgot Password Form */}
-        {false && activeForm === "forgot" && (
+        {activeForm === "forgot" && (
           <form onSubmit={handleForgotPassword} className="auth-form">
             {forgotStep === "email" ? (
               <>
@@ -721,7 +678,7 @@ const LoginPage = () => {
                     required
                   />
                   <small className="form-hint">
-                    We'll send a password reset link to this email
+                    We'll send a password reset OTP to this email
                   </small>
                 </div>
 
@@ -737,9 +694,9 @@ const LoginPage = () => {
                   tint="#10b981"
                   tintOpacity={0.10}
                   blur={4}
-                  textColor="#f0fff8"
+                  textColor={theme === "light" ? "#065f46" : "#f0fff8"}
                   lineColor="#10b981"
-                  baseColor="#0d3326"
+                  baseColor={theme === "light" ? "#ecfdf5" : "#0d3326"}
                   intensity={1.2}
                   shineSize={12}
                   shineFade={38}
@@ -755,11 +712,24 @@ const LoginPage = () => {
             ) : (
               <>
                 <div className="form-group">
+                  <label>One-Time Password (OTP)</label>
+                  <input
+                    type="text"
+                    placeholder="Enter the 6-digit OTP from your email"
+                    value={resetOtp}
+                    onChange={(e) => setResetOtp(e.target.value)}
+                    disabled={isLoading}
+                    maxLength="6"
+                    required
+                  />
+                </div>
+                
+                <div className="form-group">
                   <label>New Password</label>
                   <div className="password-input-wrapper">
                     <input
                       type={showPassword ? "text" : "password"}
-                      placeholder="Enter new password"
+                      placeholder="Minimum 12 characters"
                       value={resetNewPassword}
                       onChange={(e) => setResetNewPassword(e.target.value)}
                       disabled={isLoading}
@@ -778,14 +748,15 @@ const LoginPage = () => {
                   )}
                     </button>
                   </div>
+                  <PasswordRules password={resetNewPassword} />
                 </div>
 
                 <div className="form-group">
                   <label>Confirm Password</label>
                   <div className="password-input-wrapper">
                     <input
-                      type={showPassword ? "text" : "password"}
-                      placeholder="Confirm password"
+                      type={showConfirmPassword ? "text" : "password"}
+                      placeholder="Confirm your password"
                       value={resetConfirm}
                       onChange={(e) => setResetConfirm(e.target.value)}
                       disabled={isLoading}
@@ -794,10 +765,10 @@ const LoginPage = () => {
                     <button
                       type="button"
                       className="password-toggle"
-                      onClick={() => setShowPassword(!showPassword)}
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                       disabled={isLoading}
                     >
-                      {showPassword ? (
+                      {showConfirmPassword ? (
                     <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" strokeWidth="2" fill="none"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                   ) : (
                     <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" strokeWidth="2" fill="none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
@@ -818,16 +789,16 @@ const LoginPage = () => {
                   tint="#10b981"
                   tintOpacity={0.10}
                   blur={4}
-                  textColor="#f0fff8"
+                  textColor={theme === "light" ? "#065f46" : "#f0fff8"}
                   lineColor="#10b981"
-                  baseColor="#0d3326"
+                  baseColor={theme === "light" ? "#ecfdf5" : "#0d3326"}
                   intensity={1.2}
                   shineSize={12}
                   shineFade={38}
                   thickness={1}
                   followMouse
                   proximity={220}
-                  disabled={isLoading || !resetNewPassword || !resetConfirm}
+                  disabled={isLoading || !resetOtp || !resetNewPassword || !resetConfirm}
                   className="login-specular-btn"
                 >
                   {isLoading ? "Resetting..." : "Reset Password"}
@@ -842,6 +813,7 @@ const LoginPage = () => {
                 onClick={() => {
                   setActiveForm("signin");
                   setForgotEmail("");
+                  setResetOtp("");
                   setResetNewPassword("");
                   setResetConfirm("");
                   setForgotStep("email");
@@ -898,14 +870,92 @@ const LoginPage = () => {
               />
             </div>
 
+
+
+            {signUpError && <div className="error-message">{signUpError}</div>}
+            {signUpSuccess && <div className="success-message">{signUpSuccess}</div>}
+
+            <SpecularButton
+              type="submit"
+              size="md"
+              radius={8}
+              tint="#10b981"
+              tintOpacity={0.10}
+              blur={4}
+              textColor={theme === "light" ? "#065f46" : "#f0fff8"}
+              lineColor="#10b981"
+              baseColor={theme === "light" ? "#ecfdf5" : "#0d3326"}
+              intensity={1.2}
+              shineSize={12}
+              shineFade={38}
+              thickness={1}
+              followMouse
+              proximity={220}
+              disabled={isLoading || !signUpEmail}
+              className="login-specular-btn"
+            >
+              {isLoading ? "Creating account..." : "Sign up"}
+            </SpecularButton>
+
+            <div className="login-footer-links">
+              Already have an account?{" "}
+              <a href="#" onClick={(e) => { e.preventDefault(); setActiveForm("signin"); }} className="login-footer-link">
+                Log in
+              </a>
+            </div>
+          </form>
+        )}
+
+        {/* Verify OTP Form */}
+        {activeForm === "verify" && (
+          <form onSubmit={handleVerifyOtp} className="auth-form">
+            <h3 className="verify-title">Finalize Account</h3>
+            
             <div className="form-group">
-              <label>Password</label>
+              <label>Email</label>
+              <input
+                type="email"
+                placeholder="Type your email"
+                value={signUpEmail}
+                onChange={(e) => setSignUpEmail(e.target.value)}
+                disabled={isLoading}
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>One-Time Password (OTP)</span>
+                {signUpEmail && (
+                  <button 
+                    type="button" 
+                    onClick={handleResendOtp}
+                    className="resend-otp-btn"
+                    disabled={isResending}
+                  >
+                    {isResending ? "Resending..." : "Resend OTP"}
+                  </button>
+                )}
+              </label>
+              <input
+                type="text"
+                placeholder="Enter the 6-digit OTP from your email"
+                value={verifyOtp}
+                onChange={(e) => setVerifyOtp(e.target.value)}
+                disabled={isLoading}
+                maxLength="6"
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label>New Password</label>
               <div className="password-input-wrapper">
                 <input
                   type={showPassword ? "text" : "password"}
                   placeholder="Minimum 12 characters"
-                  value={signUpPassword}
-                  onChange={(e) => setSignUpPassword(e.target.value)}
+                  value={verifyPassword}
+                  onChange={(e) => setVerifyPassword(e.target.value)}
                   disabled={isLoading}
                   required
                 />
@@ -922,7 +972,7 @@ const LoginPage = () => {
                   )}
                 </button>
               </div>
-              <PasswordRules password={signUpPassword} />
+              <PasswordRules password={verifyPassword} />
             </div>
 
             <div className="form-group">
@@ -931,8 +981,8 @@ const LoginPage = () => {
                 <input
                   type={showConfirmPassword ? "text" : "password"}
                   placeholder="Confirm your password"
-                  value={signUpConfirm}
-                  onChange={(e) => setSignUpConfirm(e.target.value)}
+                  value={verifyConfirm}
+                  onChange={(e) => setVerifyConfirm(e.target.value)}
                   disabled={isLoading}
                   required
                 />
@@ -951,8 +1001,8 @@ const LoginPage = () => {
               </div>
             </div>
 
-            {signUpError && <div className="error-message">{signUpError}</div>}
-            {signUpSuccess && <div className="success-message">{signUpSuccess}</div>}
+            {verifyError && <div className="error-message">{verifyError}</div>}
+            {verifySuccess && <div className="success-message">{verifySuccess}</div>}
 
             <SpecularButton
               type="submit"
@@ -961,25 +1011,24 @@ const LoginPage = () => {
               tint="#10b981"
               tintOpacity={0.10}
               blur={4}
-              textColor="#f0fff8"
+              textColor={theme === "light" ? "#065f46" : "#f0fff8"}
               lineColor="#10b981"
-              baseColor="#0d3326"
+              baseColor={theme === "light" ? "#ecfdf5" : "#0d3326"}
               intensity={1.2}
               shineSize={12}
               shineFade={38}
               thickness={1}
               followMouse
               proximity={220}
-              disabled={isLoading || !signUpEmail || !signUpPassword || !signUpConfirm}
+              disabled={isLoading || !signUpEmail || !verifyOtp || !verifyPassword || !verifyConfirm}
               className="login-specular-btn"
             >
-              {isLoading ? "Creating account..." : "Sign up"}
+              {isLoading ? "Verifying..." : "Verify & Finalize"}
             </SpecularButton>
 
-            <div style={{ textAlign: "center", marginTop: "1rem", fontSize: "0.9rem", color: "#9ca3af" }}>
-              Already have an account?{" "}
-              <a href="#" onClick={(e) => { e.preventDefault(); setActiveForm("signin"); }} style={{ color: "#10b981", textDecoration: "none" }}>
-                Log in
+            <div className="login-footer-links">
+              <a href="#" onClick={(e) => { e.preventDefault(); setActiveForm("signin"); }} className="login-footer-link">
+                ← Back to Log in
               </a>
             </div>
           </form>

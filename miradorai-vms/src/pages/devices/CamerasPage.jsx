@@ -342,6 +342,14 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
   };
 
   const saveEdit = () => {
+    if (editForm.name) {
+      const trimmed = editForm.name.trim();
+      if (!/^[a-zA-Z0-9 _-]+$/.test(trimmed)) {
+        setUiError("Camera Name can only contain alphanumeric characters, spaces, dashes, and underscores.");
+        return;
+      }
+    }
+
     const prev    = cameras.find((c) => String(c.id) === String(editModal.id));
     const updated = cameras.map((c) =>
       String(c.id) === String(editModal.id) ? { ...c, ...editForm } : c
@@ -698,7 +706,7 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
                       />
                       <div className="cam-item-info">
                         <div className="cam-item-name">{cam.name || cam.ip}</div>
-                        <div className="cam-item-ip">{cam.ip}</div>
+                        <div className="cam-item-ip notranslate">{cam.ip}</div>
                       </div>
                       <label className="cam-toggle" onClick={(e) => e.stopPropagation()}>
                         <input

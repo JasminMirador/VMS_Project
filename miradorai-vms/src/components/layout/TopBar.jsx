@@ -12,6 +12,133 @@ import "./SupervisorModal.css";
 
 const API_BASE = (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) || "";
 
+// ---- Language Selector ----
+const LANGUAGES = [
+  { code: "en", label: "English", nativeLabel: "English", flag: "EN" },
+  { code: "ar", label: "Arabic", nativeLabel: "العربية", flag: "AR" },
+];
+
+function LanguageSelector({ language, onLanguageChange }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+
+  const currentLang =
+    LANGUAGES.find((l) => l.code === language) || LANGUAGES[0];
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handler);
+
+    return () => {
+      document.removeEventListener("mousedown", handler);
+    };
+  }, []);
+
+  const handleSelect = (code) => {
+    onLanguageChange(code);
+
+    document.documentElement.dir = code === "ar" ? "rtl" : "ltr";
+    document.documentElement.lang = code;
+
+    if (window.doGTranslate) {
+      window.doGTranslate('en|' + code);
+    }
+
+    setOpen(false);
+  };
+
+  return (
+    <div
+      className="topbar__lang-wrap notranslate"
+      translate="no"
+      dir="ltr"
+      ref={wrapRef}
+    >
+      <button
+        className={`topbar__lang-btn notranslate ${open ? "topbar__lang-btn--active" : ""}`}
+        translate="no"
+        dir="ltr"
+        onClick={() => setOpen((p) => !p)}
+        title="Switch Language"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          width="14"
+          height="14"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <line x1="2" y1="12" x2="22" y2="12" />
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+        </svg>
+
+        <span className="notranslate" translate="no">
+          {currentLang.code === "ar" ? "AR" : "EN"}
+        </span>
+
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          width="10"
+          height="10"
+        >
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="topbar__lang-dropdown" role="listbox">
+          {LANGUAGES.map((lang) => (
+            <button
+              key={lang.code}
+              className={`topbar__lang-option ${currentLang.code === lang.code
+                ? "topbar__lang-option--selected"
+                : ""
+                }`}
+              onClick={() => handleSelect(lang.code)}
+              role="option"
+              aria-selected={currentLang.code === lang.code}
+            >
+              <span className="topbar__lang-flag notranslate" translate="no">
+                {lang.flag}
+              </span>
+
+              <span className="notranslate" translate="no">
+                {lang.nativeLabel}
+              </span>
+
+              {currentLang.code === lang.code && (
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  width="13"
+                  height="13"
+                  style={{ marginInlineStart: "auto" }}
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function loadDevices() {
   try { return JSON.parse(localStorage.getItem("miradorai_devices") || "[]"); }
   catch { return []; }
@@ -233,6 +360,8 @@ export default function TopBar({
   onForward,
   onAlarmsClick,
   alarmsOpen,
+  language,
+  onLanguageChange,
 }) {
   const [camCount,   setCamCount]   = useState(0);
   const [alarmCount, setAlarmCount] = useState(0);
@@ -242,6 +371,8 @@ export default function TopBar({
   const [settingsDropdownOpen, setSettingsDropdownOpen] = useState(false);
   const [supervisorConfigured, setSupervisorConfigured] = useState(null); // null=loading, true/false
   const [isAiActive, setIsAiActive] = useState(false);
+  const [aiIp, setAiIp] = useState("");
+
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { settings } = useUserSettings();
@@ -253,6 +384,52 @@ export default function TopBar({
   
   const userRef = useRef(null);
   const settingsRef = useRef(null);
+
+  // Keep the account menu anchored to the user button and above all page layers.
+  const [userMenuPosition, setUserMenuPosition] = useState({
+  top: 0,
+  left: "auto",
+  right: 0,
+});
+
+const updateUserMenuPosition = () => {
+  if (!userRef.current) return;
+
+  const rect = userRef.current.getBoundingClientRect();
+  const isRTL = document.documentElement.dir === "rtl";
+
+  if (isRTL) {
+    setUserMenuPosition({
+      top: Math.round(rect.bottom + 10),
+      left: Math.max(12, Math.round(rect.left)),
+      right: "auto",
+    });
+  } else {
+    setUserMenuPosition({
+      top: Math.round(rect.bottom + 10),
+      left: "auto",
+      right: Math.max(
+        12,
+        Math.round(window.innerWidth - rect.right)
+      ),
+    });
+  }
+};
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+
+    updateUserMenuPosition();
+
+    const handlePositionChange = () => updateUserMenuPosition();
+    window.addEventListener("resize", handlePositionChange);
+    window.addEventListener("scroll", handlePositionChange, true);
+
+    return () => {
+      window.removeEventListener("resize", handlePositionChange);
+      window.removeEventListener("scroll", handlePositionChange, true);
+    };
+  }, [userMenuOpen]);
 
   const handleAppSnapshot = async () => {
     if (isCapturing) return;
@@ -346,6 +523,9 @@ export default function TopBar({
           const data = await res.json();
           const hasAi = data.find(i => i.isActive && (i.type?.toLowerCase().includes('ai') || i.serverName?.toLowerCase().includes('ai') || i.serverIp));
           setIsAiActive(!!hasAi);
+          if (hasAi && hasAi.serverIp) {
+            setAiIp(hasAi.serverIp.split(':')[0]);
+          }
         }
       } catch (err) {}
     };
@@ -551,7 +731,7 @@ export default function TopBar({
                   </svg>
                 ),
                 label: "Refresh",
-                onClick: () => window.location.reload()
+                onClick: () => window.dispatchEvent(new CustomEvent('appRefresh'))
               },
               ...(role === "admin" ? [{
                 icon: (
@@ -602,11 +782,26 @@ export default function TopBar({
         {/* Divider */}
         <div className="topbar__divider" />
 
+        {/* Language Selector — Translation */}
+        <LanguageSelector
+          language={language}
+          onLanguageChange={onLanguageChange}
+        />
+
+        <div className="topbar__divider" />
+
         {/* User menu */}
         <div className="topbar__user-wrap" ref={userRef}>
           <div 
             className={`topbar__user ${userMenuOpen ? "topbar__user--active" : ""}`}
-            onClick={() => { setUserMenuOpen(!userMenuOpen); setSettingsDropdownOpen(false); }}
+            onClick={() => {
+              const nextOpen = !userMenuOpen;
+              setUserMenuOpen(nextOpen);
+              setSettingsDropdownOpen(false);
+              if (nextOpen) {
+                requestAnimationFrame(updateUserMenuPosition);
+              }
+            }}
           >
             <div className="topbar__avatar">
               {user?.email?.charAt(0).toUpperCase() || "A"}
@@ -614,7 +809,24 @@ export default function TopBar({
           </div>
 
           {userMenuOpen && (
-            <div className="topbar__user-dropdown">
+            <div
+              className="topbar__user-dropdown topbar__user-dropdown--account-fixed"
+             style={{
+  position: "fixed",
+  top: `${userMenuPosition.top}px`,
+  left:
+    userMenuPosition.left === "auto"
+      ? "auto"
+      : `${userMenuPosition.left}px`,
+  right:
+    userMenuPosition.right === "auto"
+      ? "auto"
+      : `${userMenuPosition.right}px`,
+  width: "315px",
+  maxWidth: "calc(100vw - 24px)",
+  zIndex: 2147483647,
+}}
+            >
               {/* Header */}
               <div className="topbar__user-dropdown-header">
                 <div className="topbar__user-dropdown-avatar">
@@ -643,10 +855,20 @@ export default function TopBar({
                   <span>About</span>
                 </div>
 
-                {/* Supervisor Details (Admin only) */}
+                {/* Admin Only Tools */}
                 {role === "admin" && (
                   <>
                     <div className="topbar__settings-dropdown-divider" style={{ margin: "6px 4px" }} />
+                    <div
+                      className="topbar__user-dropdown-item topbar__user-dropdown-item--supervisor"
+                      onClick={() => navigateTo("approvals")}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M16 21v-2a4 4 0 0 0-4-4H5c-1.1 0-2 .9-2 2v2M8 7a4 4 0 1 0 8 0 4 4 0 0 0-8 0M20 8v6M23 11h-6"/>
+                      </svg>
+                      <span>Pending Approvals</span>
+                    </div>
+
                     <div
                       className="topbar__user-dropdown-item topbar__user-dropdown-item--supervisor"
                       onClick={() => {

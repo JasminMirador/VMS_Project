@@ -64,6 +64,74 @@ const TagInput = ({ tags, setTags, placeholder }) => {
   );
 };
 
+const MultiSelectDropdown = ({ options, selected, onChange }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const toggleOption = (val) => {
+    if (selected.includes(val)) {
+      onChange(selected.filter(item => item !== val));
+    } else {
+      onChange([...selected, val]);
+    }
+  };
+
+  return (
+    <div className="es-multiselect" ref={dropdownRef} style={{ position: 'relative' }}>
+      <div 
+        className="es-select" 
+        onClick={() => setIsOpen(!isOpen)}
+        style={{ cursor: 'pointer', minHeight: '38px', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px', padding: '4px 8px' }}
+      >
+        {selected.length === 0 ? (
+          <span style={{ color: '#888' }}>Select reports...</span>
+        ) : (
+          selected.map(val => {
+            const opt = options.find(o => o.value === val);
+            return (
+              <span key={val} style={{ background: '#14b8a6', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontSize: '12px' }}>
+                {opt ? opt.label : val}
+              </span>
+            );
+          })
+        )}
+      </div>
+      {isOpen && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#1e293b', border: '1px solid #334155', borderRadius: '4px', marginTop: '4px', zIndex: 10, maxHeight: '200px', overflowY: 'auto' }}>
+          {options.map(opt => (
+            <div 
+              key={opt.value}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleOption(opt.value);
+              }}
+              style={{ padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid #334155' }}
+            >
+              <input 
+                type="checkbox" 
+                checked={selected.includes(opt.value)}
+                readOnly
+                style={{ cursor: 'pointer' }}
+              />
+              <span style={{ fontSize: '14px', color: '#f8fafc' }}>{opt.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const RichTextEditor = ({ value, onChange, placeholder }) => {
   const editorRef = useRef(null);
   const [isFocused, setIsFocused] = useState(false);
@@ -125,7 +193,7 @@ export default function EmailSchedulesPage() {
   const [schedulesLoading, setSchedulesLoading] = useState(true);
   const [scheduleRecipients, setScheduleRecipients] = useState([]);
   const [scheduleType, setScheduleType] = useState("daily");
-  const [scheduleReportType, setScheduleReportType] = useState("alerts");
+  const [scheduleReportType, setScheduleReportType] = useState(["alerts"]);
   const [scheduleFormat, setScheduleFormat] = useState("pdf");
   const [scheduleSendTime, setScheduleSendTime] = useState("09:00");
   const [scheduleEnabled, setScheduleEnabled] = useState(true);
@@ -204,7 +272,7 @@ export default function EmailSchedulesPage() {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          report_type: scheduleReportType,
+          report_type: scheduleReportType.join(","),
           schedule_type: scheduleType,
           recipients: scheduleRecipients,
           format: scheduleFormat,
@@ -347,9 +415,9 @@ export default function EmailSchedulesPage() {
                       onChange={(e) => {
                         setScheduleType(e.target.value);
                         if (e.target.value === "immediate") {
-                          setScheduleReportType("camera_down");
-                        } else if (scheduleReportType === "camera_down" || scheduleReportType === "storage_full") {
-                          setScheduleReportType("alerts");
+                          setScheduleReportType(["camera_down"]);
+                        } else if (scheduleReportType.some(r => ["camera_down", "storage_full", "recording_stopped"].includes(r))) {
+                          setScheduleReportType(["alerts"]);
                         }
                       }}
                       className="es-select"
@@ -380,25 +448,23 @@ export default function EmailSchedulesPage() {
                 <div className="es-form-row">
                   <div className="es-form-field">
                     <label>Report Type</label>
-                    <select
-                      value={scheduleReportType}
-                      onChange={(e) => setScheduleReportType(e.target.value)}
-                      className="es-select"
-                    >
-                      {scheduleType === "immediate" ? (
-                        <>
-                          <option value="camera_down">Immediate Alert: Camera Down</option>
-                          <option value="storage_full">Immediate Alert: Storage &gt; 95%</option>
-                          <option value="recording_stopped">Immediate Alert: Recording Stopped</option>
-                        </>
-                      ) : (
-                        <>
-                          <option value="alerts">Camera Up/Down History</option>
-                          <option value="live_alerts">Analytics Alerts</option>
-                          <option value="health">Device Health & Uptime Status</option>
-                        </>
-                      )}
-                    </select>
+                    <MultiSelectDropdown
+                      selected={scheduleReportType}
+                      onChange={setScheduleReportType}
+                      options={
+                        scheduleType === "immediate"
+                          ? [
+                              { value: "camera_down", label: "Immediate Alert: Camera Down" },
+                              { value: "storage_full", label: "Immediate Alert: Storage > 95%" },
+                              { value: "recording_stopped", label: "Immediate Alert: Recording Stopped" }
+                            ]
+                          : [
+                              { value: "alerts", label: "Camera Up/Down History" },
+                              { value: "live_alerts", label: "Analytics Alerts" },
+                              { value: "health", label: "Device Health & Uptime Status" }
+                            ]
+                      }
+                    />
                   </div>
 
                   <div className="es-form-field">
@@ -459,7 +525,9 @@ export default function EmailSchedulesPage() {
                             {sch.enabled ? "Enabled" : "Disabled"}
                           </span>
                           <span className="es-item-report-type">
-                            {reportTypeMap[sch.report_type] || sch.report_type}
+                            {Array.isArray(sch.report_type) 
+                              ? sch.report_type.map(r => reportTypeMap[r] || r).join(", ")
+                              : (sch.report_type?.includes(',') ? sch.report_type.split(',').map(r => reportTypeMap[r.trim()] || r.trim()).join(", ") : reportTypeMap[sch.report_type] || sch.report_type)}
                           </span>
                         </div>
                         <div className="es-item-freq-info">

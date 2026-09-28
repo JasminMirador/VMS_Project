@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import SearchBar from "../../components/shared/SearchBar";
 import "./RecycleBinPage.css";
 
-const BACKEND = "http://localhost:8000";
+const BACKEND = "http://192.168.126.200:8000";
 
 /* ── Toast ── */
 function Toast({ toast }) {
@@ -187,7 +187,7 @@ function RecycleBinPage() {
         ) : error ? (
           <div style={{ padding: "40px", textAlign: "center", color: "#ef4444" }}>{error}</div>
         ) : cameras.length === 0 ? (
-          <div style={{ padding: "60px", textAlign: "center", color: "var(--text-muted)", display: "flex", flexDirection: "column", alignItems: "center", gap: "12px" }}>
+          <div style={{ flex: 1, width: "100%", textAlign: "center", color: "var(--text-muted)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "12px", minHeight: "300px" }}>
             <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" strokeWidth="1">
               <polyline points="3 6 5 6 21 6"></polyline>
               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>

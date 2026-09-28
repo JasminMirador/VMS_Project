@@ -28,6 +28,7 @@ const MapCanvas = forwardRef(function MapCanvas(
     hoveredIdxRef,
     highlightedCamId,
     showHeatmap,
+    showPpm = false,
     alertCounts = {},
     onDraw,
     onMouseMove,
@@ -738,27 +739,27 @@ const MapCanvas = forwardRef(function MapCanvas(
 
       // Outer circular badge background
       ctx.beginPath();
-      ctx.arc(0, 0, 8.5, 0, Math.PI * 2);
+      ctx.arc(0, 0, 5.5, 0, Math.PI * 2);
       ctx.fillStyle = isLight ? "rgba(255, 255, 255, 0.95)" : "#0d1117ee";
       ctx.fill();
 
       // Outer accent ring
       ctx.beginPath();
-      ctx.arc(0, 0, 7, 0, Math.PI * 2);
+      ctx.arc(0, 0, 4.5, 0, Math.PI * 2);
       ctx.strokeStyle = (online ? col : "#666") + "66";
       ctx.lineWidth = 1;
       ctx.stroke();
 
       // Primary accent ring
       ctx.beginPath();
-      ctx.arc(0, 0, 5, 0, Math.PI * 2);
+      ctx.arc(0, 0, 3, 0, Math.PI * 2);
       ctx.strokeStyle = online ? col : "#666";
       ctx.lineWidth = 1.4;
       ctx.stroke();
 
       // Inner solid grip core dot
       ctx.beginPath();
-      ctx.arc(0, 0, 2.5, 0, Math.PI * 2);
+      ctx.arc(0, 0, 1.5, 0, Math.PI * 2);
       ctx.fillStyle = online ? col : "#666";
       ctx.fill();
 

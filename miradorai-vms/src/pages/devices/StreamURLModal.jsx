@@ -232,8 +232,15 @@ export default function StreamURLModal({
       setAlertMsg("Stream URL is a mandatory field. Please enter a valid URL! (must start with rtsp://, rtsps://, http://, or https://)");
       return;
     }
+
     const trimmedUrl = input.trim();
     const trimmedName = cameraName.trim();
+    
+    if (trimmedName && !/^[a-zA-Z0-9 _-]+$/.test(trimmedName)) {
+      setAlertMsg("Camera Name can only contain alphanumeric characters, spaces, dashes, and underscores.");
+      return;
+    }
+
     if (items.some(it => it.url === trimmedUrl)) {
       setError("This URL is already added");
       return;

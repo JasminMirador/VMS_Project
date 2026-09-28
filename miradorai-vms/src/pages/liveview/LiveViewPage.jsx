@@ -9,6 +9,7 @@ import SidePlaybackPanel from "../../components/shared/SidePlaybackPanel";
 import PTZControls from "../../components/shared/PTZControls";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
+import { useNotifications } from "../../context/NotificationContext";
 import "./LiveViewPage.css";
 import { EditDeviceModal } from "../devices/AddDevicesPage";
 import { useWebSocket } from "../../hooks/useWebSocket";
@@ -143,6 +144,42 @@ export function formatEventName(name) {
   if (formatted.toLowerCase() === "intrusion") return "Intrusion";
   if (formatted.startsWith("fr-")) formatted = formatted.substring(3);
   return formatted.charAt(0).toUpperCase() + formatted.slice(1).replace(/_/g, " ");
+}
+
+/**
+ * Return the exact event title that should be shown in the AI Alerts card
+ * and in the large AI alert modal.
+ *
+ * Priority:
+ *   1. feature + label/subType
+ *   2. type + label/subType
+ *   3. feature
+ *   4. type
+ *
+ * This uses the selected alert's own data, so different alerts can display
+ * different titles instead of every modal falling back to "Intrusion - Person".
+ */
+export function getAiAlertTitle(alert) {
+  const raw = alert?.rawData || alert?.raw || alert || {};
+
+  const feature = String(raw.feature || "").trim();
+  const type = String(raw.type || alert?.type || "").trim();
+  const label = String(
+    raw.label ||
+    raw.subType ||
+    raw.sub_type ||
+    raw.class ||
+    raw.objectClass ||
+    ""
+  ).trim();
+
+  const base = feature || type || "AI Event";
+
+  if (label && label.toLowerCase() !== base.toLowerCase()) {
+    return `${formatEventName(base)} - ${formatEventName(label)}`;
+  }
+
+  return formatEventName(base);
 }
 
 // â”€â”€ MaskOverlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -364,13 +401,13 @@ export function AlertPopup({ ip, alerts, onClose }) {
                     const name = getCameraNameByIpOrSerial(ip);
                     const formattedIp = (ip || "").replace(/_/g, ".");
                     return name
-                      ? `Alerts â€” ${name} (${formattedIp})`
-                      : `Alerts â€” ${formattedIp}`;
+                      ? `Alerts - ${name} (${formattedIp})`
+                      : `Alerts - ${formattedIp}`;
                   })()}
             </span>
           </div>
           <button className="alp-close-btn" onClick={onClose}>
-            âœ•
+            X
           </button>
         </div>
 
@@ -492,7 +529,7 @@ export function AlertPopup({ ip, alerts, onClose }) {
               <span className="alp-meta-chip">{formatEventName(playingAlert.type)}</span>
               <span className="alp-meta-time">
                 {playingAlert.time
-                  ? playingAlert.time.split("T")[1]?.split("+")[0]
+                  ? playingAlert.time.split("T")[1]?.split("+")[0]?.split(".")[0]
                   : playingAlert.received_at}
               </span>
             </div>
@@ -513,7 +550,7 @@ export function AlertPopup({ ip, alerts, onClose }) {
                       </span>
                       <span className="alp-row__time">
                         {alert.time
-                          ? alert.time.split("T")[1]?.split("+")[0]
+                          ? alert.time.split("T")[1]?.split("+")[0]?.split(".")[0]
                           : alert.received_at}
                       </span>
                     </div>
@@ -533,7 +570,124 @@ export function AlertPopup({ ip, alerts, onClose }) {
     </div>
   );
 }
+// ── CameraAnalyticsSettingsModal ────────────────────────────────────────
+function CameraAnalyticsSettingsModal({ devices, preferences, onClose, onSave }) {
+  const [localPrefs, setLocalPrefs] = useState(preferences || {});
+  const [availableAnalytics, setAvailableAnalytics] = useState({});
+  const [isSaving, setIsSaving] = useState(false);
+  const { showToast } = useNotifications();
 
+  useEffect(() => {
+    // Fetch available analytics for each camera
+    devices.forEach(async (d) => {
+      const ip = (d.ip || "").replace(/_/g, ".");
+      if (!ip) return;
+      try {
+        const res = await fetch(`${API}/api/camera-analytics/${ip}`);
+        if (res.ok) {
+          const data = await res.json();
+          const filteredAnalytics = (data.analytics || []).filter(a => {
+            const typeKey = (a.type || "").toLowerCase();
+            return !typeKey.includes("motion") && !typeKey.includes("counter");
+          });
+          setAvailableAnalytics(prev => ({ ...prev, [ip]: filteredAnalytics }));
+        }
+      } catch (e) {
+        console.error("Failed to fetch analytics for", ip, e);
+      }
+    });
+  }, [devices]);
+
+  const toggleAnalytic = (ip, analyticType) => {
+    setLocalPrefs(prev => {
+      const current = prev[ip] || [];
+      if (current.includes(analyticType)) {
+        return { ...prev, [ip]: current.filter(t => t !== analyticType) };
+      } else {
+        return { ...prev, [ip]: [...current, analyticType] };
+      }
+    });
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    let errorOccurred = false;
+    // Save to backend
+    for (const ip of Object.keys(localPrefs)) {
+      try {
+        await fetch(`${API}/api/camera-analytics/${ip}/preferences`, {
+          method: "PUT",
+          headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: localPrefs[ip] })
+        });
+      } catch (e) {
+        console.error("Failed to save pref for", ip, e);
+        errorOccurred = true;
+      }
+    }
+    setIsSaving(false);
+    if (!errorOccurred) {
+      showToast({
+        title: "Settings Saved",
+        body: "Successfully saved analytics configurations!",
+        variant: "success"
+      });
+    } else {
+      showToast({
+        title: "Partial Save",
+        body: "Saved with some errors. Check console for details.",
+        variant: "error"
+      });
+    }
+    onSave(localPrefs);
+  };
+
+  return (
+    <div className="alp-overlay" onClick={onClose}>
+      <div className="alp-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+        <div className="alp-header">
+          <span className="alp-title">Camera Analytics Settings</span>
+          <button className="alp-close-btn" onClick={onClose}>✕</button>
+        </div>
+        <div className="alp-list" style={{ padding: '16px', maxHeight: '60vh', overflowY: 'auto' }}>
+          {devices.map(d => {
+            const ip = (d.ip || "").replace(/_/g, ".");
+            if (!ip) return null;
+            const analytics = availableAnalytics[ip] || [];
+            if (analytics.length === 0) return null; // Only show cameras with analytics
+            
+            return (
+              <div key={ip} style={{ marginBottom: '16px', background: '#1e293b', padding: '12px', borderRadius: '8px' }}>
+                <h3 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#fff' }}>{d.name} ({ip})</h3>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  {analytics.map(a => {
+                    const isEnabled = (localPrefs[ip] || []).includes(a.type);
+                    return (
+                      <label key={a.type} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', background: 'rgba(255,255,255,0.1)', padding: '4px 8px', borderRadius: '4px' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={isEnabled} 
+                          onChange={() => toggleAnalytic(ip, a.type)} 
+                        />
+                        {formatEventName(a.type)}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ padding: '16px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+          <button onClick={onClose} disabled={isSaving} style={{ padding: '8px 16px', background: 'transparent', border: '1px solid #475569', borderRadius: '6px', color: '#fff', cursor: isSaving ? 'not-allowed' : 'pointer', opacity: isSaving ? 0.5 : 1 }}>Cancel</button>
+          <button onClick={handleSave} disabled={isSaving} style={{ padding: '8px 16px', background: '#10b981', border: 'none', borderRadius: '6px', color: '#fff', cursor: isSaving ? 'not-allowed' : 'pointer', fontWeight: 'bold', opacity: isSaving ? 0.5 : 1 }}>
+            {isSaving ? "Saving..." : "Save Changes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 // ── AlertDetailsModal (Uses unified AiAlertModal) ───────────────────────────
 function AlertDetailsModal({ alert, onClose, cameraName, onNext, onPrev, hasNext, hasPrev }) {
   return (
@@ -550,7 +704,7 @@ function AlertDetailsModal({ alert, onClose, cameraName, onNext, onPrev, hasNext
 
 
 
-// ———————————————————————————————————————————————————————————————————————————————————
+// -----------------------------------------------------------------------------------
 function AlertsPanel({
   isOpen,
   onAlertCountUpdate,
@@ -564,10 +718,11 @@ function AlertsPanel({
   const [selectedAiAlert, setSelectedAiAlert] = useState(null);
   const [selectedInternalAlert, setSelectedInternalAlert] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [cameraPreferences, setCameraPreferences] = useState({});
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   // Prevent overlapping alert refresh requests.
   const fetchingAlertsRef = useRef(false);
-  const [zoomedImage, setZoomedImage] = useState(null);
   const [externalAiIp, setExternalAiIp] = useState("192.168.126.35");
   const [isAiActive, setIsAiActive] = useState(false);
 
@@ -621,6 +776,27 @@ function AlertsPanel({
   const [isTypeDropdownOpen, setIsTypeDropdownOpen] = useState(false);
   const [isCameraDropdownOpen, setIsCameraDropdownOpen] = useState(false);
   const [isSourceDropdownOpen, setIsSourceDropdownOpen] = useState(false);
+    const fetchPreferences = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/api/camera-analytics-preferences`, {
+        headers: getAuthHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const prefs = {};
+        (data.preferences || []).forEach(p => {
+          prefs[p.device_id] = p.enabled || [];
+        });
+        setCameraPreferences(prefs);
+      }
+    } catch (e) {
+      console.error("[AlertsPanel] fetchPreferences failed:", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPreferences();
+  }, [fetchPreferences]);
 
   const getDisplayType = useCallback((alert) => {
     if (alert.isExternal) {
@@ -849,8 +1025,19 @@ function AlertsPanel({
                 !t.includes("motion")
               );
             })
-            .filter(isAlertAllowed);
-          
+          .filter(a => {
+            if (Object.keys(cameraPreferences).length === 0) return true;
+            const ip = normalizeIp(a.ip || a.serial);
+            const prefs = cameraPreferences[ip];
+            if (prefs === undefined) return true; // If no prefs saved for this camera, show all
+            if (prefs.length === 0) return false; // If explicitly saved as empty (unticked all), show none
+            const type = (a.type || "").toLowerCase();
+            const scenario = (a.scenario || "").toLowerCase();
+            return prefs.some(p => {
+              const pLower = p.toLowerCase();
+              return type === pLower || scenario === pLower || type.includes(pLower) || scenario.includes(pLower);
+            });
+          });          
           filtered.forEach((alert) => {
             if (!alert.isExternal) {
               alert.thumbnailUrl = buildAlertThumbnailUrl(alert);
@@ -1061,6 +1248,20 @@ function AlertsPanel({
       // Skip alerts from disabled or deleted cameras
       const wsIp = normalizeIp(payload.ip || payload.serial || "");
       if (wsIp && allowedIps.size > 0 && !allowedIps.has(wsIp)) return;
+            // Apply per-camera preferences filter
+      if (Object.keys(cameraPreferences).length > 0) {
+        const prefs = cameraPreferences[wsIp];
+        if (prefs !== undefined) {
+          if (prefs.length === 0) return; // Unticked all for this camera
+          const type = (payload.type || "").toLowerCase();
+          const scenario = (payload.scenario || "").toLowerCase();
+          const allowed = prefs.some(p => {
+            const pLower = p.toLowerCase();
+            return type === pLower || scenario === pLower || type.includes(pLower) || scenario.includes(pLower);
+          });
+          if (!allowed) return;
+        }
+      }
       const newAlert = {
         ...payload,
         thumbnailUrl: buildAlertThumbnailUrl(payload),
@@ -1085,7 +1286,7 @@ function AlertsPanel({
           return [newAlert, ...prev].slice(0, 500);
         });
       })();
-  }, [eventsByTopic["vms/analytics/alerts"], eventsByTopic.alerts, alertSource]);
+  }, [eventsByTopic["vms/analytics/alerts"], eventsByTopic.alerts, alertSource, allowedIps, cameraPreferences]);
 
   useEffect(() => {
     // Initial load: show Loading... only once.
@@ -1107,12 +1308,27 @@ function AlertsPanel({
       className={`lv-alerts-panel ${!isOpen ? "lv-alerts-panel--collapsed" : ""}`}
     >
       <div className="lv-alerts-panel__header">
-        <div className="lv-alerts-panel__title">
-          <span className="lv-alerts-panel__dot" />
-          Alerts
-          <span className="lv-alerts-panel__count">
-            {filteredAlerts.length}
-          </span>
+        <div className="lv-alerts-panel__title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+          <div>
+            <span className="lv-alerts-panel__dot" />
+            Alerts
+            <span className="lv-alerts-panel__count">
+              {filteredAlerts.length}
+            </span>
+          </div>
+          <button 
+            onClick={() => setShowSettingsModal(true)}
+            style={{
+              background: 'transparent', border: 'none', color: 'var(--text-secondary)',
+              cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center'
+            }}
+            title="Configure Analytics"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" strokeWidth="2" fill="none">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+          </button>
         </div>
       </div>
       <div className="lv-alerts-panel__filters-container">
@@ -1412,7 +1628,18 @@ function AlertsPanel({
 
       <div className="lv-alerts-panel__list">
         {loading && filteredAlerts.length === 0 ? (
-          <div className="lv-alerts-panel__empty">Loading...</div>
+          <div className="lv-alerts-skeleton" aria-busy="true" aria-label="Loading alerts">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="lv-alert-skel" style={{ animationDelay: `${i * 80}ms` }}>
+                <div className="lv-alert-skel__lines">
+                  <span className="lv-skel lv-skel--title" />
+                  <span className="lv-skel lv-skel--row" />
+                  <span className="lv-skel lv-skel--row lv-skel--short" />
+                </div>
+                <span className="lv-skel lv-skel--thumb" />
+              </div>
+            ))}
+          </div>
         ) : filteredAlerts.length === 0 ? (
           <div className="lv-alerts-panel__empty">No alerts found</div>
         ) : (
@@ -1426,7 +1653,7 @@ function AlertsPanel({
             else if (ipStr.includes("240")) typeClass = "lv-alert-card--cam240";
 
             const timeOnly = alert.time
-              ? alert.time.split("T")[1]?.split("+")[0]
+              ? alert.time.split("T")[1]?.split("+")[0]?.split(".")[0]
               : null;
 
             const cameraName = getCameraNameByIpOrSerial(
@@ -1443,11 +1670,18 @@ function AlertsPanel({
                 key={i}
                 className={`lv-alert-card ${typeClass} ${isActive ? "lv-alert-card--active" : ""}`}
                 onClick={() => {
-                  if (!alert.isExternal && alert.source !== "external_ai") {
+                  const isExternalAi =
+                    alert.isExternal === true ||
+                    alert.source === "external_ai" ||
+                    alert.source === "AI_WEBHOOK";
+
+                  if (isExternalAi) {
+                    setSelectedAiAlert(alert);
+                  } else {
                     setSelectedInternalAlert(alert);
                   }
                 }}
-                style={{ cursor: (!alert.isExternal && alert.source !== "external_ai") ? 'pointer' : 'default' }}
+                style={{ cursor: "pointer" }}
               >
                 <div className="lv-alert-card__layout">
                   <div className="lv-alert-card__info">
@@ -1477,25 +1711,52 @@ function AlertsPanel({
                         if (readerIpVal && readerIpVal !== "unknown") {
                            readerNameVal += ` (${readerIpVal.replace(/_/g, ".")})`;
                         }
-                        const detectionTimeVal = raw.detectionTime || raw.detection_time || alert.received_at || "N/A";
+                        let detectionTimeVal = raw.detectionTime || raw.detection_time || alert.received_at || "N/A";
+                        if (typeof detectionTimeVal === "string") {
+                          detectionTimeVal = detectionTimeVal.split(".")[0].replace("T", " ");
+                        }
                         
                         return (
-                          <div onClick={() => setSelectedAiAlert(alert)} style={{ cursor: 'pointer' }}>
-                            {/* Header line â€” same as camera serial in regular cards */}
+                          <div style={{ cursor: "pointer" }}>
                             <div className="lv-alert-card__top">
-                              <span className="lv-alert-card__serial">{readerNameVal}</span>
+                              <span
+                                className="lv-alert-card__serial"
+                                title={getAiAlertTitle(alert)}
+                                style={{
+                                  fontWeight: 700,
+                                  color: "var(--text-primary, #0f172a)",
+                                }}
+                              >
+                                {getAiAlertTitle(alert)}
+                              </span>
                             </div>
+
+                            <div className="lv-alert-card__row">
+                              <span className="lv-alert-card__label">Camera</span>
+                              <span className="lv-alert-card__value">
+                                {readerNameVal}
+                              </span>
+                            </div>
+
                             <div className="lv-alert-card__row">
                               <span className="lv-alert-card__label">Feature</span>
-                              <span className="lv-alert-card__value">{featureVal}</span>
+                              <span className="lv-alert-card__value">
+                                {formatEventName(featureVal)}
+                              </span>
                             </div>
+
                             <div className="lv-alert-card__row">
                               <span className="lv-alert-card__label">Type</span>
-                              <span className="lv-alert-card__value">{typeVal}</span>
+                              <span className="lv-alert-card__value">
+                                {formatEventName(typeVal)}
+                              </span>
                             </div>
+
                             <div className="lv-alert-card__row">
                               <span className="lv-alert-card__label">Time</span>
-                              <span className="lv-alert-card__value lv-alert-card__value--time">{detectionTimeVal}</span>
+                              <span className="lv-alert-card__value lv-alert-card__value--time">
+                                {detectionTimeVal}
+                              </span>
                             </div>
                           </div>
                         );
@@ -1535,12 +1796,54 @@ function AlertsPanel({
                             </span>
                           </div>
                         )}
+                        {alert.type === "Counter" && (
+                          <div className="lv-alert-card__row">
+                            <span className="lv-alert-card__label">Count</span>
+                            <span className="lv-alert-card__value">
+                              <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                width="14"
+                                height="14"
+                                style={{ marginRight: 4, verticalAlign: "middle" }}
+                              >
+                                <line x1="8" y1="6" x2="21" y2="6"></line>
+                                <line x1="8" y1="12" x2="21" y2="12"></line>
+                                <line x1="8" y1="18" x2="21" y2="18"></line>
+                                <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                                <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                                <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                              </svg>{" "}
+                              {alert.total ?? alert.human ?? "—"}
+                            </span>
+                          </div>
+                        )}
+
+                        {alert.type === "LeavingField" && (
+                          <div className="lv-alert-card__row">
+                            <span className="lv-alert-card__label">Zone</span>
+                            <span className="lv-alert-card__value" style={{ color: "#f59e0b" }}>
+                              Object Exited
+                            </span>
+                          </div>
+                        )}
+                         {alert.type === "EnteringField" && (
+                          <div className="lv-alert-card__row">
+                            <span className="lv-alert-card__label">Zone</span>
+                            <span className="lv-alert-card__value" style={{ color: "#f59e0b" }}>
+                              Object Entered
+                            </span>
+                          </div>
+                        )}                       
+
 
                         {timeOnly && (
                           <div className="lv-alert-card__row">
                             <span className="lv-alert-card__label">Time</span>
                             <span className="lv-alert-card__value lv-alert-card__value--time">
-                              {timeOnly}
+                              {(alert.received_at || alert.time || "").split("T")[0]} {timeOnly}
                             </span>
                           </div>
                         )}
@@ -1568,17 +1871,6 @@ function AlertsPanel({
                             </span>
                           </div>
                         )}
-
-                        <div className="lv-alert-card__row">
-                          <span className="lv-alert-card__label">Date</span>
-                          <span className="lv-alert-card__value lv-alert-card__value--date">
-                            {
-                              (alert.received_at || alert.time || "").split(
-                                "T",
-                              )[0]
-                            }
-                          </span>
-                        </div>
                       </>
                     )}
                   </div>
@@ -1597,13 +1889,22 @@ function AlertsPanel({
                         border: "1px solid var(--border-light)",
                         alignSelf: "center"
                       }}
-                      onClick={() => setZoomedImage({
-                        url: thumbnailUrl,
-                        cameraName: cameraName,
-                        ip: displayId,
-                        type: getDisplayType(alert),
-                        time: timeOnly || alert.received_at
-                      })}
+                      onClick={(e) => {
+                        e.stopPropagation();
+
+                        const isExternalAi =
+                          alert.isExternal === true ||
+                          alert.source === "external_ai" ||
+                          alert.source === "AI_WEBHOOK";
+
+                        // AI thumbnail must open the SAME large AI alert modal,
+                        // never the old image-only zoom window.
+                        if (isExternalAi) {
+                          setSelectedAiAlert(alert);
+                        } else {
+                          setSelectedInternalAlert(alert);
+                        }
+                      }}
                     >
                       <img
                         src={thumbnailUrl}
@@ -1632,34 +1933,17 @@ function AlertsPanel({
         )}
       </div>
 
-      {zoomedImage && (
-        <div className="lv-image-modal" onClick={() => setZoomedImage(null)}>
-          <div
-            className="lv-image-modal__content"
-            onClick={(e) => e.stopPropagation()}
-          >
-          <button
-            className="lv-image-modal__close"
-            onClick={() => setZoomedImage(null)}
-          >
-            ×
-          </button>
-            <img
-              src={zoomedImage.url}
-              alt="Alert Zoom"
-              className="lv-image-modal__img"
-            />
-            <div className="lv-image-modal__caption">
-              <strong>{zoomedImage.cameraName || zoomedImage.ip}</strong>
-              {" — "}
-              {zoomedImage.type} ({zoomedImage.time})
-            </div>
-          </div>
-        </div>
-      )}
       {selectedAiAlert && (() => {
         const aiAlerts = filteredAlerts.filter(a => a.isExternal || a.source === 'external_ai');
-        const idx = aiAlerts.findIndex(a => (a.id || a._id) === (selectedAiAlert.id || selectedAiAlert._id));
+        const selectedId =
+          selectedAiAlert.id ||
+          selectedAiAlert._id ||
+          selectedAiAlert.alert_id;
+
+        const idx = aiAlerts.findIndex((a) => {
+          const id = a.id || a._id || a.alert_id;
+          return String(id) === String(selectedId);
+        });
         const hasPrev = idx > 0;
         const hasNext = idx !== -1 && idx < aiAlerts.length - 1;
         return (
@@ -1689,12 +1973,24 @@ function AlertsPanel({
           />
         );
       })()}
+            {showSettingsModal && (
+        <CameraAnalyticsSettingsModal
+          devices={devicesProp || loadDevices()}
+          preferences={cameraPreferences}
+          onClose={() => setShowSettingsModal(false)}
+          onSave={(newPrefs) => {
+            setCameraPreferences(newPrefs);
+            setShowSettingsModal(false);
+            fetchAlerts();
+          }}
+        />
+      )}
     </div>
   );
 }
 
 // ── CameraCell ─────────────────────────────────────────────────────────────
-// maxBitrate is in Kbps — passed into WebRTCPlayer as a real SDP b=TIAS constraint.
+// maxBitrate is in Kbps - passed into WebRTCPlayer as a real SDP b=TIAS constraint.
 // Grid default: 2000 Kbps (2 Mbps). Fullscreen: 10000 Kbps (10 Mbps).
 function CameraCell({
   device,
@@ -1742,7 +2038,7 @@ function CameraCell({
   }, [device.ip, isLive, onLiveChange]);
 
   // WebRTC errors are handled inside the player (retries automatically).
-  // We no longer auto-fall back to HLS — the user chooses the mode via the toolbar.
+  // We no longer auto-fall back to HLS - the user chooses the mode via the toolbar.
   const handleWebRTCError = () => {};
 
   // Calculate the target stream key based on stored codec metadata.
@@ -1777,7 +2073,7 @@ function CameraCell({
               e.stopPropagation();
               setIsMuted(!isMuted);
             }}
-            title={isMuted ? "Audio Muted — click to unmute" : "Audio Active — click to mute"}
+            title={isMuted ? "Audio Muted - click to unmute" : "Audio Active - click to mute"}
           >
             <span className="lv-dock-item__icon">
               {isMuted ? (
@@ -1841,7 +2137,7 @@ function CameraCell({
                 e.preventDefault();
                 onBadgeClick?.();
               }}
-              title={`${alertCount > 50 ? 50 : alertCount} alerts — click to view history`}
+              title={`${alertCount > 50 ? 50 : alertCount} alerts - click to view history`}
             >
               <span className="lv-dock-alert-num">
                 {alertCount > 50 ? 50 : alertCount}
@@ -1866,7 +2162,7 @@ function CameraCell({
           <span className={`lv-rec-dot ${!isLive ? "lv-rec-dot--solid" : ""}`} />
         )}        <div className="lv-cell__actions">
           {badgeMode !== "micro" && (
-            <span className="lv-cell__ip">{device.ip}</span>
+            <span className="lv-cell__ip notranslate">{device.ip}</span>
           )}
 
           {/* PTZ Toggle Button */}
@@ -1957,7 +2253,7 @@ function CameraCell({
               <rect x="1" y="5" width="15" height="14" rx="2" />
             </svg>
             <span>Stream not registered</span>
-            <span className="lv-no-stream__ip">{device.ip}</span>
+            <span className="lv-no-stream__ip notranslate">{device.ip}</span>
           </div>
         )}
       </div>
@@ -3937,8 +4233,30 @@ function SequenceManagerModal({
         onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: "520px" }}
       >
-        <div className="modal-header">
-          <h2 className="modal-title">
+        <div className="modal-header" style={{ display: 'flex', alignItems: 'center' }}>
+          {editingSeq && (
+            <button
+              type="button"
+              onClick={() => setEditingSeq(null)}
+              style={{
+                background: "none",
+                border: "none",
+                color: "var(--text-muted)",
+                fontSize: "20px",
+                cursor: "pointer",
+                marginRight: "12px",
+                padding: "0",
+                display: "flex",
+                alignItems: "center"
+              }}
+              title="Back"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 12H5M12 19l-7-7 7-7"/>
+              </svg>
+            </button>
+          )}
+          <h2 className="modal-title" style={{ margin: 0, flex: 1 }}>
             {editingSeq
               ? editingSeq === "new"
                 ? "Create Camera Sequence"
@@ -3947,7 +4265,7 @@ function SequenceManagerModal({
           </h2>
           <button
             className="modal-close"
-            onClick={editingSeq ? () => setEditingSeq(null) : onClose}
+            onClick={onClose}
           >
             ×
           </button>
@@ -4029,7 +4347,9 @@ function SequenceManagerModal({
                           style={{ accentColor: "var(--teal)" }}
                         />
                         <span>
+                        <span className="notranslate">
                           {cam.name} ({cam.ip})
+                        </span>
                         </span>
                       </label>
                     );
@@ -4048,14 +4368,7 @@ function SequenceManagerModal({
                 </div>
               </div>
             </div>
-            <div className="modal-footer">
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => setEditingSeq(null)}
-              >
-                Back
-              </button>
+            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button type="submit" className="btn-primary">
                 Save Sequence
               </button>

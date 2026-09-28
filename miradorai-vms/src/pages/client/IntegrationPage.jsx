@@ -211,6 +211,8 @@ export default function IntegrationPage() {
       port: "",
       username: "",
       password: "",
+      appName: "",
+      accessToken: "",
       streams: [],
       updated_at: null,
     });
@@ -316,6 +318,8 @@ export default function IntegrationPage() {
 
     if (!formData.serverName?.trim()) {
       errors.serverName = "Server Name is required.";
+    } else if (!/^[a-zA-Z0-9 _-]+$/.test(formData.serverName.trim())) {
+      errors.serverName = "Server Name can only contain alphanumeric characters, spaces, dashes, and underscores.";
     }
 
     if (!formData.serverIp.trim()) {
@@ -343,13 +347,18 @@ export default function IntegrationPage() {
     }
 
     let hasStreamError = false;
+    let hasStreamInvalidChars = false;
     for (let stream of formData.streams) {
       if (!stream.name.trim() || !stream.value.trim()) {
         hasStreamError = true;
+      } else if (!/^[a-zA-Z0-9 _-]+$/.test(stream.name.trim())) {
+        hasStreamInvalidChars = true;
       }
     }
     if (hasStreamError) {
       errors.streams = "All streams must have a Name and a Topic/Key.";
+    } else if (hasStreamInvalidChars) {
+      errors.streams = "Stream Name can only contain alphanumeric characters, spaces, dashes, and underscores.";
     }
 
     if (Object.keys(errors).length > 0) {
@@ -951,6 +960,45 @@ export default function IntegrationPage() {
                         </svg>
                       )}
                     </button>
+                  </div>
+                </div>
+
+                {/* App Name */}
+                <div className="integration-field-group">
+                  <label className="integration-field-label">App Name (For AI SSO)</label>
+                  <div className="integration-input-box">
+                    <span className="integration-input-icon">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+                        <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
+                        <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+                      </svg>
+                    </span>
+                    <input
+                      type="text"
+                      className="integration-input-modern"
+                      value={formData.appName || ""}
+                      onChange={(e) => setFormData({ ...formData, appName: e.target.value })}
+                      placeholder="e.g. vms"
+                    />
+                  </div>
+                </div>
+
+                {/* Access Token */}
+                <div className="integration-field-group">
+                  <label className="integration-field-label">Access Token (For AI SSO)</label>
+                  <div className="integration-input-box">
+                    <span className="integration-input-icon">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                      </svg>
+                    </span>
+                    <input
+                      type="text"
+                      className="integration-input-modern"
+                      value={formData.accessToken || ""}
+                      onChange={(e) => setFormData({ ...formData, accessToken: e.target.value })}
+                      placeholder="Paste SSO token here"
+                    />
                   </div>
                 </div>
               </div>

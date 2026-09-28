@@ -5,6 +5,7 @@ import { useImageConfig, buildCSSFilter } from "../../hooks/useImageConfig";
 import { useDigitalZoom } from "../../hooks/useDigitalZoom";
 import SpecularButton from "../../components/shared/SpecularButton";
 import AnimatedDownloadButton from "../../components/shared/AnimatedDownloadButton";
+import TimePicker from "../../components/shared/TimePicker";
 import { useTheme } from "../../context/ThemeContext";
 import "./MediaPlayerPage.css";
 
@@ -65,7 +66,7 @@ function loadDevices() {
 
 const VideoTimelineStrip = ({ src, duration }) => {
   const [bgUrl, setBgUrl] = useState('');
-  
+
   useEffect(() => {
     if (!src || !duration || duration < 1) return;
     let cancelled = false;
@@ -74,18 +75,18 @@ const VideoTimelineStrip = ({ src, duration }) => {
     const video = document.createElement('video');
     video.src = src;
     video.muted = true;
-    
+
     // Capture 8 frames for the strip
     const numFrames = 8;
     let currentFrame = 0;
-    
+
     video.addEventListener('loadeddata', () => {
       if (cancelled) return;
       canvas.width = (video.videoWidth || 320) * numFrames;
       canvas.height = video.videoHeight || 180;
       video.currentTime = (duration / numFrames) * 0.5;
     });
-    
+
     video.addEventListener('seeked', () => {
       if (cancelled) return;
       const w = video.videoWidth || 320;
@@ -98,11 +99,11 @@ const VideoTimelineStrip = ({ src, duration }) => {
         setBgUrl(canvas.toDataURL('image/jpeg', 0.6));
       }
     });
-    
+
     video.addEventListener('error', () => {
-       // Ignore error silently to not break UI
+      // Ignore error silently to not break UI
     });
-    
+
     video.load();
     return () => { cancelled = true; video.src = ""; };
   }, [src, duration]);
@@ -123,31 +124,31 @@ const VideoTimelineStrip = ({ src, duration }) => {
 
 const TrimTimeline = ({ src, duration, trimStart, trimEnd, onTrimStartChange, onTrimEndChange }) => {
   const trackRef = useRef(null);
-  
+
   const handlePointerDown = (e, type) => {
     e.preventDefault();
     e.stopPropagation();
     const track = trackRef.current;
     if (!track || !duration) return;
-    
+
     const handleMove = (moveEvent) => {
       const rect = track.getBoundingClientRect();
       let pct = (moveEvent.clientX - rect.left) / rect.width;
       pct = Math.max(0, Math.min(1, pct));
       const val = pct * duration;
-      
+
       if (type === 'start') {
         onTrimStartChange(Math.min(val, trimEnd));
       } else {
         onTrimEndChange(Math.max(val, trimStart));
       }
     };
-    
+
     const handleUp = () => {
       window.removeEventListener('pointermove', handleMove);
       window.removeEventListener('pointerup', handleUp);
     };
-    
+
     window.addEventListener('pointermove', handleMove);
     window.addEventListener('pointerup', handleUp);
   };
@@ -159,19 +160,19 @@ const TrimTimeline = ({ src, duration, trimStart, trimEnd, onTrimStartChange, on
     <div className="mp-trim-timeline-wrapper">
       <div className="mp-trim-timeline-track" ref={trackRef}>
         <VideoTimelineStrip src={src} duration={duration} />
-        
-        <div 
-          className="mp-trim-timeline-selection" 
+
+        <div
+          className="mp-trim-timeline-selection"
           style={{ left: `${startPct}%`, right: `${100 - endPct}%` }}
         />
-        <div 
+        <div
           className="mp-trim-timeline-handle left"
           style={{ left: `${startPct}%` }}
           onPointerDown={(e) => handlePointerDown(e, 'start')}
         >
           <div className="mp-trim-handle-grip" />
         </div>
-        <div 
+        <div
           className="mp-trim-timeline-handle right"
           style={{ left: `${endPct}%` }}
           onPointerDown={(e) => handlePointerDown(e, 'end')}
@@ -191,7 +192,7 @@ export default function MediaPlayerPage() {
   const playerWrap = useRef(null);
 
   const [cameras, setCameras] = useState(loadDevices);
-  
+
   useEffect(() => {
     const handleStorage = () => setCameras(loadDevices());
     window.addEventListener("storage", handleStorage);
@@ -218,9 +219,9 @@ export default function MediaPlayerPage() {
     }
     return recordingCameras.filter(camId => {
       const normalized = camId.replace(/_/g, ".");
-      const dev = cameras.find(c => 
-        String(c.id) === String(camId) || 
-        c.ip === camId || 
+      const dev = cameras.find(c =>
+        String(c.id) === String(camId) ||
+        c.ip === camId ||
         (c.ip && c.ip.replace(/_/g, ".") === normalized)
       );
       if (!dev) return false;
@@ -317,7 +318,7 @@ export default function MediaPlayerPage() {
   const [downloadTrimStart, setDownloadTrimStart] = useState(0);
   const [downloadTrimEnd, setDownloadTrimEnd] = useState(100);
   const [isDownloading, setIsDownloading] = useState(false);
-  
+
   // ── Verify Signature Modal ──────────────────────────────────────
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [verifyVideoFile, setVerifyVideoFile] = useState(null);
@@ -539,7 +540,7 @@ export default function MediaPlayerPage() {
       try {
         const info = getCameraInfo(playingFile.camera_id);
         if (!info.ip) return;
-        
+
         // Fetch up to 1000 alerts including software motion
         const res = await fetch(`${STREAM_API}/api/alerts?limit=1000&include_software_motion=true`, {
           headers: authHeaders()
@@ -547,12 +548,12 @@ export default function MediaPlayerPage() {
         if (res.ok && !cancelled) {
           const data = await res.json();
           const alertsList = data.alerts || [];
-          
+
           // Parse start time of current playing video
           const match = playingFile.start_time.match(/(\d{2})[-:_](\d{2})[-:_](\d{2})/);
           if (!match) return;
           const [_, hh, mm, ss] = match;
-          
+
           // Parse date parts manually for robust timezone-independent local comparison
           const matchDate = playingFile.date.match(/(\d{4})[-/](\d{2})[-/](\d{2})/);
           if (!matchDate) return;
@@ -567,7 +568,7 @@ export default function MediaPlayerPage() {
           );
           const fileStartMs = fileStart.getTime();
           const fileEndMs = fileStartMs + duration * 1000;
-          
+
           // Helper: parse a time string into local milliseconds
           const parseLocalMs = (timeStr) => {
             if (!timeStr) return null;
@@ -579,21 +580,21 @@ export default function MediaPlayerPage() {
               d.getHours(), d.getMinutes(), d.getSeconds()
             ).getTime();
           };
-          
+
           const ranges = [];
           alertsList.forEach((alert) => {
             // Filter by camera IP and source "software_motion"
             const alertIpNormalized = alert.ip?.replace(/_/g, ".");
             const camIpNormalized = info.ip.replace(/_/g, ".");
-            
+
             if (alertIpNormalized === camIpNormalized && alert.source === "software_motion") {
               // Use motion_start/motion_end for accurate ranges
               const startMs = parseLocalMs(alert.motion_start || alert.time);
               if (startMs === null) return;
-              
+
               // If motion_end is not set (still active), default to start + 5s
               const endMs = parseLocalMs(alert.motion_end) || (startMs + 5000);
-              
+
               // Check if the motion range overlaps with the video file time range
               if (endMs >= fileStartMs && startMs <= fileEndMs) {
                 const startOffset = Math.max(0, (startMs - fileStartMs) / 1000);
@@ -728,7 +729,7 @@ export default function MediaPlayerPage() {
         try {
           const errJson = await uploadRes.json();
           if (errJson && errJson.detail) errorDetail = errJson.detail;
-        } catch (_) {}
+        } catch (_) { }
         throw new Error(errorDetail);
       }
 
@@ -893,7 +894,7 @@ export default function MediaPlayerPage() {
     const safeTime = playingFile.start_time.replace(/[:\/]/g, "-");
     const safeDate = playingFile.date.replace(/[:\/]/g, "-");
     const defaultFilename = `${playingFile.camera_id}_${safeDate}_${safeTime}.zip`;
-    
+
     setDownloadFilename(defaultFilename);
     setDownloadTrimStart(0);
     setDownloadTrimEnd(duration || 0);
@@ -902,7 +903,7 @@ export default function MediaPlayerPage() {
 
   const confirmDownloadVideo = async () => {
     if (!playingFile) return;
-    
+
     setShowDownloadModal(false);
 
     let url = `${STREAM_API}/api/recordings/download`
@@ -911,11 +912,11 @@ export default function MediaPlayerPage() {
       + `&start_time=${encodeURIComponent(playingFile.start_time)}`;
 
     if (downloadTrimStart > 0 || (duration > 0 && downloadTrimEnd < duration)) {
-        url += `&trim_start=${downloadTrimStart}&trim_end=${downloadTrimEnd}`;
+      url += `&trim_start=${downloadTrimStart}&trim_end=${downloadTrimEnd}`;
     }
-    
+
     if (downloadFilename) {
-        url += `&filename=${encodeURIComponent(downloadFilename)}`;
+      url += `&filename=${encodeURIComponent(downloadFilename)}`;
     }
 
     try {
@@ -1328,13 +1329,13 @@ export default function MediaPlayerPage() {
                         className={`mp-hour-header ${isOpen ? "open" : ""}`}
                         onClick={() => toggleHourOpen(hour)}
                       >
-                        <svg 
+                        <svg
                           className={`mp-hour-chevron ${isOpen ? "open" : ""}`}
-                          viewBox="0 0 24 24" 
-                          fill="none" 
-                          stroke="currentColor" 
-                          strokeWidth="2.5" 
-                          width="11" 
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                          width="11"
                           height="11"
                         >
                           <path d="M9 18l6-6-6-6" />
@@ -1344,7 +1345,7 @@ export default function MediaPlayerPage() {
                       </button>
                       {isOpen && sortedHourFiles.map((file) => (
                         <div
-                          key={file.start_time}
+                          key={`${file.camera_id}-${file.date}-${file.start_time}`}
                           className={`mp-file-item ${playingFile?.start_time === file.start_time ? "playing" : ""}`}
                           onClick={() => playFile(file)}
                         >
@@ -1393,308 +1394,307 @@ export default function MediaPlayerPage() {
               </div>
             </div>
 
-          {/* ── Center / player ── */}
-          <div className="mp-center">
-            <div 
-              className="mp-player-wrap" 
-              ref={playerWrap}
-              {...handlers}
-              style={{ overflow: 'hidden', cursor: zoom > 1 ? 'grab' : 'default', position: 'relative' }}
-            >
-              <div className="mp-canvas-corner top-left" />
-              <div className="mp-canvas-corner top-right" />
-              <div className="mp-canvas-corner bottom-left" />
-              <div className="mp-canvas-corner bottom-right" />
+            {/* ── Center / player ── */}
+            <div className="mp-center">
+              <div
+                className="mp-player-wrap"
+                ref={playerWrap}
+                {...handlers}
+                style={{ overflow: 'hidden', cursor: zoom > 1 ? 'grab' : 'default', position: 'relative' }}
+              >
+                <div className="mp-canvas-corner top-left" />
+                <div className="mp-canvas-corner top-right" />
+                <div className="mp-canvas-corner bottom-left" />
+                <div className="mp-canvas-corner bottom-right" />
 
-              {snapshotFlash && <div className="mp-snapshot-flash" />}
+                {snapshotFlash && <div className="mp-snapshot-flash" />}
 
-              {isBrowseDecrypting && !playingFile ? (
-                <div className="mp-player-empty">
-                  <div className="mp-spinner"></div>
-                  <p>Decrypting uploaded file…</p>
-                </div>
-              ) : !playingFile ? (
-                <div className="mp-player-empty">
-                  <div className="mp-empty-canvas-badge">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="34" height="34">
-                      <rect x="2" y="4" width="20" height="16" rx="3" />
-                      <path d="M10 9l6 3-6 3V9z" fill="currentColor" opacity="0.85" />
-                    </svg>
+                {isBrowseDecrypting && !playingFile ? (
+                  <div className="mp-player-empty">
+                    <div className="mp-spinner"></div>
+                    <p>Decrypting uploaded file…</p>
                   </div>
-                  <span className="mp-canvas-block-name">Playback</span>
-                </div>
-              ) : (
-                <>
-                  <div className="mp-overlay-top">
-                    <span className="mp-cam-label">
-                      {getCameraInfo(playingFile.camera_id).name} — {playingFile.date}
-                    </span>
-                    <span className="mp-time-overlay">
-                      {getAbsoluteTime(currentTime) || fmt(currentTime)}
-                    </span>
-                  </div>
-                  <video
-                    ref={videoRef}
-                    className="mp-video"
-                    playsInline
-                    style={{
-                      filter: customCssFilter || 'none',
-                      transform: `${cssTransform && cssTransform !== "none" ? cssTransform : ""} ${
-                        zoomTransform && zoomTransform !== "none" ? zoomTransform : ""
-                      }`.trim() || "none",
-                      transition: "filter 0.1s ease, transform 0.2s ease"
-                    }}
-                  />
-                  {isVideoLoading && (
-                    <div className="mp-loading-overlay">
-                      <div className="mp-spinner"></div>
-                      <p>{isBrowseDecrypting ? "Decrypting uploaded file…" : "Loading video…"}</p>
+                ) : !playingFile ? (
+                  <div className="mp-player-empty">
+                    <div className="mp-empty-canvas-badge">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="34" height="34">
+                        <rect x="2" y="4" width="20" height="16" rx="3" />
+                        <path d="M10 9l6 3-6 3V9z" fill="currentColor" opacity="0.85" />
+                      </svg>
                     </div>
-                  )}
-                </>
+                    <span className="mp-canvas-block-name">Playback</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="mp-overlay-top">
+                      <span className="mp-cam-label">
+                        {getCameraInfo(playingFile.camera_id).name} — {playingFile.date}
+                      </span>
+                      <span className="mp-time-overlay">
+                        {getAbsoluteTime(currentTime) || fmt(currentTime)}
+                      </span>
+                    </div>
+                    <video
+                      ref={videoRef}
+                      className="mp-video"
+                      playsInline
+                      style={{
+                        filter: customCssFilter || 'none',
+                        transform: `${cssTransform && cssTransform !== "none" ? cssTransform : ""} ${zoomTransform && zoomTransform !== "none" ? zoomTransform : ""
+                          }`.trim() || "none",
+                        transition: "filter 0.1s ease, transform 0.2s ease"
+                      }}
+                    />
+                    {isVideoLoading && (
+                      <div className="mp-loading-overlay">
+                        <div className="mp-spinner"></div>
+                        <p>{isBrowseDecrypting ? "Decrypting uploaded file…" : "Loading video…"}</p>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* ── Controls ── */}
+              <div className="mp-controls">
+                <div className="mp-progress-row">
+                  <span className="mp-time">{fmt(currentTime)}</span>
+                  <div
+                    className="mp-progress"
+                    ref={progressRef}
+                    onMouseDown={handleProgressMouseDown}
+                    onClick={seek}
+                  >
+                    <div
+                      className="mp-progress-fill"
+                      style={{ width: duration ? `${(currentTime / duration) * 100}%` : "0%" }}
+                    />
+                    <div
+                      className="mp-progress-thumb"
+                      style={{ left: duration ? `${(currentTime / duration) * 100}%` : "0%" }}
+                    />
+                  </div>
+                  <span className="mp-time">{fmt(duration)}</span>
+                </div>
+
+                <div className="mp-ctrl-row">
+                  <div className="mp-transport-group">
+                    <button className="mp-ctrl-btn" onClick={playPrev} disabled={!playingFile} title="Previous (←)">
+                      <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15">
+                        <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" />
+                      </svg>
+                    </button>
+
+                    <button className="mp-ctrl-btn" onClick={() => skip(-10)} disabled={!playingFile} title="Back 10s (J)">
+                      <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15">
+                        <path d="M12 5V2L8 6l4 4V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z" />
+                        <text x="9" y="15" fontSize="5" fill="currentColor">10</text>
+                      </svg>
+                    </button>
+
+                    <button
+                      className="mp-ctrl-btn mp-play-btn"
+                      onClick={togglePlay}
+                      disabled={!playingFile}
+                      title={playing ? "Pause (Space)" : "Play (Space)"}
+                    >
+                      {playing ? (
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                          <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+                        </svg>
+                      ) : (
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                          <path d="M8 5v14l11-7z" />
+                        </svg>
+                      )}
+                    </button>
+
+                    <button className="mp-ctrl-btn" onClick={() => skip(10)} disabled={!playingFile} title="Forward 10s (L)">
+                      <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15">
+                        <path d="M12 5V2l4 4-4 4V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z" />
+                        <text x="9" y="15" fontSize="5" fill="currentColor">10</text>
+                      </svg>
+                    </button>
+
+                    <button className="mp-ctrl-btn" onClick={playNext} disabled={!playingFile} title="Next (→)">
+                      <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15">
+                        <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  <div className="mp-ctrl-spacer" />
+
+                  {/* Volume Container */}
+                  <div className="mp-vol-container">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" style={{ color: "var(--text-muted)", flexShrink: 0 }}>
+                      <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z" />
+                    </svg>
+                    <input
+                      type="range"
+                      className="mp-vol-slider"
+                      min="0" max="1" step="0.05"
+                      value={volume}
+                      onChange={(e) => setVolume(Number(e.target.value))}
+                    />
+                  </div>
+
+                  <div className="mp-ctrl-spacer" />
+
+                  {/* Sharpness Scrollbar */}
+                  <div className="mp-sharpness-container">
+                    <span className="mp-sharpness-label" title="Sharpen Video">SHARP:</span>
+                    <input
+                      type="range"
+                      className="mp-sharpness-slider"
+                      min="-100"
+                      max="100"
+                      step="5"
+                      value={localSharpness}
+                      onChange={(e) => setLocalSharpness(Number(e.target.value))}
+                      disabled={!playingFile}
+                    />
+                    <span className="mp-sharpness-value">
+                      {localSharpness > 0 ? "+" : ""}{localSharpness}
+                    </span>
+                  </div>
+
+                  <div className="mp-ctrl-spacer" />
+
+                  {/* Speed Segmented Group */}
+                  <div className="mp-speed-group">
+                    {[0.5, 1, 1.5, 2].map((s) => (
+                      <button
+                        key={s}
+                        className={`mp-speed-btn ${speed === s ? "active" : ""}`}
+                        onClick={() => setSpeed(s)}
+                      >
+                        {s}×
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="mp-ctrl-spacer" />
+
+                  {/* Utility Buttons */}
+                  <div className="mp-utility-group">
+                    <button
+                      className="mp-ctrl-btn mp-snapshot-btn"
+                      onClick={handleSnapshot}
+                      disabled={!playingFile}
+                      title="Snapshot current frame"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" width="16" height="16">
+                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                        <circle cx="12" cy="13" r="4" />
+                      </svg>
+                    </button>
+
+                    <button
+                      className="mp-ctrl-btn mp-download-btn"
+                      onClick={openDownloadModal}
+                      disabled={!playingFile}
+                      title="Trim & Download"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" width="16" height="16">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                      </svg>
+                    </button>
+
+                    <button
+                      className="mp-ctrl-btn"
+                      onClick={toggleFullscreen}
+                      title="Fullscreen (F)"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" width="16" height="16">
+                        <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Timescale / Timeline ── */}
+              {playingFile && duration > 0 && (
+                <div className="mp-timescale">
+                  <div className="mp-timescale-header">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="12" height="12">
+                      <circle cx="12" cy="12" r="10" />
+                      <polyline points="12 6 12 12 16 14" />
+                    </svg>
+                    <span className="mp-timescale-label">Timeline</span>
+                    <span className="mp-timescale-range">
+                      {getAbsoluteTime(0) || fmt(0)} — {getAbsoluteTime(duration) || fmt(duration)}
+                    </span>
+                  </div>
+                  <div
+                    className="mp-timescale-track"
+                    ref={timelineRef}
+                    onMouseDown={handleTimelineMouseDown}
+                  >
+                    {/* Filled portion */}
+                    <div
+                      className="mp-timescale-fill"
+                      style={{ width: `${(currentTime / duration) * 100}%` }}
+                    />
+
+                    {/* Motion Ranges */}
+                    {motionRanges.map((range, idx) => {
+                      const leftPct = (range.start / duration) * 100;
+                      const widthPct = Math.max(0.8, ((range.end - range.start) / duration) * 100);
+                      return (
+                        <div
+                          key={idx}
+                          className="mp-timescale-motion-range"
+                          style={{
+                            left: `${leftPct}%`,
+                            width: `${widthPct}%`
+                          }}
+                          title={`Motion Detected: ${getAbsoluteTime(range.start) || fmt(range.start)} — ${getAbsoluteTime(range.end) || fmt(range.end)}`}
+                        />
+                      );
+                    })}
+
+                    {/* Tick marks and labels */}
+                    {timelineTicks.map((t, i) => {
+                      const pct = (t / duration) * 100;
+                      const isFirst = i === 0;
+                      const isLast = i === timelineTicks.length - 1;
+                      const isMajor = isFirst || isLast || t % (duration <= 300 ? 60 : 300) === 0;
+                      return (
+                        <div
+                          key={t}
+                          className={`mp-timescale-tick ${isMajor ? "major" : "minor"}`}
+                          style={{ left: `${pct}%` }}
+                        >
+                          <div className="mp-timescale-tick-line" />
+                          {isMajor && !isFirst && !isLast && (
+                            <span className="mp-timescale-tick-label">
+                              {getAbsoluteTime(t) || fmt(t)}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    {/* Playhead */}
+                    <div
+                      className="mp-timescale-playhead"
+                      style={{ left: `${(currentTime / duration) * 100}%` }}
+                    >
+                      <div className="mp-timescale-playhead-flag">
+                        {getAbsoluteTime(currentTime) || fmt(currentTime)}
+                      </div>
+                      <div className="mp-timescale-playhead-needle" />
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
-
-            {/* ── Controls ── */}
-            <div className="mp-controls">
-              <div className="mp-progress-row">
-                <span className="mp-time">{fmt(currentTime)}</span>
-                <div
-                  className="mp-progress"
-                  ref={progressRef}
-                  onMouseDown={handleProgressMouseDown}
-                  onClick={seek}
-                >
-                  <div
-                    className="mp-progress-fill"
-                    style={{ width: duration ? `${(currentTime / duration) * 100}%` : "0%" }}
-                  />
-                  <div
-                    className="mp-progress-thumb"
-                    style={{ left: duration ? `${(currentTime / duration) * 100}%` : "0%" }}
-                  />
-                </div>
-                <span className="mp-time">{fmt(duration)}</span>
-              </div>
-
-              <div className="mp-ctrl-row">
-                <div className="mp-transport-group">
-                  <button className="mp-ctrl-btn" onClick={playPrev} disabled={!playingFile} title="Previous (←)">
-                    <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15">
-                      <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" />
-                    </svg>
-                  </button>
-
-                  <button className="mp-ctrl-btn" onClick={() => skip(-10)} disabled={!playingFile} title="Back 10s (J)">
-                    <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15">
-                      <path d="M12 5V2L8 6l4 4V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z" />
-                      <text x="9" y="15" fontSize="5" fill="currentColor">10</text>
-                    </svg>
-                  </button>
-
-                  <button
-                    className="mp-ctrl-btn mp-play-btn"
-                    onClick={togglePlay}
-                    disabled={!playingFile}
-                    title={playing ? "Pause (Space)" : "Play (Space)"}
-                  >
-                    {playing ? (
-                      <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                        <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-                      </svg>
-                    ) : (
-                      <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                        <path d="M8 5v14l11-7z" />
-                      </svg>
-                    )}
-                  </button>
-
-                  <button className="mp-ctrl-btn" onClick={() => skip(10)} disabled={!playingFile} title="Forward 10s (L)">
-                    <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15">
-                      <path d="M12 5V2l4 4-4 4V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z" />
-                      <text x="9" y="15" fontSize="5" fill="currentColor">10</text>
-                    </svg>
-                  </button>
-
-                  <button className="mp-ctrl-btn" onClick={playNext} disabled={!playingFile} title="Next (→)">
-                    <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15">
-                      <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-                    </svg>
-                  </button>
-                </div>
-
-                <div className="mp-ctrl-spacer" />
-
-                {/* Volume Container */}
-                <div className="mp-vol-container">
-                  <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" style={{ color: "var(--text-muted)", flexShrink: 0 }}>
-                    <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z" />
-                  </svg>
-                  <input
-                    type="range"
-                    className="mp-vol-slider"
-                    min="0" max="1" step="0.05"
-                    value={volume}
-                    onChange={(e) => setVolume(Number(e.target.value))}
-                  />
-                </div>
-
-                <div className="mp-ctrl-spacer" />
-
-                {/* Sharpness Scrollbar */}
-                <div className="mp-sharpness-container">
-                  <span className="mp-sharpness-label" title="Sharpen Video">SHARP:</span>
-                  <input
-                    type="range"
-                    className="mp-sharpness-slider"
-                    min="-100"
-                    max="100"
-                    step="5"
-                    value={localSharpness}
-                    onChange={(e) => setLocalSharpness(Number(e.target.value))}
-                    disabled={!playingFile}
-                  />
-                  <span className="mp-sharpness-value">
-                    {localSharpness > 0 ? "+" : ""}{localSharpness}
-                  </span>
-                </div>
-
-                <div className="mp-ctrl-spacer" />
-
-                {/* Speed Segmented Group */}
-                <div className="mp-speed-group">
-                  {[0.5, 1, 1.5, 2].map((s) => (
-                    <button
-                      key={s}
-                      className={`mp-speed-btn ${speed === s ? "active" : ""}`}
-                      onClick={() => setSpeed(s)}
-                    >
-                      {s}×
-                    </button>
-                  ))}
-                </div>
-
-                <div className="mp-ctrl-spacer" />
-
-                {/* Utility Buttons */}
-                <div className="mp-utility-group">
-                  <button
-                    className="mp-ctrl-btn mp-snapshot-btn"
-                    onClick={handleSnapshot}
-                    disabled={!playingFile}
-                    title="Snapshot current frame"
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" width="16" height="16">
-                      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                      <circle cx="12" cy="13" r="4" />
-                    </svg>
-                  </button>
-
-                  <button
-                    className="mp-ctrl-btn mp-download-btn"
-                    onClick={openDownloadModal}
-                    disabled={!playingFile}
-                    title="Trim & Download"
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" width="16" height="16">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="7 10 12 15 17 10" />
-                      <line x1="12" y1="15" x2="12" y2="3" />
-                    </svg>
-                  </button>
-
-                  <button
-                    className="mp-ctrl-btn"
-                    onClick={toggleFullscreen}
-                    title="Fullscreen (F)"
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" width="16" height="16">
-                      <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* ── Timescale / Timeline ── */}
-            {playingFile && duration > 0 && (
-              <div className="mp-timescale">
-                <div className="mp-timescale-header">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="12" height="12">
-                    <circle cx="12" cy="12" r="10" />
-                    <polyline points="12 6 12 12 16 14" />
-                  </svg>
-                  <span className="mp-timescale-label">Timeline</span>
-                  <span className="mp-timescale-range">
-                    {getAbsoluteTime(0) || fmt(0)} — {getAbsoluteTime(duration) || fmt(duration)}
-                  </span>
-                </div>
-                <div
-                  className="mp-timescale-track"
-                  ref={timelineRef}
-                  onMouseDown={handleTimelineMouseDown}
-                >
-                  {/* Filled portion */}
-                  <div
-                    className="mp-timescale-fill"
-                    style={{ width: `${(currentTime / duration) * 100}%` }}
-                  />
-
-                  {/* Motion Ranges */}
-                  {motionRanges.map((range, idx) => {
-                    const leftPct = (range.start / duration) * 100;
-                    const widthPct = Math.max(0.8, ((range.end - range.start) / duration) * 100);
-                    return (
-                      <div
-                        key={idx}
-                        className="mp-timescale-motion-range"
-                        style={{
-                          left: `${leftPct}%`,
-                          width: `${widthPct}%`
-                        }}
-                        title={`Motion Detected: ${getAbsoluteTime(range.start) || fmt(range.start)} — ${getAbsoluteTime(range.end) || fmt(range.end)}`}
-                      />
-                    );
-                  })}
-
-                  {/* Tick marks and labels */}
-                  {timelineTicks.map((t, i) => {
-                    const pct = (t / duration) * 100;
-                    const isFirst = i === 0;
-                    const isLast = i === timelineTicks.length - 1;
-                    const isMajor = isFirst || isLast || t % (duration <= 300 ? 60 : 300) === 0;
-                    return (
-                      <div
-                        key={t}
-                        className={`mp-timescale-tick ${isMajor ? "major" : "minor"}`}
-                        style={{ left: `${pct}%` }}
-                      >
-                        <div className="mp-timescale-tick-line" />
-                        {isMajor && !isFirst && !isLast && (
-                          <span className="mp-timescale-tick-label">
-                            {getAbsoluteTime(t) || fmt(t)}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-
-                  {/* Playhead */}
-                  <div
-                    className="mp-timescale-playhead"
-                    style={{ left: `${(currentTime / duration) * 100}%` }}
-                  >
-                    <div className="mp-timescale-playhead-flag">
-                      {getAbsoluteTime(currentTime) || fmt(currentTime)}
-                    </div>
-                    <div className="mp-timescale-playhead-needle" />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </>
-      )}
+          </>
+        )}
       </div>
 
       {/* ── Download Video Modal ── */}
@@ -1709,108 +1709,112 @@ export default function MediaPlayerPage() {
             <div className="mp-trim-modal-header">
               <h2 className="mp-trim-modal-title">Trim & Download</h2>
             </div>
-            
+
             <div className="mp-trim-modal-body">
               <div className="mp-trim-preview-container">
-                 <video 
-                   className="mp-trim-preview-video"
-                   src={(() => {
-                     const s = videoRef.current?.src || '';
-                     if (!s || s.startsWith('blob:')) return s;
-                     return s.includes('?') ? `${s}&_clone=preview` : `${s}?_clone=preview`;
-                   })()}
-                   controls
-                   ref={(el) => {
-                      if (el && Math.abs(el.currentTime - downloadTrimStart) > 1 && el.paused) {
-                         // Only seek if significantly off, avoiding lag loops
-                         el.currentTime = downloadTrimStart;
-                      }
-                   }}
-                 />
+                <video
+                  className="mp-trim-preview-video"
+                  src={(() => {
+                    const s = videoRef.current?.src || '';
+                    if (!s || s.startsWith('blob:')) return s;
+                    return s.includes('?') ? `${s}&_clone=preview` : `${s}?_clone=preview`;
+                  })()}
+                  controls
+                  onTimeUpdate={(e) => {
+                    if (e.target.currentTime >= downloadTrimEnd) {
+                      e.target.pause();
+                    }
+                  }}
+                  ref={(el) => {
+                    if (el && Math.abs(el.currentTime - downloadTrimStart) > 1 && el.paused && el.dataset.previewPlaying !== 'true') {
+                      el.currentTime = downloadTrimStart;
+                    }
+                  }}
+                />
               </div>
 
-              <div className="mp-trim-form-row">
-                <div className="mp-trim-form-group">
-                  <label>File Name</label>
-                  <input 
-                    type="text" 
-                    value={downloadFilename} 
-                    onChange={(e) => setDownloadFilename(e.target.value)} 
-                    className="mp-trim-input" 
-                  />
-                </div>
-                <div className="mp-trim-form-group" style={{ flex: 0.3 }}>
-                  <label>Trim Start (s)</label>
-                  <input 
-                    type="number" 
-                    min={0} 
-                    max={duration || 0}
-                    step={0.1}
-                    value={downloadTrimStart} 
-                    onChange={(e) => {
-                      let val = e.target.value;
-                      if (val === '') {
-                        setDownloadTrimStart('');
-                        return;
-                      }
-                      val = Number(val);
-                      setDownloadTrimStart(val);
-                      if (val > downloadTrimEnd) setDownloadTrimEnd(val);
+              <div style={{ marginTop: '16px', marginBottom: '16px' }}>
+                <TrimTimeline
+                  src={(() => {
+                    const s = videoRef.current?.src || '';
+                    if (!s || s.startsWith('blob:')) return s;
+                    return s.includes('?') ? `${s}&_clone=preview` : `${s}?_clone=preview`;
+                  })()}
+                  duration={duration}
+                  trimStart={downloadTrimStart === '' ? 0 : downloadTrimStart}
+                  trimEnd={downloadTrimEnd === '' ? (duration || 0) : downloadTrimEnd}
+                  onTrimStartChange={(val) => {
+                    setDownloadTrimStart(val);
+                    const pv = document.querySelector('.mp-trim-preview-video');
+                    if (pv) {
+                      pv.currentTime = val;
+                      pv.dataset.previewPlaying = 'false';
+                    }
+                  }}
+                  onTrimEndChange={(val) => {
+                    setDownloadTrimEnd(val);
+                    const pv = document.querySelector('.mp-trim-preview-video');
+                    if (pv) {
+                      pv.currentTime = val;
+                      pv.dataset.previewPlaying = 'false';
+                    }
+                  }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', color: 'var(--text-muted)', marginTop: '8px', fontWeight: '500' }}>
+                  <span>Start: {fmt(downloadTrimStart)}</span>
+                  <button
+                    onClick={() => {
                       const pv = document.querySelector('.mp-trim-preview-video');
-                      if (pv) pv.currentTime = val;
-                    }} 
-                    onBlur={() => {
-                      if (downloadTrimStart === '') setDownloadTrimStart(0);
-                    }}
-                    className="mp-trim-input" 
-                  />
-                </div>
-                <div className="mp-trim-form-group" style={{ flex: 0.3 }}>
-                  <label>Trim End (s)</label>
-                  <input 
-                    type="number" 
-                    min={0} 
-                    max={duration || 0}
-                    step={0.1}
-                    value={downloadTrimEnd} 
-                    onChange={(e) => {
-                      let val = e.target.value;
-                      if (val === '') {
-                        setDownloadTrimEnd('');
-                        return;
+                      if (pv) {
+                        pv.currentTime = downloadTrimStart;
+                        pv.dataset.previewPlaying = 'true';
+                        pv.play().catch(() => { });
                       }
-                      val = Number(val);
-                      setDownloadTrimEnd(val);
-                      if (val < downloadTrimStart) setDownloadTrimStart(val);
-                      const pv = document.querySelector('.mp-trim-preview-video');
-                      if (pv) pv.currentTime = val;
-                    }} 
-                    onBlur={() => {
-                      if (downloadTrimEnd === '') setDownloadTrimEnd(duration || 0);
                     }}
-                    className="mp-trim-input" 
-                  />
+                    style={{ background: 'var(--amber-subtle)', border: '1px solid rgba(245, 166, 35, 0.5)', color: 'var(--amber)', padding: '4px 12px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', transition: 'all 0.2s ease' }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--amber-glow)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'var(--amber-subtle)'}
+                  >
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+                      <path d="M8 5v14l11-7z" />
+                    </svg>
+                    Play Preview
+                  </button>
+                  <span>End: {fmt(downloadTrimEnd)}</span>
                 </div>
               </div>
+
             </div>
 
-            <div className="mp-trim-modal-footer">
-              <SpecularButton 
-                onClick={() => setShowDownloadModal(false)} 
-                textColor="#10b981"
-                lineColor="#10b981"
-                baseColor="#064e3b"
-              >
-                Cancel
-              </SpecularButton>
-              <SpecularButton 
-                onClick={confirmDownloadVideo} 
-                textColor="#10b981"
-                lineColor="#10b981"
-                baseColor="#064e3b"
-              >
-                Save & Download
-              </SpecularButton>
+            <div className="mp-trim-modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="mp-trim-form-group" style={{ flexDirection: 'row', alignItems: 'center', gap: '10px', flex: 1, marginRight: '16px' }}>
+                <label style={{ margin: 0, whiteSpace: 'nowrap' }}>File Name</label>
+                <input
+                  type="text"
+                  value={downloadFilename}
+                  onChange={(e) => setDownloadFilename(e.target.value)}
+                  className="mp-trim-input"
+                  style={{ flex: 1, minWidth: '100px' }}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '12px', flexShrink: 0 }}>
+                <SpecularButton
+                  onClick={() => setShowDownloadModal(false)}
+                  textColor="#10b981"
+                  lineColor="#10b981"
+                  baseColor="#064e3b"
+                >
+                  Cancel
+                </SpecularButton>
+                <SpecularButton
+                  onClick={confirmDownloadVideo}
+                  textColor="#10b981"
+                  lineColor="#10b981"
+                  baseColor="#064e3b"
+                >
+                  Save & Download
+                </SpecularButton>
+              </div>
             </div>
           </div>
         </div>
@@ -1842,62 +1846,48 @@ export default function MediaPlayerPage() {
 
             <div className="mp-export-body">
               <div className="mp-export-range-section">
-                <div className="mp-export-range-group">
+                <div className="mp-export-range-group" style={{ position: 'relative', zIndex: 10 }}>
                   <label className="mp-export-date-label">Start Date</label>
                   <DatePicker value={exportStartDate} onChange={(val) => setExportStartDate(val)} />
                 </div>
-                <div className="mp-export-range-group">
+                <div className="mp-export-range-group" style={{ position: 'relative', zIndex: 10 }}>
                   <label className="mp-export-date-label">End Date</label>
                   <DatePicker value={exportEndDate} onChange={(val) => setExportEndDate(val)} />
                 </div>
-                <div className="mp-export-range-group">
+                <div className="mp-export-range-group" style={{ position: 'relative', zIndex: 5 }}>
                   <label className="mp-export-date-label">Start Time</label>
-                  <select className="mp-export-select" value={exportStartTime}
-                    onChange={(e) => setExportStartTime(e.target.value)} disabled={exporting}>
-                    {Array.from({ length: 48 }, (_, i) => {
-                      const h = Math.floor(i / 2);
-                      const m = i % 2 === 0 ? "00" : "30";
-                      return `${String(h).padStart(2, "0")}:${m}`;
-                    }).map(t => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
+                  <TimePicker value={exportStartTime}
+                    onChange={(val) => setExportStartTime(val)} />
                 </div>
-                <div className="mp-export-range-group">
+                <div className="mp-export-range-group" style={{ position: 'relative', zIndex: 5 }}>
                   <label className="mp-export-date-label">End Time</label>
-                  <select className="mp-export-select" value={exportEndTime}
-                    onChange={(e) => setExportEndTime(e.target.value)} disabled={exporting}>
-                    {Array.from({ length: 48 }, (_, i) => {
-                      const h = Math.floor(i / 2);
-                      const m = i % 2 === 0 ? "00" : "30";
-                      return `${String(h).padStart(2, "0")}:${m}`;
-                    }).map(t => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                    <option value="23:59">23:59</option>
-                  </select>
+                  <TimePicker value={exportEndTime}
+                    onChange={(val) => setExportEndTime(val)} />
                 </div>
               </div>
-              <p className="mp-export-note">
-                All recordings in this date and hour range will be decrypted and bundled into a ZIP archive.
-              </p>
             </div>
 
-            <div className="mp-export-footer">
-              <button
-                className="mp-export-btn mp-export-cancel"
+            <div className="mp-export-footer" style={{ gap: '16px', justifyContent: 'center', display: 'flex' }}>
+              <SpecularButton
                 onClick={() => setShowExportModal(false)}
                 disabled={exporting}
+                textColor="#10b981"
+                lineColor="#10b981"
+                baseColor="#064e3b"
+                style={{ width: '160px', whiteSpace: 'nowrap' }}
               >
                 Cancel
-              </button>
-              <button
-                className="mp-export-btn mp-export-action"
+              </SpecularButton>
+              <SpecularButton
                 onClick={handleExportRange}
-                disabled={exporting || !selectedCam}
+                disabled={exporting}
+                textColor="#10b981"
+                lineColor="#10b981"
+                baseColor="#064e3b"
+                style={{ width: '160px', whiteSpace: 'nowrap' }}
               >
                 {exporting ? "Exporting…" : "Download ZIP"}
-              </button>
+              </SpecularButton>
             </div>
           </div>
         </div>

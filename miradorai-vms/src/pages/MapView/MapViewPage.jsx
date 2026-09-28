@@ -11,7 +11,7 @@ import VirtualMapView from "./VirtualMapView";
 import { drawHeatmapToContext, drawHeatmapLegendToCanvas } from "./HeatmapLogic";
 import { drawCamera, getCamTypeFromName, renderMapViewSnapshot } from "./MapDrawingUtils";
 import WebRTCPlayer_MediaMTX from "../../components/shared/WebRTCPlayer_MediaMTX";
-import { AlertPopup } from "../LiveView/LiveViewPage";
+// import { AlertPopup } from "../LiveView/LiveViewPage";
 import "../LiveView/LiveViewPage.css";
 import { renderGltfToImage } from "./GltfFloorRenderer";
 import { renderHtmlToImage } from "./HtmlFloorRenderer";
@@ -324,11 +324,11 @@ const StreamModal = React.memo(function StreamModal({ cam, onClose }) {
                 className={`mv-modal__badge mv-modal__badge--${ref.current.isDeleted ? "offline" : ref.current.status}`}
                 style={{ marginLeft: 8 }}
               >
-                {ref.current.isDeleted ? "○ Deleted" : (ref.current.status === "online" ? "● Online" : "○ Offline")}
+                {ref.current.isDeleted ? "O Deleted" : (ref.current.status === "online" ? "O Online" : "O Offline")}
               </span>
             </div>
           </div>
-          <button className="mv-stream-close" onClick={onClose}>✕</button>
+          <button className="mv-stream-close" onClick={onClose}>X</button>
         </div>
         <div className="mv-stream-tabs">
           <button
@@ -378,7 +378,7 @@ const StreamModal = React.memo(function StreamModal({ cam, onClose }) {
         ) : (
           <div className="mv-alerts-body">
             {loading ? (
-              <div className="mv-alerts-loading">Loading alerts…</div>
+              <div className="mv-alerts-loading">Loading alerts...</div>
             ) : (
               <AlertPopup 
                 ip={ref.current.ip} 
@@ -408,7 +408,7 @@ function AlertSection({ label, items }) {
               ? new Date(a.time).toLocaleTimeString()
               : a.received_at
               ? new Date(a.received_at).toLocaleTimeString()
-              : "—"}
+              : "-"}
           </span>
           <span>{a.scenario || a.type || "Event"}</span>
         </div>
@@ -450,7 +450,7 @@ function ZoneNameModal({ onSave, onCancel, existingNames }) {
         <input
           ref={inputRef}
           className={`mv-zone-name-input ${err ? "mv-zone-name-input--err" : ""}`}
-          placeholder="e.g. Lobby, Warehouse A, Parking Lot…"
+          placeholder="e.g. Lobby, Warehouse A, Parking Lot..."
           value={name}
           onChange={e => { setName(e.target.value); setErr(""); }}
           onKeyDown={e => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") onCancel(); }}
@@ -533,7 +533,7 @@ function ZoneAlert({ message, onDismiss }) {
         className="mv-zone-alert__close"
         title="Dismiss warning"
       >
-        ✕
+        X
       </button>
     </div>
   );
@@ -561,7 +561,7 @@ function ZoneCameraItem({ marker, cameras, isHighlighted, onHighlight, onRemove,
         className="mv-zone-cam-item__remove"
         onClick={e => { e.stopPropagation(); onRemove(marker.camId); }}
         title="Remove camera from map"
-      >✕</button>
+      >X</button>
     </div>
   );
 }
@@ -693,7 +693,7 @@ function ZoneSidebarItem({
               display: "flex",
               alignItems: "center"
             }}
-          >✕</span>
+          >X</span>
         </div>
       </button>
 
@@ -833,7 +833,7 @@ export default function MapViewPage() {
   }, []);
   const [mode,             setMode]             = useState("place");
   const [zoomPct,          setZoomPct]          = useState(100);
-  const [statusTxt,        setStatus]           = useState("Loading map…");
+  const [statusTxt,        setStatus]           = useState("Loading map...");
   const [hasFloor,         setHasFloor]         = useState(false);
   const [pageLoading,      setPageLoad]         = useState(true);
   const [saving,           setSaving]           = useState(false);
@@ -1361,7 +1361,7 @@ export default function MapViewPage() {
           const validIdx = activeIdx < mergedFloors.length ? activeIdx : 0;
           setActiveFloor(validIdx);
           loadFloor(validIdx, mergedFloors);
-          setStatus("Map restored — select a camera then click to place");
+          setStatus("Map restored - select a camera then click to place");
         } else if (data.markers?.length || data.floor_plan) {
           const calib = data.calibration || null;
           const migrated = [{
@@ -1384,11 +1384,11 @@ export default function MapViewPage() {
           const validIdx = activeIdx < migrated.length ? activeIdx : 0;
           setActiveFloor(validIdx);
           loadFloor(validIdx, migrated);
-          setStatus("Map restored — select a camera then click to place");
+          setStatus("Map restored - select a camera then click to place");
         } else if (!dbFloors?.length) {
           setStatus("Import a floor plan to start placing cameras");
         } else {
-          setStatus("Map restored from cache — select a camera then click to place");
+          setStatus("Map restored from cache - select a camera then click to place");
         }
       } catch (e) {
         if (e.message === "401") authFailedRef.current = true;
@@ -1514,7 +1514,7 @@ export default function MapViewPage() {
     let best = -1, bestD = thr;
     const all = [...markersRef.current, ...previewMarker];
     all.forEach((m, i) => {
-      const handleDistance = 17; // R (8) + 9 = 17 to match MapCanvas.jsx
+      const handleDistance = 26; // R (8) + 18 = 26 to match MapCanvas.jsx
       const angle = (m.direction || 0) * (Math.PI / 180);
       const hx    = m.x + Math.cos(angle) * handleDistance;
       const hy    = m.y + Math.sin(angle) * handleDistance;
@@ -1671,7 +1671,7 @@ export default function MapViewPage() {
 
       if (constraintZone && constraintZone.polygon.length >= 3) {
         if (!pointInPolygon(nx, ny, constraintZone.polygon)) {
-          setZoneAlert(`⚠ Camera cannot be placed outside zone "${constraintZone.name}".`);
+          setZoneAlert(`! Camera cannot be placed outside zone "${constraintZone.name}".`);
           return;
         }
       }
@@ -1853,7 +1853,7 @@ export default function MapViewPage() {
     setSelectedIdx(null);
     if (selectedCamRef.current && modeRef.current === "place") {
       if (!isInsideActiveZone(p.x, p.y)) {
-        setZoneAlert("⚠ Camera cannot be placed outside the selected zone.");
+        setZoneAlert("! Camera cannot be placed outside the selected zone.");
         return;
       }
       setPendingFov(selectedCamRef.current?.specs?.hfov || 60);
@@ -2012,7 +2012,7 @@ export default function MapViewPage() {
     if (!floorImgRef.current || !dragCamRef.current) return;
     const p = toImg(e.clientX, e.clientY);
     if (!isInsideActiveZone(p.x, p.y)) {
-      setZoneAlert("⚠ Camera cannot be dropped outside the selected zone.");
+      setZoneAlert("! Camera cannot be dropped outside the selected zone.");
       dragCamRef.current = null;
       return;
     }
@@ -2143,7 +2143,7 @@ export default function MapViewPage() {
 
     // ── .gltf / .glb → load 3D model and generate 2D fallback ─────
     if (ext === "gltf" || ext === "glb") {
-      setStatus("Loading 3D model…");
+      setStatus("Loading 3D model...");
 
       const reader = new FileReader();
       reader.onload = async (ev) => {
@@ -2164,8 +2164,8 @@ export default function MapViewPage() {
             setHasFloor(true);
             setStatus(
               embeddedMarkers && embeddedMarkers.length > 0
-                ? `3D model loaded — restored ${embeddedMarkers.length} camera(s) from design!`
-                : "3D model loaded — select a camera to place"
+                ? `3D model loaded - restored ${embeddedMarkers.length} camera(s) from design!`
+                : "3D model loaded - select a camera to place"
             );
             fitImage();
           };
@@ -2195,7 +2195,7 @@ export default function MapViewPage() {
           setViewMode("3d");
         } catch (err) {
           console.error("[MapView] GLTF/GLB load failed:", err);
-          setStatus("Failed to load 3D model — " + (err.message || "unknown error"));
+          setStatus("Failed to load 3D model - " + (err.message || "unknown error"));
         }
       };
       
@@ -2207,14 +2207,14 @@ export default function MapViewPage() {
 
     // ── .html → render HTML to 2D image ───────────────────────────
     if (ext === "html" || ext === "htm") {
-      setStatus("Rendering HTML floor plan…");
+      setStatus("Rendering HTML floor plan...");
       renderHtmlToImage(file)
         .then(({ dataUrl }) => {
           const img = new Image();
           img.onload = () => {
             floorImgRef.current = img;
             setHasFloor(true);
-            setStatus("HTML floor plan loaded — select a camera then click to place");
+            setStatus("HTML floor plan loaded - select a camera then click to place");
             fitImage();
           };
           img.src = dataUrl;
@@ -2227,13 +2227,13 @@ export default function MapViewPage() {
         })
         .catch((err) => {
           console.error("[MapView] HTML render failed:", err);
-          setStatus("Failed to load HTML floor plan — " + (err.message || "unknown error"));
+          setStatus("Failed to load HTML floor plan - " + (err.message || "unknown error"));
         });
       e.target.value = "";
       return;
     }
 
-    // ── Image files (JPEG, PNG, etc.) — existing flow ─────────────
+    // ── Image files (JPEG, PNG, etc.) - existing flow ─────────────
     const reader = new FileReader();
     reader.onload = ev => {
       const dataUrl = ev.target.result;
@@ -2241,7 +2241,7 @@ export default function MapViewPage() {
       img.onload    = () => {
         floorImgRef.current = img;
         setHasFloor(true);
-        setStatus("Floor plan loaded — select a camera then click to place");
+        setStatus("Floor plan loaded - select a camera then click to place");
         fitImage();
       };
       img.src = dataUrl;
@@ -2427,7 +2427,7 @@ export default function MapViewPage() {
     setDrawingPoints([]);
     drawingPointsRef.current = [];
     setCalibPanelOpen(false);
-    setStatus("Click to add zone points — click near the first point to close & save");
+    setStatus("Click to add zone points - click near the first point to close & save");
   }
 
   function setCalibrateMode() {
@@ -2561,7 +2561,7 @@ export default function MapViewPage() {
       },
     ];
     updateMarkers(next);
-    setStatus(`${pendingCam.name} placed — FOV ${pendingFov}°, facing ${Math.round(pendingDirection)}°`);
+    setStatus(`${pendingCam.name} placed - FOV ${pendingFov}°, facing ${Math.round(pendingDirection)}°`);
     setShowModal(false);
     setPendingPos(null);
     setPendingCam(null);
@@ -2601,7 +2601,7 @@ export default function MapViewPage() {
       selectedCamRef.current = next;
       return next;
     });
-    setStatus(`${cam.name} selected — click the map to place`);
+    setStatus(`${cam.name} selected - click the map to place`);
   }
 
   async function clearFloor() {
@@ -2619,7 +2619,7 @@ export default function MapViewPage() {
   //  - DesignerView-style camera icon (FIX 3)
   //  - Consistent zone stroke style drawn separately (FIX 4 handled in exportMapPNG)
   //  - Camera name label (FIX 5)
-  //  - Zone clipping per camera (FIX 6) — caller must pass ctx already clipped if needed
+  //  - Zone clipping per camera (FIX 6) - caller must pass ctx already clipped if needed
 
   // ── Export 3D GLB Model ───────────────────────────────────────────
   function export3DModelGLB() {
@@ -2924,7 +2924,7 @@ export default function MapViewPage() {
                     </div>
                     <div className="mv-dropdown-card__body">
                       <span className="mv-dropdown-card__label">
-                        {isDetectingZones ? "Detecting…" : "Auto-Detect"}
+                        {isDetectingZones ? "Detecting..." : "Auto-Detect"}
                       </span>
                       <span className="mv-dropdown-card__desc">AI detects zones from floor image</span>
                     </div>
@@ -3141,10 +3141,10 @@ export default function MapViewPage() {
             </button>
           ))}
 
-          {saving  && <span className="mv-saving">● Saving…</span>}
+          {saving  && <span className="mv-saving">O Saving...</span>}
           {saveErr && (
-            <span className="mv-save-err" title="Auth failed — saved to cache only">
-              ⚠ Cached locally
+            <span className="mv-save-err" title="Auth failed - saved to cache only">
+              ! Cached locally
             </span>
           )}
 
@@ -3860,7 +3860,7 @@ export default function MapViewPage() {
         >
           {pageLoading ? (
             <div className="mv-hint">
-              <p className="mv-hint__title">Loading map…</p>
+              <p className="mv-hint__title">Loading map...</p>
             </div>
           ) : (
             <>
@@ -4076,7 +4076,7 @@ export default function MapViewPage() {
                   activeZoneIdRef.current = null;
                   setStatus("Zone deselected");
                 }}
-              >✕</button>
+              >X</button>
             </div>
           )}
 
@@ -4085,7 +4085,7 @@ export default function MapViewPage() {
             <div className="mv-zone-draw-overlay">
               {drawingPoints.length === 0
                 ? "Click anywhere on the map to start drawing a zone"
-                : `${drawingPoints.length} point${drawingPoints.length !== 1 ? "s" : ""} — click start point to close`
+                : `${drawingPoints.length} point${drawingPoints.length !== 1 ? "s" : ""} - click start point to close`
               }
             </div>
           )}
@@ -4200,7 +4200,7 @@ export default function MapViewPage() {
                       transition: "all 0.15s ease"
                     }}
                   >
-                    ✕
+                    X
                   </button>
                 </div>
 
@@ -4211,7 +4211,7 @@ export default function MapViewPage() {
                       <div className="mv-inspector-section-title">Available Devices</div>
                       {activeZone && (
                         <div className="mv-sidebar-zone-notice" style={{ borderColor: activeZone.color + "50" }}>
-                          <span style={{ color: activeZone.color }}>●</span>
+                          <span style={{ color: activeZone.color }}>O</span>
                           &nbsp;Place inside <strong>{activeZone.name}</strong>
                         </div>
                       )}
@@ -4221,7 +4221,7 @@ export default function MapViewPage() {
 
                       <div className="mv-cam-list">
                         {pageLoading ? (
-                          <div className="mv-cam-empty">Loading cameras…</div>
+                          <div className="mv-cam-empty">Loading cameras...</div>
                         ) : filteredCameras.filter(cam => (cam.name || "Unnamed").toLowerCase().includes(camFilter.toLowerCase()) || (cam.ip || "").toLowerCase().includes(camFilter.toLowerCase())).length === 0 ? (
                           <div className="mv-cam-empty">No cameras found.<br />Add devices first.</div>
                         ) : (

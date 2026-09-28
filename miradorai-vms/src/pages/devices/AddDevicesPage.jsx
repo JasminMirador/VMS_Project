@@ -157,6 +157,7 @@ export function EditDeviceModal({ device, groups, onClose, onSave }) {
   });
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [alertMsg, setAlertMsg] = useState("");
   const dropdownRef = useRef(null);
 
   useEffect(() => {
@@ -169,7 +170,10 @@ export function EditDeviceModal({ device, groups, onClose, onSave }) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  const set = (key) => (e) => {
+    setForm((f) => ({ ...f, [key]: e.target.value }));
+    if (key === "device_name") setAlertMsg("");
+  };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -183,6 +187,17 @@ export function EditDeviceModal({ device, groups, onClose, onSave }) {
           </button>
         </div>
         <div className="modal-body">
+          {alertMsg && (
+            <div className="modal-ui-alert" style={{ background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.25)", color: "var(--red)", padding: "10px 14px", borderRadius: "var(--radius-sm)", fontSize: "var(--font-size-content)", display: "flex", alignItems: "flex-start", gap: "10px", marginBottom: "16px" }}>
+              <svg className="modal-ui-alert-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, marginTop: "1px" }}>
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                <line x1="12" y1="9" x2="12" y2="13" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+              <div className="modal-ui-alert-text" style={{ flex: 1, lineHeight: 1.5 }}>{alertMsg}</div>
+              <button className="modal-ui-alert-close" onClick={() => setAlertMsg("")} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: "18px", lineHeight: 1, padding: "2px" }}>✕</button>
+            </div>
+          )}
           {[
             { label: "Device Name", key: "device_name" },
             { label: "IP Address", key: "ip" },
@@ -253,6 +268,13 @@ export function EditDeviceModal({ device, groups, onClose, onSave }) {
           </SpecularButton>
           <SpecularButton
             onClick={() => {
+              if (form.device_name) {
+                const trimmed = form.device_name.trim();
+                if (!/^[a-zA-Z0-9 _-]+$/.test(trimmed)) {
+                  setAlertMsg("Device Name can only contain alphanumeric characters, spaces, dashes, and underscores.");
+                  return;
+                }
+              }
               let final_rtsp_url = form.clean_rtsp_url;
               if (form.username || form.password) {
                 const match = form.clean_rtsp_url.match(/^(rtsps?:\/\/)(.*)$/i);

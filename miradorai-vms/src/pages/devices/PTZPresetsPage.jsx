@@ -200,6 +200,10 @@ export default function PTZPresetsPage() {
 
   const handleCtxSavePreset = () => {
     if (!ctxName.trim() || !ctxMenu) return;
+    if (!/^[a-zA-Z0-9 _-]+$/.test(ctxName.trim())) {
+      alert("Preset Name can only contain alphanumeric characters, spaces, dashes, and underscores.");
+      return;
+    }
     const newPan  = Math.round((ctxMenu.videoX - 50) * 3.6);
     const newTilt = Math.round((50 - ctxMenu.videoY) * 1.8);
     setPresets((p) => [...p, {

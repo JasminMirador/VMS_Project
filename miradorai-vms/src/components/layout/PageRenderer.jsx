@@ -55,11 +55,16 @@ import ForensicSearchPage from "../../pages/forensic/ForensicSearchPage";
 import AiAnalyticsPage from "../../pages/analytics/AiAnalyticsPage";
 import SystemPerformancePage from "../../pages/diagnostics/SystemPerformancePage";
 import RaidMgmtPage from "../../pages/StorageManagement";
+import VideoSynopsis from "../../pages/analytics/VideoSynopsisPage";
+import FaceDetectionPage from "../../pages/analytics/FaceDetectionPage";
+
+
 
 // ✅ REPORTS
 import CameraHistoryReport from "../../pages/reports/CameraHistoryReport";
 import ReportsPlaceholderPage from "../../pages/reports/ReportsPlaceholderPage";
 import RecycleBinPage from "../../pages/devices/RecycleBinPage";
+import PendingApprovalsPage from "../../pages/admin/PendingApprovalsPage";
 
 // const RecordingReportPage = (props) => <ReportsPlaceholderPage {...props} reportName="Recording Report" />;
 const StorageReportPage = (props) => <ReportsPlaceholderPage {...props} reportName="Storage Report" />;
@@ -69,6 +74,8 @@ const AnalyticsReportPage = (props) => <ReportsPlaceholderPage {...props} report
 const MAP = {
   // ✅ DASHBOARD (DEFAULT PAGE)
   "dashboard": DashboardPage,
+  "video-synopsis":VideoSynopsis,
+  "face-detection": FaceDetectionPage,
   "ai-analytics": AiAnalyticsPage,
 
   // ================= DEVICES =================
@@ -136,6 +143,7 @@ const MAP = {
   "network-health": NetworkHealthPage,
   "system-performance": SystemPerformancePage,
   "raid-mgmt": RaidMgmtPage,
+  "approvals": PendingApprovalsPage,
 };
 
 // Pages that require supervisor unlock for CLIENT role
@@ -157,8 +165,16 @@ export default function PageRenderer({ activePage, onNavigate }) {
   const { user, supervisorUnlocked, unlockSupervisor } = useAuth();
   const navigate = useNavigate();
   const role = user?.role;
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const basePage = activePage ? activePage.split("/")[0] : "";
+
+  // --- Listen to refresh event ---
+  useEffect(() => {
+    const handleRefresh = () => setRefreshKey((k) => k + 1);
+    window.addEventListener('appRefresh', handleRefresh);
+    return () => window.removeEventListener('appRefresh', handleRefresh);
+  }, []);
 
   // --- Redirects ---
   useEffect(() => {
@@ -205,5 +221,5 @@ export default function PageRenderer({ activePage, onNavigate }) {
 
   // ✅ fallback to basePage or dashboard if page not found
   const Component = MAP[activePage] || MAP[basePage] || DashboardPage;
-  return <Component onNavigate={onNavigate || ((page) => navigate(`/${page}`))} />;
+  return <Component key={`${activePage}-${refreshKey}`} onNavigate={onNavigate || ((page) => navigate(`/${page}`))} />;
 }

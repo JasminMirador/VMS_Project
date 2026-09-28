@@ -2421,7 +2421,7 @@ export default function DesignerView({ onBack }) {
       
       const finalSlides = slides || slidesRef.current;
       if (finalSlides && finalSlides.length > 0) {
-        bodyObj.slides = finalSlides;
+        bodyObj.slides = finalSlides.map(({ modelDataUrl, floorPlan, thumbnailUrl, ...rest }) => rest);
       }
       
       const finalActiveId = activeSlideId || activeSlideIdRef.current;
