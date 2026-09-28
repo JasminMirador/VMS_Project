@@ -177,8 +177,15 @@
 }
 
 @keyframes mp-browse-pulse {
-  0%, 100% { opacity: 0.7; }
-  50% { opacity: 1; }
+
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+
+  50% {
+    opacity: 1;
+  }
 }
 
 .mp-btn-spinner {
@@ -193,7 +200,9 @@
 }
 
 @keyframes mp-btn-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .mp-export-btn-side {
@@ -312,7 +321,10 @@
   scrollbar-color: var(--bg-active) transparent;
 }
 
-.mp-cam-menu::-webkit-scrollbar { width: 4px; }
+.mp-cam-menu::-webkit-scrollbar {
+  width: 4px;
+}
+
 .mp-cam-menu::-webkit-scrollbar-thumb {
   background: var(--bg-active);
   border-radius: 4px;
@@ -503,29 +515,29 @@
   transition: background var(--transition);
 }
 
-.mp-hour-header:hover { 
-  background: var(--bg-hover); 
+.mp-hour-header:hover {
+  background: var(--bg-hover);
 }
 
-.mp-hour-header.open { 
-  color: var(--amber); 
+.mp-hour-header.open {
+  color: var(--amber);
 }
 
-.mp-hour-toggle { 
-  font-size: 16px; 
-  flex-shrink: 0; 
+.mp-hour-toggle {
+  font-size: 16px;
+  flex-shrink: 0;
 }
 
-.mp-hour-label { 
-  flex: 1; 
-  text-align: left; 
+.mp-hour-label {
+  flex: 1;
+  text-align: left;
 }
 
-.mp-hour-count { 
-  color: var(--text-hint); 
-  font-weight: 400; 
-  text-transform: none; 
-  letter-spacing: 0; 
+.mp-hour-count {
+  color: var(--text-hint);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .mp-file-date {
@@ -616,11 +628,13 @@
 }
 
 @keyframes pulse {
+
   0%,
   100% {
     opacity: 1;
     transform: scale(1);
   }
+
   50% {
     opacity: 0.4;
     transform: scale(0.7);
@@ -644,7 +658,7 @@
   flex: 1;
   position: relative;
   background: #20242c;
-  background-image: 
+  background-image:
     radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px);
   background-size: 22px 22px;
   border-radius: var(--radius-lg);
@@ -661,7 +675,7 @@
 
 [data-theme="light"] .mp-player-wrap {
   background: #dbe2ec;
-  background-image: 
+  background-image:
     radial-gradient(rgba(0, 0, 0, 0.09) 1px, transparent 1px);
   background-size: 22px 22px;
   border: 1px solid rgba(0, 0, 0, 0.12);
@@ -783,8 +797,13 @@
 }
 
 @keyframes mp-spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 .mp-loading-overlay p {
@@ -1047,8 +1066,13 @@
 }
 
 @keyframes snapshotFlash {
-  0%   { opacity: 0.6; }
-  100% { opacity: 0;   }
+  0% {
+    opacity: 0.6;
+  }
+
+  100% {
+    opacity: 0;
+  }
 }
 
 /* ── Fullscreen ──────────────────────────────── */
@@ -1084,7 +1108,6 @@
   display: flex;
   flex-direction: column;
   max-height: 85vh;
-  overflow: hidden;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
@@ -1133,7 +1156,7 @@
 .mp-export-body {
   flex: 1;
   padding: 20px;
-  overflow-y: auto;
+  overflow: visible;
   min-height: 0;
 }
 
@@ -1327,11 +1350,9 @@
   top: 0;
   left: 0;
   bottom: 0;
-  background: linear-gradient(
-    90deg,
-    rgba(245, 166, 35, 0.06) 0%,
-    rgba(245, 166, 35, 0.12) 100%
-  );
+  background: linear-gradient(90deg,
+      rgba(245, 166, 35, 0.06) 0%,
+      rgba(245, 166, 35, 0.12) 100%);
   border-radius: var(--radius-sm) 0 0 var(--radius-sm);
   pointer-events: none;
   transition: width 0.08s linear;
@@ -1381,6 +1402,7 @@
 .mp-timescale-tick:first-child .mp-timescale-tick-label {
   transform: translateX(0);
 }
+
 /* anchor last label to the right */
 .mp-timescale-tick:last-child .mp-timescale-tick-label {
   transform: translateX(-100%);
@@ -1441,11 +1463,9 @@
 
 /* ── Hover interaction on the track ────────────── */
 .mp-timescale-track:hover .mp-timescale-fill {
-  background: linear-gradient(
-    90deg,
-    rgba(245, 166, 35, 0.08) 0%,
-    rgba(245, 166, 35, 0.18) 100%
-  );
+  background: linear-gradient(90deg,
+      rgba(245, 166, 35, 0.08) 0%,
+      rgba(245, 166, 35, 0.18) 100%);
 }
 
 .mp-timescale-track:hover .mp-timescale-playhead-needle {
@@ -1457,8 +1477,15 @@
 
 /* ── Subtle animation on the playhead flag ─────── */
 @keyframes timescale-glow {
-  0%, 100% { box-shadow: 0 2px 8px rgba(245, 166, 35, 0.4); }
-  50% { box-shadow: 0 2px 12px rgba(245, 166, 35, 0.6); }
+
+  0%,
+  100% {
+    box-shadow: 0 2px 8px rgba(245, 166, 35, 0.4);
+  }
+
+  50% {
+    box-shadow: 0 2px 12px rgba(245, 166, 35, 0.6);
+  }
 }
 
 .mp-timescale-playhead-flag {
@@ -1470,34 +1497,32 @@
   position: absolute;
   top: 4px;
   bottom: 4px;
-  background: linear-gradient(
-    90deg,
-    rgba(16, 185, 129, 0.18) 0%,
-    rgba(5, 150, 105, 0.28) 100%
-  );
+  background: linear-gradient(90deg,
+      rgba(16, 185, 129, 0.18) 0%,
+      rgba(5, 150, 105, 0.28) 100%);
   border: 1px solid rgba(16, 185, 129, 0.35);
   border-radius: 4px;
   z-index: 3;
-  pointer-events: auto; /* Allow hover title tooltip */
+  pointer-events: auto;
+  /* Allow hover title tooltip */
   cursor: pointer;
-  box-shadow: 
+  box-shadow:
     inset 0 0 6px rgba(16, 185, 129, 0.1),
     0 0 8px rgba(16, 185, 129, 0.15);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .mp-timescale-motion-range:hover {
-  background: linear-gradient(
-    90deg,
-    rgba(16, 185, 129, 0.35) 0%,
-    rgba(5, 150, 105, 0.45) 100%
-  );
+  background: linear-gradient(90deg,
+      rgba(16, 185, 129, 0.35) 0%,
+      rgba(5, 150, 105, 0.45) 100%);
   border-color: rgba(16, 185, 129, 0.75);
-  box-shadow: 
+  box-shadow:
     inset 0 0 10px rgba(16, 185, 129, 0.25),
     0 0 14px rgba(16, 185, 129, 0.5);
   transform: scaleY(1.08);
 }
+
 /* ── Toolbar ── */
 .lv-toolbar {
   display: flex;
@@ -1691,8 +1716,15 @@
 }
 
 @keyframes verify-pop {
-  0% { opacity: 0; transform: scale(0.92) translateY(8px); }
-  100% { opacity: 1; transform: scale(1) translateY(0); }
+  0% {
+    opacity: 0;
+    transform: scale(0.92) translateY(8px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 .mp-verify-valid {
@@ -1773,7 +1805,10 @@
 /* -- Trim Preview Modal ------------------------- */
 .mp-trim-modal-overlay {
   position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   background: rgba(0, 0, 0, 0.7);
   backdrop-filter: blur(4px);
   z-index: 999;
@@ -1788,6 +1823,7 @@
   border-radius: var(--radius-lg);
   width: 90%;
   max-width: 800px;
+  max-height: 90vh;
   display: flex;
   flex-direction: column;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
@@ -1801,6 +1837,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
 }
 
 .mp-trim-modal-title {
@@ -1815,6 +1852,7 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
+  overflow-y: auto;
 }
 
 .mp-trim-preview-container {
@@ -1824,6 +1862,7 @@
   overflow: hidden;
   position: relative;
   aspect-ratio: 16 / 9;
+  max-height: 45vh;
 }
 
 .mp-trim-preview-video {
@@ -1835,7 +1874,7 @@
 /* -- Custom Dual-Thumb Timeline -- */
 .mp-trim-timeline-wrapper {
   position: relative;
-  height: 100px;
+  height: 60px;
   display: flex;
   align-items: center;
   user-select: none;
@@ -1844,7 +1883,7 @@
 .mp-trim-timeline-track {
   position: relative;
   width: 100%;
-  height: 80px;
+  height: 48px;
   background: var(--bg-deep);
   border-radius: 4px;
   border: 1px solid var(--border-subtle);
@@ -1855,7 +1894,8 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  background: rgba(45, 212, 191, 0.2); /* Less intense teal */
+  background: rgba(45, 212, 191, 0.2);
+  /* Less intense teal */
   border-top: 2px solid rgba(45, 212, 191, 0.8);
   border-bottom: 2px solid rgba(45, 212, 191, 0.8);
   pointer-events: none;
@@ -1874,7 +1914,7 @@
   align-items: center;
   justify-content: center;
   z-index: 10;
-  box-shadow: 0 0 4px rgba(0,0,0,0.5);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
 }
 
 .mp-trim-timeline-handle:hover {
@@ -1930,4 +1970,3 @@
   gap: 12px;
   background: var(--bg-raised);
 }
-
