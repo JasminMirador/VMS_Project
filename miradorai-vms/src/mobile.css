@@ -1,0 +1,219 @@
+/* =========================================================================
+   GLOBAL MOBILE RESPONSIVE OVERRIDES
+   Targets screens 768px and smaller (specifically 390px phones).
+   This file is imported once in main.jsx.
+   ========================================================================= */
+
+@media screen and (max-width: 768px) {
+  /* ── 1. Global Reset for Overflow ───────────────────────────── */
+  html, body, #root {
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  /* ── 2. App Layout ────────────────────────────────────────── */
+  /* Remove flex-direction: column !important; so it stays as row 
+     but we fix the width of main content to 100% */
+  .app-root {
+    /* flex-direction: row; (Desktop default usually) */
+    position: relative;
+  }
+  
+  .app-main-area {
+    width: 100%;
+    max-width: 100vw;
+    min-width: 0;
+    flex: 1 1 100%;
+    /* Ensure there's no margin or reserved space for the sidebar */
+    margin-left: 0 !important;
+  }
+
+  /* ── 3. Sidebar (Off-Canvas) ──────────────────────────────── */
+  .sidebar {
+    position: fixed !important;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 9999 !important;
+    width: 280px !important;
+    max-width: 85vw !important;
+    border-right: 1px solid var(--border) !important;
+    transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
+    /* When NOT collapsed, it's OPEN (visible) */
+    transform: translateX(0);
+    background-color: var(--bg-dark, #1a1a2e); /* Ensure background is solid */
+  }
+
+  .sidebar.sidebar--collapsed {
+    /* When collapsed, hide it completely off-screen */
+    transform: translateX(-100%) !important;
+  }
+
+  /* Hide the dock on mobile */
+  .sidebar-dock {
+    display: none !important;
+  }
+
+  /* Mobile overlay in Sidebar.jsx */
+  .sidebar__mobile-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: -1; /* Behind the sidebar content, but covers the screen */
+    cursor: pointer;
+    /* Ensure it starts at the very left edge of the screen, not relative to sidebar */
+    transform: translateX(0);
+  }
+  
+  /* Because .sidebar has transform, its children are relative to it.
+     To fix the overlay so it covers the full viewport when sidebar is OPEN (translateX(0)), 
+     we just make it 100vw wide and position it at top-left. */
+
+  /* ── 4. TopBar & Header ───────────────────────────────────── */
+  .topbar {
+    padding: 10px 12px !important;
+    height: auto !important;
+    min-height: 60px;
+    flex-wrap: nowrap !important; /* Keep on one row */
+    gap: 8px;
+    overflow: hidden;
+  }
+  
+  .topbar__left {
+    flex: 1 1 auto;
+    justify-content: flex-start;
+  }
+
+  .topbar__right {
+    flex: 0 0 auto;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  /* Mobile sidebar toggle button in TopBar (if we need to add one, or reuse logo) */
+  .topbar .mobile-menu-btn {
+    display: flex !important;
+  }
+
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start !important;
+    padding: 16px 12px !important;
+    gap: 12px;
+  }
+  
+  .page-header__right {
+    width: 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+
+  /* Typography */
+  .page-title {
+    font-size: clamp(20px, 6vw, 26px) !important;
+    white-space: normal !important;
+    word-break: break-word;
+  }
+  
+  .page-desc {
+    font-size: 12px !important;
+  }
+
+  /* ── 5. Dashboard (.mir overrides) ────────────────────────── */
+  .mir-content {
+    padding: 12px !important;
+  }
+
+  .mir-row {
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: 4px;
+    padding: 12px 0 !important;
+  }
+
+  .mir-row .v {
+    text-align: left !important;
+  }
+
+  /* Remove fixed 340px width on cards in mobile */
+  .mir-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  /* Top stat boxes */
+  .mir-grid, .mir-grid-top, .mir-grid-health {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 16px !important;
+  }
+
+  /* Any flex row containing cards */
+  .mir > main > div > div {
+    flex-wrap: wrap !important;
+  }
+
+  .mir-w-head h4, .mir-h1, .mir-h3 {
+    font-size: clamp(16px, 5vw, 38px) !important;
+  }
+
+  /* Ensure dropdown wrappers do not cause horizontal overflow */
+  .mir-field, .mir-split, .tp-popover-wrapper, .dp-popover-wrapper {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex-direction: column;
+  }
+  
+  .mir-reports .mir-card {
+    flex-direction: column !important;
+  }
+  
+  .mir-reports .mir-fg {
+    width: 100% !important;
+  }
+
+  .mir-reports {
+    flex-wrap: wrap;
+  }
+
+  /* ── 6. Splash Screen ─────────────────────────────────────── */
+  .splash__name {
+    font-size: clamp(24px, 8vw, 42px) !important;
+    letter-spacing: clamp(4px, 2vw, 18px) !important;
+    width: 100%;
+    text-align: center;
+    white-space: normal;
+  }
+  
+  .splash__sub {
+    font-size: clamp(10px, 3.5vw, 13px) !important;
+    letter-spacing: clamp(2px, 1vw, 8px) !important;
+    text-align: center;
+    padding: 0 16px;
+    white-space: normal;
+  }
+  
+  .splash__center {
+    width: 90vw !important;
+  }
+
+  /* ── 7. Shared Components ─────────────────────────────────── */
+  .m-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+  }
+  
+  .m-table {
+    min-width: 600px;
+  }
+  
+  /* Images and media */
+  img, video, svg, .mir-cam {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+}
