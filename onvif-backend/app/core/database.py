@@ -64,6 +64,9 @@ def create_database_indexes(db_instance):
         db_instance["recordings"].create_index("is_deleted")
         db_instance["analytics_events"].create_index("is_deleted")
         db_instance["users"].create_index("is_deleted")
+
+        # 10. Signup Requests Index
+        db_instance["signup_requests"].create_index("email", unique=True)
  
         print("[MONGO] All database indexes created successfully.")
     except Exception as err:
@@ -93,7 +96,8 @@ try:
     event_clips_col = db["event_clips"]
     health_logs_col = db["health_logs"]
     process_lifecycle_col = db["process_lifecycle_logs"]
- 
+    signup_requests_col = db["signup_requests"]
+
     # Ensure optimized indexes are built
     create_database_indexes(db)
  
@@ -113,3 +117,4 @@ except Exception as e:
     recordings_col = None
     event_clips_col = None
     health_logs_col = None
+    signup_requests_col = None

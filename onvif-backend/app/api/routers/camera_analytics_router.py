@@ -89,12 +89,12 @@ async def get_camera_analytics(device_id: str):
     }
 
     try:
-        # Get all distinct type+scenario combinations for this camera
+        # Get all distinct type+scenario combinations for this camera (most recent first)
         docs = list(
             mqtt_logs_col.find(
                 query,
                 {"_id": 0, "type": 1, "scenario": 1, "topic_analytics": 1, "topic_event": 1}
-            ).limit(500)  # Safety cap
+            ).sort("time", -1).limit(2000)
         )
 
         if not docs:
@@ -122,6 +122,10 @@ async def get_camera_analytics(device_id: str):
             display_type = event_type or scenario
             key = display_type.lower()
 
+            # Ignore motion and counter analytics per user request
+            if "motion" in key or "counter" in key:
+                continue
+
             if key in seen:
                 continue
             seen.add(key)
@@ -137,3 +141,75 @@ async def get_camera_analytics(device_id: str):
     except Exception as e:
         print(f"[CAMERA_ANALYTICS] ❌ Query failed for {device_id}: {e}")
         return {"analytics": [], "error": str(e)}
+
+@camera_analytics_router.get("/api/camera-analytics/{device_id}/preferences")
+async def get_camera_analytics_preferences(device_id: str):
+    """
+    Returns the enabled analytics for a given camera.
+    """
+    try:
+        _mongo = mongo_client
+        _db_name = os.environ.get("MONGO_DB_NAME")
+        _db = _mongo[_db_name] if _mongo else None
+        subs_col = _db["analytics_subscriptions"] if _db is not None else None
+        
+        if subs_col is None:
+             return {"enabled": []}
+             
+        doc = subs_col.find_one({"device_id": device_id})
+        if doc:
+            return {"enabled": doc.get("enabled", [])}
+        return {"enabled": []}
+    except Exception as e:
+        print(f"[CAMERA_ANALYTICS] ❌ Failed to get preferences for {device_id}: {e}")
+        return {"enabled": []}
+
+from pydantic import BaseModel
+from typing import List
+
+class PreferencesPayload(BaseModel):
+    enabled: List[str]
+
+@camera_analytics_router.put("/api/camera-analytics/{device_id}/preferences")
+async def set_camera_analytics_preferences(device_id: str, payload: PreferencesPayload):
+    """
+    Sets the enabled analytics for a given camera.
+    """
+    try:
+        _mongo = mongo_client
+        _db_name = os.environ.get("MONGO_DB_NAME")
+        _db = _mongo[_db_name] if _mongo else None
+        subs_col = _db["analytics_subscriptions"] if _db is not None else None
+        
+        if subs_col is None:
+             return {"success": False, "error": "Database not connected"}
+             
+        subs_col.update_one(
+            {"device_id": device_id},
+            {"$set": {"enabled": payload.enabled}},
+            upsert=True
+        )
+        return {"success": True}
+    except Exception as e:
+        print(f"[CAMERA_ANALYTICS] ❌ Failed to set preferences for {device_id}: {e}")
+        return {"success": False, "error": str(e)}
+
+@camera_analytics_router.get("/api/camera-analytics-preferences")
+async def get_all_camera_analytics_preferences():
+    """
+    Returns the enabled analytics for all cameras.
+    """
+    try:
+        _mongo = mongo_client
+        _db_name = os.environ.get("MONGO_DB_NAME")
+        _db = _mongo[_db_name] if _mongo else None
+        subs_col = _db["analytics_subscriptions"] if _db is not None else None
+        
+        if subs_col is None:
+             return {"preferences": []}
+             
+        docs = list(subs_col.find({}, {"_id": 0, "device_id": 1, "enabled": 1}))
+        return {"preferences": docs}
+    except Exception as e:
+        print(f"[CAMERA_ANALYTICS] ❌ Failed to get all preferences: {e}")
+        return {"preferences": []}

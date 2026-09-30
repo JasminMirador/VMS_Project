@@ -3,17 +3,30 @@ from typing import Optional
 from pydantic import BaseModel
 import re, asyncio, os
 from datetime import datetime, timedelta
-from app.schemas.auth import SignupRequest, LoginRequest, ForgotPasswordRequest, SupervisorPasswordRequest, SupervisorVerifyRequest, ResetPasswordRequest, AdminCreateUserRequest, AdminUpdateUserRequest, ChangePasswordRequest, MFASetupResponse, MFAVerifyRequest
-from app.core.database import users_col, auth_logs_col, settings_col, supervisor_col
+from app.schemas.auth import SignupRequest, LoginRequest, ForgotPasswordRequest, SupervisorPasswordRequest, SupervisorVerifyRequest, ResetPasswordRequest, AdminCreateUserRequest, AdminUpdateUserRequest, ChangePasswordRequest, MFASetupResponse, MFAVerifyRequest, AdminApproveSignupRequest, SignupFinalizeRequest
+from app.core.database import users_col, auth_logs_col, settings_col, supervisor_col, signup_requests_col
 from app.core.security import create_token, verify_token, require_admin, PUBLIC_KEY
 from app.services.redis_stream_publisher import publish_event as _redis_publish
 import bcrypt
 import pyotp
 
 from slowapi import Limiter
-from slowapi.util import get_remote_address
-limiter = Limiter(key_func=get_remote_address)
-
+# from slowapi.util import get_remote_address
+# limiter = Limiter(key_func=get_remote_address)
+def get_real_ip(request: Request) -> str:
+    ip = request.headers.get("X-Forwarded-For")
+    if ip:
+        ip = ip.split(",")[0].strip()
+    else:
+        ip = request.headers.get("X-Real-IP") or (request.client.host if request.client else "127.0.0.1")
+    if ip.startswith("::ffff:"):
+        ip = ip.replace("::ffff:", "")
+    elif ip == "::1":
+        ip = "127.0.0.1"
+    if ":" in ip and not ip.startswith("::"):
+        ip = ip.split(":")[0]
+    return ip
+limiter = Limiter(key_func=get_real_ip)
 from app.core.logger import log_security_event
 
 _USER_STREAM = lambda: os.environ.get("REDIS_STREAM_USER_EVENTS", "vms:events:user")
@@ -99,39 +112,254 @@ def validate_password_complexity(password: str, email: str = ""):
         if username and username.lower() in password.lower():
             raise HTTPException(status_code=400, detail="Password cannot contain your username")
 
+from app.services.email_service import send_manual_email
+
 @router.post("/signup")
-def auth_signup(req: SignupRequest):
-    if users_col is None:
+@limiter.limit("5/minute")
+def auth_signup(request: Request, req: SignupRequest):
+    if users_col is None or signup_requests_col is None:
         raise HTTPException(status_code=500, detail="Database not connected")
-    if not req.email or not req.password:
-        raise HTTPException(status_code=400, detail="Email and password are required")
+    if not req.email:
+        raise HTTPException(status_code=400, detail="Email is required")
     email_regex = r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
     if not re.match(email_regex, req.email):
         raise HTTPException(status_code=400, detail="Invalid email format")
 
-    plain_password = decrypt_password(req.password)
-    validate_password_complexity(plain_password, req.email)
-
     if req.role not in ("admin", "client", "operator"):
         raise HTTPException(status_code=400, detail="Role must be 'admin', 'client', or 'operator'")
+        
     if users_col.find_one({"email": req.email, "is_deleted": {"$ne": True}}):
         raise HTTPException(status_code=400, detail="Email already registered")
+
+    # Upsert the request to handle multiple requests by the same email
+    try:
+        signup_requests_col.update_one(
+            {"email": req.email},
+            {"$set": {
+                "email": req.email,
+                "role": req.role,
+                "status": "pending",
+                "createdAt": datetime.utcnow().isoformat()
+            }},
+            upsert=True
+        )
+        print(f"[AUTH] 🕒 Signup requested for: {req.email}")
+        
+        # Send email to Admin
+        admin_email = os.environ.get("ALERT_EMAIL_FROM", "zjasmin.pro@gmail.com")
+        subject = "New Signup Request - Action Required"
+        body = f"<p>A new user has requested to sign up.</p><p><b>Email:</b> {req.email}</p><p><b>Role:</b> {req.role}</p><p>Please log in to the admin dashboard to approve or reject this request.</p>"
+        send_manual_email([admin_email], subject, body)
+        
+    except Exception as e:
+        print(f"[AUTH] ❌ Signup request failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create signup request")
+        
+    return {"success": True, "message": "Signup request submitted successfully. Waiting for admin approval."}
+
+@router.get("/admin/signup-requests")
+def admin_get_signup_requests(user=Depends(require_admin)):
+    if signup_requests_col is None:
+        raise HTTPException(status_code=500, detail="Database not connected")
+        
+    requests = list(signup_requests_col.find({"status": "pending"}))
+    for r in requests:
+        r["_id"] = str(r["_id"])
+        
+    return {"success": True, "requests": requests}
+
+@router.post("/admin/approve-signup")
+def admin_approve_signup(req: AdminApproveSignupRequest, user=Depends(require_admin)):
+    if signup_requests_col is None:
+        raise HTTPException(status_code=500, detail="Database not connected")
+        
+    request_doc = signup_requests_col.find_one({"email": req.email, "status": "pending"})
+    if not request_doc:
+        raise HTTPException(status_code=404, detail="Pending signup request not found for this email")
+        
+    if not req.approve:
+        signup_requests_col.delete_one({"email": req.email})
+        return {"success": True, "message": "Signup request rejected"}
+        
+    # Generate 6 digit OTP
+    import secrets
+    otp = str(secrets.randbelow(1000000)).zfill(6)
+    hashed_otp = hash_password(otp)
     
+    # 2 mins expiration
+    expires_at = datetime.utcnow() + timedelta(minutes=2)
+    
+    signup_requests_col.update_one(
+        {"email": req.email},
+        {"$set": {
+            "status": "approved",
+            "otp_hash": hashed_otp,
+            "expires_at": expires_at.isoformat()
+        }}
+    )
+    
+    send_otp_email_template(req.email, otp)
+    
+    return {"success": True, "message": "Request approved. OTP sent to user."}
+
+def send_otp_email_template(email: str, otp: str):
+    # Attach Logo
+    import os
+    logo_path = os.path.abspath(os.path.join(os.getcwd(), "..", "miradorai-vms", "src", "assets", "logo.jpg"))
+    attachments = []
+    if os.path.exists(logo_path):
+        with open(logo_path, "rb") as f:
+            attachments.append({
+                "filename": "logo.jpg",
+                "data": f.read(),
+                "cid": "logo_img"
+            })
+            
+    # Professional OTP Email Template
+    subject = "Verify your email address"
+    
+    # Calculate IST time and expiration
+    ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
+    ist_time_str = ist_time.strftime("%B %d, %Y at %I:%M %p")
+    
+    expires_time = ist_time + timedelta(minutes=2)
+    expires_time_str = expires_time.strftime("%I:%M %p")
+    
+    body = f"""
+    <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f4f4f4; padding: 40px 0; margin: 0; color: #333;">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0">
+            <tr>
+                <td align="center">
+                    <table width="600" border="0" cellspacing="0" cellpadding="0" style="background-color: #ffffff; border-radius: 4px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                        <!-- Header -->
+                        <tr>
+                            <td style="padding: 20px 40px; border-bottom: 1px solid #eeeeee; background-color: #0b1121;">
+                                <table border="0" cellspacing="0" cellpadding="0">
+                                    <tr>
+                                        <td valign="middle">
+                                            <img src="cid:logo_img" alt="Logo" style="width: 40px; height: 40px; border-radius: 4px; display: block; margin-right: 15px;" />
+                                        </td>
+                                        <td valign="middle">
+                                            <h1 style="margin: 0; font-size: 24px; font-weight: 500; letter-spacing: 4px; color: #34d399;">
+                                                MIRADOR VMS
+                                            </h1>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </td>
+                        </tr>
+                        
+                        <!-- Body -->
+                        <tr>
+                            <td style="padding: 40px;">
+                                <h2 style="margin: 0 0 20px 0; font-size: 22px; color: #111111;">Verify your email address</h2>
+                                <p style="margin: 0 0 20px 0; font-size: 15px; line-height: 1.6; color: #444444;">
+                                    You need to verify your email address to continue using your <b>Mirador VMS</b> account. Enter the following code to verify your email address:
+                                </p>
+                                
+                                <div style="font-size: 32px; font-weight: bold; letter-spacing: 4px; color: #111111; margin: 30px 0; padding-bottom: 20px; border-bottom: 1px solid #eeeeee;">
+                                    {otp}
+                                </div>
+                                
+                                <p style="margin: 0 0 10px 0; font-size: 13px; font-style: italic; color: #666666;">
+                                    This OTP will expire in 2 minutes (at {expires_time_str} IST).
+                                </p>
+                                <p style="margin: 0 0 20px 0; font-size: 13px; font-style: italic; color: #666666;">
+                                    The request for this access was approved on {ist_time_str} (IST).
+                                </p>
+                                
+                                <p style="margin: 0 0 10px 0; font-size: 14px; line-height: 1.6; color: #444444;">
+                                    In case you were not trying to access your <b>Mirador VMS</b> Account and are seeing this email, please follow the instructions below:
+                                </p>
+                                <ul style="margin: 0 0 20px 0; padding-left: 20px; font-size: 14px; line-height: 1.6; color: #444444;">
+                                    <li>Check if any changes were made to your account & user settings.</li>
+                                    <li>If you are unable to access your <b>Mirador VMS</b> Account then contact your Administrator.</li>
+                                </ul>
+                            </td>
+                        </tr>
+                        
+                        <!-- Footer -->
+                        <tr>
+                            <td style="padding: 20px 40px; background-color: #f9f9f9; text-align: center; border-top: 1px solid #eeeeee;">
+                                <p style="margin: 0; font-size: 12px; color: #999999;">
+                                    Mirador VMS &copy; {ist_time.year}. All rights reserved.
+                                </p>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </div>
+    """
+    send_manual_email([email], subject, body, attachments=attachments)
+
+@router.post("/signup/resend-otp")
+def resend_signup_otp(req: ForgotPasswordRequest):
+    if signup_requests_col is None:
+        raise HTTPException(status_code=500, detail="Database not connected")
+        
+    request_doc = signup_requests_col.find_one({"email": req.email, "status": "approved"})
+    if not request_doc:
+        raise HTTPException(status_code=404, detail="No approved signup request found for this email")
+        
+    # Generate new 6 digit OTP
+    import secrets
+    otp = str(secrets.randbelow(1000000)).zfill(6)
+    hashed_otp = hash_password(otp)
+    
+    # 2 mins expiration
+    expires_at = datetime.utcnow() + timedelta(minutes=2)
+    
+    signup_requests_col.update_one(
+        {"email": req.email},
+        {"$set": {
+            "otp_hash": hashed_otp,
+            "expires_at": expires_at.isoformat()
+        }}
+    )
+    
+    send_otp_email_template(req.email, otp)
+    
+    return {"success": True, "message": "A new OTP has been sent to your email."}
+
+@router.post("/signup/finalize")
+def signup_finalize(req: SignupFinalizeRequest):
+    if users_col is None or signup_requests_col is None:
+        raise HTTPException(status_code=500, detail="Database not connected")
+        
+    request_doc = signup_requests_col.find_one({"email": req.email, "status": "approved"})
+    if not request_doc:
+        raise HTTPException(status_code=404, detail="No approved signup request found for this email")
+        
+    expires_at = datetime.fromisoformat(request_doc["expires_at"])
+    if datetime.utcnow() > expires_at:
+        raise HTTPException(status_code=400, detail="OTP has expired")
+        
+    if not verify_password(req.otp, request_doc.get("otp_hash", "")):
+        raise HTTPException(status_code=401, detail="Invalid OTP")
+        
+    plain_password = decrypt_password(req.password)
+    validate_password_complexity(plain_password, req.email)
     hashed_password = hash_password(plain_password)
+    
     user_doc = {
         "email":     req.email,
         "password":  hashed_password,
-        "role":      req.role,
+        "role":      request_doc.get("role", "client"),
         "requires_password_change": False,
         "createdAt": datetime.utcnow().isoformat(),
     }
+    
     try:
         users_col.insert_one(user_doc)
-        print(f"[AUTH] ✅ Account created for: {req.email}")
+        signup_requests_col.delete_one({"email": req.email})
+        print(f"[AUTH] ✅ Final account created for: {req.email}")
     except Exception as e:
-        print(f"[AUTH] ❌ Signup failed: {e}")
-        raise HTTPException(status_code=500, detail="Failed to create account")
-    return {"success": True, "message": "Account created successfully! Please sign in."}
+        print(f"[AUTH] ❌ Final account creation failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to finalize account creation")
+        
+    return {"success": True, "message": "Account finalized successfully! Please sign in."}
 
 
 @router.post("/login")
@@ -514,6 +742,32 @@ async def create_user(request: Request, req: AdminCreateUserRequest, background_
     if users_col.find_one({"email": req.email, "is_deleted": {"$ne": True}}):
         raise HTTPException(status_code=400, detail="Email already registered")
         
+    # Rate limit: Max 5 users per minute per admin
+    from datetime import datetime, timedelta
+    one_minute_ago = (datetime.utcnow() - timedelta(minutes=1)).isoformat()
+    created_count = users_col.count_documents({
+        "createdBy": user.get("email"),
+        "createdAt": {"$gte": one_minute_ago}
+    })
+    
+    if created_count >= 5:
+        # Notify admin about quota limit
+        admin_email = user.get("email")
+        if admin_email:
+            def notify_quota():
+                try:
+                    from app.services.email_service import send_manual_email
+                    subject = "Mirador VMS: User Creation Quota Exceeded"
+                    body = f"<p>Hello,</p><p>You have exceeded your user creation quota (Max 5 users per minute). Please wait before creating more users.</p>"
+                    send_manual_email([admin_email], subject, body)
+                except Exception as e:
+                    print(f"Error sending quota notification: {e}")
+            import asyncio
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(None, notify_quota)
+            
+        raise HTTPException(status_code=429, detail="User creation quota exceeded. You can only create 5 users per minute.")
+        
     # If the email was previously soft-deleted, remove it to prevent DuplicateKeyError on the unique index
     users_col.delete_many({"email": req.email, "is_deleted": True})
     
@@ -529,6 +783,7 @@ async def create_user(request: Request, req: AdminCreateUserRequest, background_
         "allowedCameras": req.allowedCameras or [],
         "is_blocked": req.is_blocked if req.is_blocked is not None else False,
         "createdAt": datetime.utcnow().isoformat(),
+        "createdBy": user.get("email")
     }
     try:
         users_col.insert_one(user_doc)
@@ -605,6 +860,22 @@ async def update_user(email: str, req: AdminUpdateUserRequest, background_tasks:
                         "updated_at_ist": now_ist.isoformat()
                     }}
                 )
+
+    if "password" in update_fields:
+        from app.core.database import db as _db
+        if _db is not None:
+            now_utc = datetime.utcnow()
+            now_ist = now_utc + timedelta(hours=5, minutes=30)
+            _db["active_sessions"].update_many(
+                {"user_id": str(existing["_id"])},
+                {"$set": {
+                    "status": "out",
+                    "is_invalidated": True,
+                    "invalidated_reason": "password_changed_by_admin",
+                    "updated_at": now_utc.isoformat(),
+                    "updated_at_ist": now_ist.isoformat()
+                }}
+            )
 
     if not update_fields:
         return {"success": True, "message": "No changes requested."}
@@ -692,11 +963,12 @@ async def change_password(req: ChangePasswordRequest, background_tasks: Backgrou
         
     plain_old = decrypt_password(req.old_password)
     plain_new = decrypt_password(req.new_password)
+    plain_confirm = decrypt_password(req.confirm_password)
     
     if not verify_password(plain_old, user["password"]):
         raise HTTPException(status_code=401, detail="Incorrect current password")
         
-    if req.new_password != req.confirm_password:
+    if plain_new != plain_confirm:
         raise HTTPException(status_code=400, detail="New passwords do not match")
         
     validate_password_complexity(plain_new, user["email"])
@@ -720,6 +992,23 @@ async def change_password(req: ChangePasswordRequest, background_tasks: Backgrou
     }
     
     users_col.update_one({"_id": user["_id"]}, {"$set": update_fields})
+    
+    # Invalidate all active sessions for this user after password change
+    from app.core.database import db as _db
+    if _db is not None:
+        now_utc = datetime.utcnow()
+        now_ist = now_utc + timedelta(hours=5, minutes=30)
+        _db["active_sessions"].update_many(
+            {"user_id": str(user["_id"])},
+            {"$set": {
+                "status": "out",
+                "is_invalidated": True,
+                "invalidated_reason": "password_changed",
+                "updated_at": now_utc.isoformat(),
+                "updated_at_ist": now_ist.isoformat()
+            }}
+        )
+
     return {"success": True, "message": "Password changed successfully"}
 
 @router.post("/mfa/setup", response_model=MFASetupResponse)
@@ -763,3 +1052,102 @@ async def verify_mfa(req: MFAVerifyRequest, payload=Depends(verify_token)):
     return {"success": True, "message": "MFA enabled successfully"}
 
 
+@router.post("/forgot-password")
+async def forgot_password(req: ForgotPasswordRequest):
+    if users_col is None:
+        raise HTTPException(status_code=500, detail="Database not connected")
+    
+    user = users_col.find_one({"email": req.email, "is_deleted": {"$ne": True}})
+    if not user:
+        # Don't reveal if user exists
+        return {"success": True, "message": "If the email is registered, you will receive a reset OTP shortly."}
+        
+    import secrets
+    otp = str(secrets.randbelow(1000000)).zfill(6)
+    hashed_otp = hash_password(otp)
+    expires_at = datetime.utcnow() + timedelta(minutes=10)
+    
+    users_col.update_one(
+        {"_id": user["_id"]},
+        {"$set": {
+            "reset_otp_hash": hashed_otp,
+            "reset_otp_expires_at": expires_at.isoformat()
+        }}
+    )
+    
+    send_otp_email_template(req.email, otp)
+    
+    return {"success": True, "message": "If the email is registered, you will receive a reset OTP shortly."}
+
+
+@router.post("/reset-password")
+async def reset_password(req: ResetPasswordRequest):
+    if users_col is None:
+        raise HTTPException(status_code=500, detail="Database not connected")
+        
+    user = users_col.find_one({"email": req.email, "is_deleted": {"$ne": True}})
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid request")
+        
+    if "reset_otp_hash" not in user or "reset_otp_expires_at" not in user:
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+        
+    expires_at = datetime.fromisoformat(user["reset_otp_expires_at"])
+    if datetime.utcnow() > expires_at:
+        raise HTTPException(status_code=400, detail="OTP has expired")
+        
+    if not verify_password(req.otp, user["reset_otp_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid OTP")
+        
+    plain_new = decrypt_password(req.new_password)
+    plain_confirm = decrypt_password(req.confirm_password)
+    
+    if plain_new != plain_confirm:
+        raise HTTPException(status_code=400, detail="Passwords do not match")
+        
+    validate_password_complexity(plain_new, user["email"])
+    
+    if verify_password(plain_new, user["password"]):
+        raise HTTPException(status_code=400, detail="Cannot reuse the current password")
+        
+    pwd_history = user.get("password_history", [])
+    for old_hash in pwd_history:
+        if verify_password(plain_new, old_hash):
+            raise HTTPException(status_code=400, detail="Cannot reuse a recently used password")
+            
+    new_hash = hash_password(plain_new)
+    new_history = [user["password"]] + pwd_history
+    
+    users_col.update_one(
+        {"_id": user["_id"]},
+        {
+            "$set": {
+                "password": new_hash,
+                "password_history": new_history[:5],
+                "requires_password_change": False,
+                "updatedAt": datetime.utcnow().isoformat()
+            },
+            "$unset": {
+                "reset_otp_hash": "",
+                "reset_otp_expires_at": ""
+            }
+        }
+    )
+    
+    # Invalidate existing active sessions to force re-login with the new password
+    from app.core.database import db as _db
+    if _db is not None:
+        now_utc = datetime.utcnow()
+        now_ist = now_utc + timedelta(hours=5, minutes=30)
+        _db["active_sessions"].update_many(
+            {"user_id": str(user["_id"])},
+            {"$set": {
+                "status": "out",
+                "is_invalidated": True,
+                "invalidated_reason": "password_reset",
+                "updated_at": now_utc.isoformat(),
+                "updated_at_ist": now_ist.isoformat()
+            }}
+        )
+    
+    return {"success": True, "message": "Password reset successfully. You can now log in."}

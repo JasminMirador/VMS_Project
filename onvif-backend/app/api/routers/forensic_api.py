@@ -68,9 +68,9 @@ def _mp4_response(data: bytes, filename: str, inline: bool = True) -> Response:
             "Content-Disposition":         f"{disposition}; filename=\"{filename}\"",
             "Accept-Ranges":               "bytes",
             "Cache-Control":               "no-store, no-cache",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods":"GET, OPTIONS",
-            "Access-Control-Allow-Headers":"*",
+            
+            
+            
             "Access-Control-Expose-Headers":"Content-Length, Content-Type",
         }
     )
@@ -418,7 +418,7 @@ def get_detection_clip(detection_id: str, background_tasks: BackgroundTasks):
             content_disposition_type="inline",
             headers={
                 "Cache-Control": "no-store, no-cache",
-                "Access-Control-Allow-Origin": "*",
+                
                 "Access-Control-Expose-Headers": "Content-Length, Content-Type, Accept-Ranges"
             }
         )
@@ -437,7 +437,7 @@ def get_detection_clip(detection_id: str, background_tasks: BackgroundTasks):
                 content_disposition_type="inline",
                 headers={
                     "Cache-Control": "no-store, no-cache",
-                    "Access-Control-Allow-Origin": "*",
+                    
                     "Access-Control-Expose-Headers": "Content-Length, Content-Type, Accept-Ranges"
                 }
             )
@@ -510,7 +510,7 @@ def get_combined_multi_track(track_ids: str, background_tasks: BackgroundTasks):
             content_disposition_type="attachment",
             headers={
                 "Cache-Control": "no-store, no-cache",
-                "Access-Control-Allow-Origin": "*",
+                
                 "Access-Control-Expose-Headers": "Content-Length, Content-Type, Accept-Ranges"
             }
         )
@@ -581,7 +581,7 @@ def get_detection_thumbnail(detection_id: str):
                             headers={
                                 "Content-Length":              str(len(jpg_data)),
                                 "Cache-Control":               "max-age=86400",
-                                "Access-Control-Allow-Origin": "*",
+                                
                             }
                         )
 
@@ -664,7 +664,7 @@ def get_detection_thumbnail(detection_id: str):
 
     return Response(content=svg, media_type="image/svg+xml", headers={
         "Cache-Control": "max-age=86400",
-        "Access-Control-Allow-Origin": "*",
+        
     })
 
 

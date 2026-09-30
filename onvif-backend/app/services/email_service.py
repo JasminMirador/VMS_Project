@@ -279,9 +279,9 @@ def send_scheduled_report(schedule: dict):
 def send_manual_email(recipients: list, subject: str, body_text: str, attachments: list = None):
     smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
     smtp_port = int(os.environ.get("SMTP_PORT", 587))
-    smtp_user = os.environ.get("SMTP_USER", "")
-    smtp_pass = os.environ.get("SMTP_PASSWORD", "")
-    sender_email = os.environ.get("ALERT_EMAIL_FROM", smtp_user or "noreply@vms.local")
+    smtp_user = os.environ.get("AUTH_SMTP_USER") or os.environ.get("SMTP_USER", "")
+    smtp_pass = os.environ.get("AUTH_SMTP_PASSWORD") or os.environ.get("SMTP_PASSWORD", "")
+    sender_email = os.environ.get("AUTH_SMTP_USER") or os.environ.get("ALERT_EMAIL_FROM", smtp_user or "noreply@vms.local")
     
     if not recipients:
         return False, "No recipients specified"
@@ -303,10 +303,18 @@ def send_manual_email(recipients: list, subject: str, body_text: str, attachment
             part = MIMEBase("application", "octet-stream")
             part.set_payload(file_data)
             encoders.encode_base64(part)
-            part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
+            cid = attachment.get("cid")
+            if cid:
+                part.add_header('Content-ID', f'<{cid}>')
+                part.add_header('Content-Disposition', 'inline', filename=filename)
+            else:
+                part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
             msg.attach(part)
             
     try:
+        if smtp_pass:
+            smtp_pass = smtp_pass.replace(" ", "")
+            
         with smtplib.SMTP(smtp_host, smtp_port) as server:
             server.starttls()
             if smtp_user and smtp_pass:

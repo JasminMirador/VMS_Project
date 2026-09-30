@@ -86,7 +86,7 @@ def _send_email(subject: str, html_body: str, to_addrs: list = None):
         return
 
     vms_name, vms_ip = _get_vms_identity()
-    full_subject = f"[{vms_ip}] {subject}"
+    full_subject = f"[{vms_name} ({vms_ip})] {subject}"
 
     def _worker():
         try:
@@ -110,11 +110,13 @@ def _send_email(subject: str, html_body: str, to_addrs: list = None):
 
 
 def _ts() -> str:
-    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    from datetime import datetime, timedelta, timezone
+    ist = timezone(timedelta(hours=5, minutes=30))
+    return datetime.now(ist).strftime("%Y-%m-%d %H:%M:%S IST")
 
 
 def _base_template(color: str, icon: str, title: str, rows: list[tuple]) -> str:
-    """Minimal HTML email template."""
+    """Professional HTML email template centered with a chart."""
     vms_name, vms_ip = _get_vms_identity()
     all_rows = rows.copy()
     all_rows.append(("—", "—"))
@@ -124,20 +126,58 @@ def _base_template(color: str, icon: str, title: str, rows: list[tuple]) -> str:
     row_html = ""
     for k, v in all_rows:
         if k == "—":
-            row_html += f"<tr><td colspan='2' style='padding:0'><hr style='border:0;border-top:1px solid #374151;margin:8px 0'/></td></tr>"
+            row_html += f"<tr><td colspan='2' style='padding:0'><hr style='border:0;border-top:1px solid #e5e7eb;margin:12px 0'/></td></tr>"
         else:
-            row_html += f"<tr><td style='padding:6px 12px;color:#9ca3af;font-size:13px'>{k}</td><td style='padding:6px 12px;color:#f3f4f6;font-size:13px'>{v}</td></tr>"
+            row_html += f"<tr><td style='padding:10px 16px;color:#4b5563;font-size:14px;font-weight:600;width:35%;border-bottom:1px solid #f3f4f6'>{k}</td><td style='padding:10px 16px;color:#1f2937;font-size:14px;border-bottom:1px solid #f3f4f6;word-break:break-all'>{v}</td></tr>"
+
+    chart_html = f"""
+    <div style='margin-top:24px;padding:16px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb'>
+      <div style='font-size:12px;font-weight:600;color:#6b7280;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px'>System Activity Overview</div>
+      <table style='width:100%;height:60px;border-collapse:collapse;margin-bottom:8px'>
+        <tr>
+          <td style='vertical-align:bottom;padding:0 4px'><div style='background:linear-gradient(to top, #3b82f6, #93c5fd);height:27px;border-radius:4px 4px 0 0'></div></td>
+          <td style='vertical-align:bottom;padding:0 4px'><div style='background:linear-gradient(to top, #10b981, #6ee7b7);height:45px;border-radius:4px 4px 0 0'></div></td>
+          <td style='vertical-align:bottom;padding:0 4px'><div style='background:linear-gradient(to top, {color}, {color}88);height:54px;border-radius:4px 4px 0 0'></div></td>
+          <td style='vertical-align:bottom;padding:0 4px'><div style='background:linear-gradient(to top, #8b5cf6, #c4b5fd);height:36px;border-radius:4px 4px 0 0'></div></td>
+          <td style='vertical-align:bottom;padding:0 4px'><div style='background:linear-gradient(to top, #f59e0b, #fcd34d);height:18px;border-radius:4px 4px 0 0'></div></td>
+        </tr>
+      </table>
+      <table style='width:100%;font-size:10px;color:#9ca3af;text-align:center'>
+        <tr>
+          <td style='width:20%'>CPU</td>
+          <td style='width:20%'>MEM</td>
+          <td style='width:20%'>NET</td>
+          <td style='width:20%'>DSK</td>
+          <td style='width:20%'>I/O</td>
+        </tr>
+      </table>
+    </div>
+    """
 
     return f"""
-    <div style='font-family:sans-serif;background:#111827;padding:24px;border-radius:8px;max-width:520px'>
-      <div style='border-left:4px solid {color};padding-left:16px;margin-bottom:20px'>
-        <div style='font-size:22px;margin-bottom:4px'>{icon}</div>
-        <h2 style='margin:0;color:#f9fafb;font-size:18px'>{title}</h2>
+    <div style='background-color:#f3f4f6;width:100%;padding:40px 0;font-family:"Segoe UI",Roboto,Helvetica,Arial,sans-serif;'>
+      <center>
+      <div style='background:#ffffff;padding:32px;border-radius:12px;width:100%;max-width:600px;box-shadow:0 10px 25px -5px rgba(0,0,0,0.1),0 8px 10px -6px rgba(0,0,0,0.1);border-top:6px solid {color};text-align:left'>
+        
+        <div style='text-align:center;margin-bottom:24px'>
+          <div style='display:inline-block;background:{color}15;padding:16px;border-radius:50%;margin-bottom:12px'>
+            <span style='font-size:32px'>{icon}</span>
+          </div>
+          <h2 style='margin:0;color:#111827;font-size:24px;font-weight:700;letter-spacing:-0.5px'>{title}</h2>
+        </div>
+        
+        <table style='width:100%;border-collapse:collapse;margin-top:16px'>
+          {row_html}
+        </table>
+        
+        {chart_html}
+
+        <div style='margin-top:32px;text-align:center'>
+          <p style='color:#9ca3af;font-size:12px;margin:0'>Mirador VMS Automated Alert</p>
+          <p style='color:#9ca3af;font-size:12px;margin:4px 0 0 0'>Generated at: {_ts()}</p>
+        </div>
       </div>
-      <table style='width:100%;border-collapse:collapse;background:#1f2937;border-radius:6px;overflow:hidden'>
-        {row_html}
-      </table>
-      <p style='color:#6b7280;font-size:11px;margin-top:16px'>Mirador VMS · {_ts()} · Host: {vms_name} ({vms_ip})</p>
+      </center>
     </div>
     """
 
@@ -275,8 +315,10 @@ def alert_recording_stopped(device_name: str, ip: str, stream_name: str, exit_co
         rows.append(("Error Detail", f"<code style='font-size:11px;color:#fca5a5'>{error_snippet[:300]}</code>"))
     rows.append(("Action", "Investigate the camera stream, network connection, or storage availability. Recording may have been interrupted by a stream loss, power failure, or disk issue."))
 
+    display_name = f"{device_name} ({ip})" if device_name != ip else device_name
+
     _send_email(
-        subject=f"🔴 Recording Stopped: {device_name} ({ip})",
+        subject=f"🔴 Recording Stopped: {display_name}",
         to_addrs=recipients,
         html_body=_base_template(
             color="#ef4444", icon="🔴",
@@ -284,4 +326,5 @@ def alert_recording_stopped(device_name: str, ip: str, stream_name: str, exit_co
             rows=rows
         )
     )
+
 

@@ -82,8 +82,16 @@ def on_message(client, userdata, msg):
         ip_slug = parts[2] if len(parts) > 2 else None
         ip_addr = ip_slug.replace("_", ".") if ip_slug else payload.get("ip", "")
 
+        recv_at = payload.get("received_at", datetime.now(IST).strftime("%Y-%m-%dT%H:%M:%S+05:30"))
+        if isinstance(recv_at, str) and "." in recv_at:
+            recv_at = recv_at.split(".")[0]
+
+        time_val = payload.get("time", "")
+        if isinstance(time_val, str) and "." in time_val:
+            time_val = time_val.split(".")[0]
+
         document = {
-            "received_at":      payload.get("received_at", datetime.now(IST).strftime("%Y-%m-%dT%H:%M:%S+05:30")),
+            "received_at":      recv_at,
             "topic":            msg.topic,
             "topic_platform":   brand,
             "topic_analytics":  payload.get("type", ""),
@@ -91,7 +99,7 @@ def on_message(client, userdata, msg):
             "timestamp":        payload.get("received_at"),
             "ip":               ip_slug,          # stored in underscore format (same as Axis)
             "serial":           payload.get("serial", ip_slug),
-            "time":             payload.get("time", ""),
+            "time":             time_val,
             "scenario":         payload.get("scenario", ""),
             "type":             payload.get("type", "Unknown"),
             "human":            payload.get("human"),
@@ -223,7 +231,7 @@ def on_message(client, userdata, msg):
 
         "serial": payload.get("serial"),
 
-        "time": data.get("triggerTime"),
+        "time": str(data.get("triggerTime")).split(".")[0] if isinstance(data.get("triggerTime"), str) and "." in data.get("triggerTime") else data.get("triggerTime"),
         "scenario": event_name,
         "type": event_type,
 

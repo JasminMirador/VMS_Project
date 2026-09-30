@@ -331,13 +331,13 @@ async def analytics_poll_loop(ip: str, port: int, username: str, password: str, 
                             "received_at": now_iso,
                         }
 
-                        if "occupancy" in alert["type"].lower():
+                        if "occupancy" in alert["type"].lower() or alert["type"].lower() == "counter":
                             count_val = ev.get("count")
                             if count_val is None:
                                 raw_data = ev.get("raw", {})
-                                count_val = (raw_data.get("Value") or raw_data.get("Active") or
-                                             raw_data.get("State") or raw_data.get("Occupancy") or
-                                             raw_data.get("Count"))
+                                count_val = (raw_data.get("Count") or raw_data.get("Value") or
+                                raw_data.get("Active") or raw_data.get("State") or
+                                raw_data.get("occupancy"))
                             if count_val is not None:
                                 try:
                                     alert["total"] = int(count_val)

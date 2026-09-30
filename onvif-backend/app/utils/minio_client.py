@@ -14,13 +14,16 @@ MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "your_access_key")
 MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "your_secret_key")
 MINIO_BUCKET = os.environ.get("MINIO_BUCKET", "vms-recordings")
 
+import urllib3
+
 # Initialize MinIO client
 try:
     minio_client = Minio(
         MINIO_ENDPOINT,
         access_key=MINIO_ACCESS_KEY,
         secret_key=MINIO_SECRET_KEY,
-        secure=False  # Set to True if using HTTPS
+        secure=False,  # Set to True if using HTTPS
+        http_client=urllib3.PoolManager(maxsize=100)
     )
     
     # Ensure bucket exists

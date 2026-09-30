@@ -2,8 +2,16 @@ from pydantic import BaseModel
 
 class SignupRequest(BaseModel):
     email:    str
-    password: str
     role:     str = "client"
+
+class AdminApproveSignupRequest(BaseModel):
+    email: str
+    approve: bool = True
+
+class SignupFinalizeRequest(BaseModel):
+    email: str
+    otp: str
+    password: str
 
 from typing import Optional, List
 
@@ -27,6 +35,7 @@ class SupervisorVerifyRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     email:            str
+    otp:              str
     new_password:     str
     confirm_password: str
 

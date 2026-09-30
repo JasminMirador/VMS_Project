@@ -85,7 +85,7 @@ def _post(url, username, password, data=None, json=None, auth_method="digest", t
 
 
 def _put(url, username, password, json=None, xml=None, auth_method="digest", timeout=5):
-    headers = {}
+    headers={}
     if xml:
         headers["Content-Type"] = "application/xml"
     for auth in [_auth(username, password, auth_method),

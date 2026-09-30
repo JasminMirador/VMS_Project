@@ -104,6 +104,14 @@ def _map_event_type(topic: str) -> str:
         return "Motion"
     if "occupancy" in topic_lower:
         return "OccupancyCount"
+    if "leavingfield" in topic_lower or "leaving" in topic_lower:
+        return "LeavingField"
+    if "enteringfield" in topic_lower or "entering" in topic_lower:
+        return "EnteringField"
+    if "linecounter" in topic_lower or "countaggregation" in topic_lower:
+        return "Counter"
+    if "idleobject" in topic_lower or "stationaryobject" in topic_lower or "idle" in topic_lower:
+        return "IdleObject"
     if "objectinfield" in topic_lower or "objectsinside" in topic_lower or "fielddetector" in topic_lower:
         return "Object Detection"
     if "crossingline" in topic_lower or "linedetector" in topic_lower or "linecrossing" in topic_lower or "crossed" in topic_lower:
@@ -337,11 +345,30 @@ def pull_bosch_events(
 
         # ── Filter out baseline snapshots and "off" states ────────────
         prop_op = raw.get("PropertyOperation", "").lower()
-        if prop_op == "initialized" and "occupancy" not in topic.lower():
+
+        is_counter_topic  = any(x in topic.lower() for x in ("linecounter", "countaggregation"))
+        is_leaving_topic  = any(x in topic.lower() for x in ("leavingfield", "leaving"))
+
+        # Counter: "Initialized" = subscription snapshot (current count), not a new crossing.
+        # Only "Changed" means someone actually crossed the line right now.
+        if is_counter_topic and prop_op != "changed":
+            continue
+
+        # LeavingField: "Initialized" = camera registering its current zone state on subscribe.
+        # Only "Changed" + State=true means an object actually exited the zone right now.
+        if is_leaving_topic:
+            if prop_op != "changed":
+                continue
+            leaving_state = (raw.get("State") or raw.get("Active") or raw.get("Value") or "").lower()
+            if leaving_state in ("false", "0", "inactive", "no", "off"):
+                continue  # Zone change ended / object returned — not an exit alert
+
+        # All other topics: drop "Initialized" (subscription snapshot)
+        if not is_counter_topic and not is_leaving_topic and prop_op == "initialized" and "occupancy" not in topic.lower():
             continue   # just the camera's current-state snapshot on subscribe
 
         value = (raw.get("Value") or raw.get("Active") or raw.get("State") or "").lower()
-        if value in ("false", "0", "inactive", "no", "off"):
+        if not is_counter_topic and not is_leaving_topic and value in ("false", "0", "inactive", "no", "off"):
             continue   # event ended / no trigger
 
         # ── Filter out technical system/network status logs ───────────
