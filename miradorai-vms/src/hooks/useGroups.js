@@ -2,12 +2,19 @@ import { useState, useEffect } from "react";
 
 const API_BASE = import.meta.env.VITE_API_URL;
 
+function loadGroups() {
+  try {
+    const saved = localStorage.getItem("miradorai_groups");
+    return saved ? JSON.parse(saved) : [];
+  } catch { return []; }
+}
+
 export default function useGroups() {
-  const [groups, setGroups] = useState([]);
+  const [groups, setGroups] = useState(loadGroups);
 
   const fetchGroups = async () => {
     try {
-      const token = localStorage.getItem("miradorai_token");
+      const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
       const res = await fetch(`${API_BASE}/api/groups`, {
         headers: {
           "Authorization": token ? `Bearer ${token}` : "",

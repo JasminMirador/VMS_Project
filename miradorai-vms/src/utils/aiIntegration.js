@@ -15,7 +15,7 @@ const FALLBACK_IP = "192.168.126.35";
 export async function fetchAndCacheAiIp() {
   try {
     const token =
-      localStorage.getItem("miradorai_token") || localStorage.getItem("token");
+      (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || localStorage.getItem("token");
     const API_BASE =
       (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) ||
       "";
