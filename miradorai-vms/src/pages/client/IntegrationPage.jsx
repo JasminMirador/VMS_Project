@@ -117,7 +117,7 @@ export default function IntegrationPage() {
 
   const fetchIntegrations = async () => {
     try {
-      const token = localStorage.getItem("token") || localStorage.getItem("miradorai_token");
+      const token = localStorage.getItem("token") || (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
       const headers = { Authorization: token ? `Bearer ${token}` : "" };
       const API_BASE = import.meta.env.VITE_API_URL || "";
       const res = await fetch(`${API_BASE}/api/integrations`, { headers });
@@ -254,7 +254,7 @@ export default function IntegrationPage() {
 
   const handleDeleteConnection = async (id) => {
     try {
-      const token = localStorage.getItem("token") || localStorage.getItem("miradorai_token");
+      const token = localStorage.getItem("token") || (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
       const headers = { Authorization: token ? `Bearer ${token}` : "" };
       const API_BASE = import.meta.env.VITE_API_URL || "";
       const res = await fetch(`${API_BASE}/api/integrations/${id}`, { method: "DELETE", headers });
@@ -277,7 +277,7 @@ export default function IntegrationPage() {
     }
     setIsPinging(true);
     try {
-      const token = localStorage.getItem("token") || localStorage.getItem("miradorai_token");
+      const token = localStorage.getItem("token") || (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
       const API_BASE = import.meta.env.VITE_API_URL || "";
       const res = await fetch(`${API_BASE}/api/integrations/ping`, {
         method: "POST",
@@ -370,7 +370,7 @@ export default function IntegrationPage() {
     setFormErrors({});
 
     try {
-      const token = localStorage.getItem("token") || localStorage.getItem("miradorai_token");
+      const token = localStorage.getItem("token") || (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
       const headers = {
         "Content-Type": "application/json",
         Authorization: token ? `Bearer ${token}` : "",
@@ -804,7 +804,7 @@ export default function IntegrationPage() {
                             const exists = connections.find((c) => c.id === formData.id || c._id === formData.id);
                             if (exists) {
                               try {
-                                const token = localStorage.getItem("token") || localStorage.getItem("miradorai_token");
+                                const token = localStorage.getItem("token") || (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
                                 const API_BASE = import.meta.env.VITE_API_URL || "";
                                 const targetId = formData.id || formData._id;
                                 const payload = {

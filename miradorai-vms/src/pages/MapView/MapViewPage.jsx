@@ -36,7 +36,7 @@ const MAP_ID = "default";
 // ── Auth ──────────────────────────────────────────────────────────────
 function getToken() {
   return (
-    localStorage.getItem("miradorai_token") ||
+    (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) ||
     localStorage.getItem("token")           ||
     localStorage.getItem("authToken")       ||
     localStorage.getItem("access_token")    ||

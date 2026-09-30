@@ -51,7 +51,7 @@ import {
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
 const getAuthHeaders = () => {
-  const token = localStorage.getItem("miradorai_token");
+  const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
   return token ? { "Authorization": "Bearer " + token } : {};
 };
 
@@ -1935,7 +1935,7 @@ const DashboardPage = () => {
   useEffect(() => {
     const fetchIntegrations = async () => {
       try {
-        const token = localStorage.getItem('miradorai_token') || localStorage.getItem('token');
+        const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || localStorage.getItem('token');
         const API_BASE = import.meta.env.VITE_API_URL || "";
         const res = await fetch(API_BASE + "/api/integrations", {
           headers: token ? { Authorization: 'Bearer ' + token } : {},

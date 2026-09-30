@@ -30,7 +30,7 @@ const FLOOR_ID = "floor_1";
 const PIXELS_PER_METRE = 22;
 
 function getAuthHeaders() {
-  const t = localStorage.getItem("miradorai_token") || "";
+  const t = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || "";
   return t
     ? { Authorization: "Bearer " + t, "Content-Type": "application/json" }
     : { "Content-Type": "application/json" };
@@ -3026,7 +3026,7 @@ export default function DesignerView({ onBack }) {
       return await fetch(`${API}/api/designer/upload-datasheet`, {
         method: "POST",
         headers: {
-          Authorization: "Bearer " + (localStorage.getItem("miradorai_token") || "")
+          Authorization: "Bearer " + ((localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || "")
         },
         body: formData
       });

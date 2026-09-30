@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { encryptPassword, getPublicKey } from "../utils/crypto";
 import { useWebSocket } from "../hooks/useWebSocket";
-// import { fetchAndCacheAiIp } from "../utils/aiIntegration";
+import { fetchAndCacheAiIp } from "../utils/aiIntegration";
 
 const AuthContext = createContext();
 
@@ -48,7 +48,7 @@ const fetchSsoToken = async (accessToken) => {
     let ssoAppName = "vms";
     let ssoAccessToken = "uUlAaZ3xCg8zc5C4_MfvngOtWuWfQdazAB53K5M4Zcc";
     try {
-      const tokenForApi = localStorage.getItem("token") || localStorage.getItem("miradorai_token");
+      const tokenForApi = getAuthItem("token") || getAuthItem("miradorai_token");
       const integRes = await fetch(`${API_BASE}/api/integrations`, {
         headers: { Authorization: tokenForApi ? `Bearer ${tokenForApi}` : "" }
       });
@@ -105,6 +105,29 @@ const fetchSsoToken = async (accessToken) => {
   }
 };
 
+const AUTH_KEYS = ["miradorai_user", "miradorai_token", "miradorai_session_id"];
+
+// Read from either storage (localStorage = "keep me logged in", sessionStorage = tab only)
+export const getAuthItem = (key) =>
+  localStorage.getItem(key) || sessionStorage.getItem(key);
+
+// Save into the chosen storage and remove from the other one
+const setAuthItems = (items, keep) => {
+  const target = keep ? localStorage : sessionStorage;
+  Object.entries(items).forEach(([key, value]) => {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
+    if (value != null) target.setItem(key, value);
+  });
+};
+
+const clearAuthItems = () => {
+  AUTH_KEYS.forEach((key) => {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
+  });
+};
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -118,14 +141,14 @@ export const AuthProvider = ({ children }) => {
   // Restore session from localStorage on mount
   useEffect(() => {
     try {
-      const savedUser = localStorage.getItem("miradorai_user");
+      const savedUser = getAuthItem("miradorai_user");
       if (savedUser) {
         const parsedUser = JSON.parse(savedUser);
         setUser(parsedUser);
       }
     } catch (e) {
       console.error("Failed to restore session:", e);
-      localStorage.removeItem("miradorai_user");
+      clearAuthItems();
     } finally {
       setIsLoading(false);
     }
@@ -138,16 +161,14 @@ export const AuthProvider = ({ children }) => {
       if (!eventId || processedEvents.current.has(eventId)) return;
       processedEvents.current.add(eventId);
 
-      const currentSession = localStorage.getItem("miradorai_session_id");
+      const currentSession = getAuthItem("miradorai_session_id");
       if (!currentSession) return; // ignore if we don't have a session locally
 
       if (lastEvent.data?.user_email === user.email && lastEvent.data?.session_id !== currentSession) {
         alert("Session expired: Another session has been initiated under this account.");
         setUser(null);
         setSupervisorUnlocked(false);
-        localStorage.removeItem("miradorai_user");
-        localStorage.removeItem("miradorai_token");
-        localStorage.removeItem("miradorai_session_id");
+        clearAuthItems();
       }
     }
   }, [lastEvent, user]);
@@ -168,8 +189,6 @@ export const AuthProvider = ({ children }) => {
 
     // Call backend
     try {
-      const pubKey = await getPublicKey(API_BASE);
-      const encryptedPassword = await encryptPassword(password, pubKey);
       const res = await fetch(`${API_BASE}/api/auth/signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -207,7 +226,8 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
-
+      const pubKey = await getPublicKey(API_BASE);
+      const encryptedPassword = await encryptPassword(password, pubKey);
 
       const res = await fetch(`${API_BASE}/api/auth/signup/finalize`, {
         method: "POST",
@@ -234,7 +254,7 @@ export const AuthProvider = ({ children }) => {
   // ------------------------------------------------------------------
   // Sign In — verifies against MongoDB via backend
   // ------------------------------------------------------------------
-  const login = async (email, password, role, captchaId = null, captchaText = null, mfaCode = null) => {
+  const login = async (email, password, role, captchaId = null, captchaText = null, mfaCode = null, keepLoggedIn = false) => {
     if (!email || !password) {
       return { success: false, error: "Email and password required" };
     }
@@ -300,10 +320,15 @@ export const AuthProvider = ({ children }) => {
 
   setUser(data.user);
   setSupervisorUnlocked(false);
-  localStorage.setItem("miradorai_user", JSON.stringify(data.user));
-  localStorage.setItem("miradorai_token", data.token);
-  // Also store the session_id to ignore my own login events!
-  if (data.session_id) localStorage.setItem("miradorai_session_id", data.session_id);
+  setAuthItems(
+    {
+      miradorai_user: JSON.stringify(data.user),
+      miradorai_token: data.token,
+      // Also store the session_id to ignore my own login events!
+      miradorai_session_id: data.session_id || null,
+    },
+    keepLoggedIn
+  );
 
   // 🔑 Silently obtain an SSO token for the AI Analytics iframe
   fetchSsoToken(data.token);
@@ -450,7 +475,7 @@ export const AuthProvider = ({ children }) => {
     };
 
     setUser(userData);
-    localStorage.setItem("miradorai_user", JSON.stringify(userData));
+    setAuthItems({ miradorai_user: JSON.stringify(userData) }, false);
 
     return {
       success: true,
@@ -463,7 +488,7 @@ export const AuthProvider = ({ children }) => {
   // ------------------------------------------------------------------
   const logout = async () => {
     try {
-      const token = localStorage.getItem("miradorai_token");
+      const token = getAuthItem("miradorai_token");
       if (token) {
         await fetch(`${API_BASE}/api/auth/logout`, {
           method: "POST",
@@ -477,10 +502,8 @@ export const AuthProvider = ({ children }) => {
     }
     setUser(null);
     setSupervisorUnlocked(false);
-    localStorage.removeItem("miradorai_user");
-    localStorage.removeItem("miradorai_token");
-    localStorage.removeItem("miradorai_session_id");
-        // Attempt to automatically close the browser window as per security remediation
+    clearAuthItems();
+    // Attempt to automatically close the browser window as per security remediation
     try {
       window.close();
     } catch (e) {
@@ -495,13 +518,17 @@ export const AuthProvider = ({ children }) => {
   const isClient       = user?.role === "client";
   const isOperator     = user?.role === "operator";
   const isAuthenticated = !!user;
-  const completeLogin = (userData, token, session_id = null) => {
+  const completeLogin = (userData, token, session_id = null, keepLoggedIn = false) => {
     setUser(userData);
     setSupervisorUnlocked(false);
-    localStorage.setItem("miradorai_user", JSON.stringify(userData));
-    localStorage.setItem("miradorai_token", token);
-    if (session_id) localStorage.setItem("miradorai_session_id", session_id);
-    // 🔑 Obtain SSO token for the AI Analytics iframe
+    setAuthItems(
+      {
+        miradorai_user: JSON.stringify(userData),
+        miradorai_token: token,
+        miradorai_session_id: session_id || null,
+      },
+      keepLoggedIn
+    );
     fetchSsoToken(token);
   };
 

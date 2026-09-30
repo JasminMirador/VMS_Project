@@ -20,12 +20,12 @@ const COLORS = [
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function getAuthHeaders() {
-  const token = localStorage.getItem("miradorai_token");
+  const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 function authUrl(path) {
-  const token = localStorage.getItem("miradorai_token");
+  const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
   const separator = path.includes("?") ? "&" : "?";
   return token
     ? `${API_BASE}${path}${separator}token=${encodeURIComponent(token)}`

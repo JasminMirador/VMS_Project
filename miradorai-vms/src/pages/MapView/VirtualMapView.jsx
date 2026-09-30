@@ -5,7 +5,7 @@ import WebRTCPlayer_MediaMTX from "../../components/shared/WebRTCPlayer_MediaMTX
 const API = import.meta.env.VITE_API_URL || "";
 
 function getAuthHeaders() {
-  const token = localStorage.getItem("miradorai_token") || localStorage.getItem("token") || "";
+  const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || localStorage.getItem("token") || "";
   return token ? { "Authorization": "Bearer " + token } : {};
 }
 
@@ -331,7 +331,7 @@ function ExpandedFeed({ cam, marker, onClose }) {
   useEffect(() => {
     if (tab !== "alerts") return;
     setLA(true);
-    const token = localStorage.getItem("miradorai_token") || localStorage.getItem("token") || "";
+    const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || localStorage.getItem("token") || "";
     fetch(`${API}/api/alerts?camera_ip=${cam.ip}&limit=100`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })

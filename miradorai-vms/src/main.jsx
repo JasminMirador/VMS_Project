@@ -11,7 +11,7 @@ window.fetch = async (...args) => {
  
   // Attach VMS JWT token to all VMS backend API calls (port 8000 or /api/ paths)
   if (typeof resource === 'string' && (resource.includes(':8000') || resource.includes('/api/'))) {
-    const token = localStorage.getItem('miradorai_token');
+    const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
     if (token) {
       config = config || {};
       config.headers = {
@@ -47,7 +47,7 @@ window.fetch = async (...args) => {
   // Handle unauthorized responses globally
   if (response.status === 401 && !resource.includes('/api/auth/') && !resource.includes('/unsecure/keybasedlogin')) {
     console.warn("Unauthorized API call:", resource);
-    const hadToken = Boolean(localStorage.getItem('miradorai_token'));
+    const hadToken = Boolean((localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")));
     localStorage.removeItem('miradorai_user');
     localStorage.removeItem('miradorai_token');
     localStorage.removeItem('miradorai_session_id');

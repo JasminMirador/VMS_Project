@@ -24,7 +24,7 @@ export function CamerasProvider({ children }) {
   const [isLoading, setIsLoading] = useState(false);
 
   const fetchCameras = useCallback(async () => {
-    const token = localStorage.getItem("miradorai_token");
+    const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
     if (!token) return []; // Do not fetch or trigger 401 when logged out
 
     try {

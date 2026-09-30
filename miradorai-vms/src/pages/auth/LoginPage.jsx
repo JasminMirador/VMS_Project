@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import "./LoginPage.css";
@@ -53,6 +53,15 @@ const LoginPage = () => {
   const [signInPassword, setSignInPassword] = useState("");
   const [signInError, setSignInError] = useState("");
   const [activeSessionWarning, setActiveSessionWarning] = useState(null);
+  const [keepLoggedIn, setKeepLoggedIn] = useState(false);
+  const signInPasswordRef = useRef(null);
+
+  // After a failed login the password is cleared; put the cursor back in it
+  useEffect(() => {
+    if (signInError && !isLoading && !signInPassword) {
+      signInPasswordRef.current?.focus();
+    }
+  }, [signInError, isLoading, signInPassword]);
 
   // MFA Form
   const [showMfaInput, setShowMfaInput] = useState(false);
@@ -116,7 +125,7 @@ const LoginPage = () => {
     await new Promise((resolve) => setTimeout(resolve, 500));
 
     console.log("CALLING LOGIN WITH MFA CODE:", mfaCode);
-    const result = await login(signInEmail, signInPassword, role, captchaId, captchaText, mfaCode);
+    const result = await login(signInEmail, signInPassword, role, captchaId, captchaText, mfaCode, keepLoggedIn);
 
     if (!result.success) {
       if (result.error === "PASSWORD_CHANGE_REQUIRED") {
@@ -132,6 +141,12 @@ const LoginPage = () => {
       }
 
       setSignInError(result.error);
+      if (showMfaInput) {
+        setMfaCode("");          // wrong MFA code: clear only the code
+      } else {
+        setSignInPassword("");   // wrong password: clear it
+        setShowPassword(false);
+      }
       if (result.requires_captcha) {
         setRequiresCaptcha(true);
         if (!captchaImageBase64) {
@@ -146,7 +161,7 @@ const LoginPage = () => {
     }
 
     if (result.has_active_session) {
-      setActiveSessionWarning({ user: result.user, token: result.token });
+      setActiveSessionWarning({ user: result.user, token: result.token, session_id: result.session_id });
       setIsLoading(false);
       return;
     }
@@ -399,7 +414,7 @@ const LoginPage = () => {
                   <button 
                     type="button"
                     onClick={() => {
-                      completeLogin(activeSessionWarning.user, activeSessionWarning.token, activeSessionWarning.session_id);
+                      completeLogin(activeSessionWarning.user, activeSessionWarning.token, activeSessionWarning.session_id, keepLoggedIn);
                       logAction("User logged in (concurrent)", "auth", { email: signInEmail });
                     }}
                     className="session-continue-btn"
@@ -440,7 +455,7 @@ const LoginPage = () => {
                   <button 
                     type="button"
                     onClick={() => {
-                      completeLogin(activeSessionWarning.user, activeSessionWarning.token, activeSessionWarning.session_id);
+                      completeLogin(activeSessionWarning.user, activeSessionWarning.token, activeSessionWarning.session_id, keepLoggedIn);
                       logAction("User logged in (concurrent)", "auth", { email: signInEmail });
                     }}
                     className="session-continue-btn"
@@ -521,10 +536,14 @@ const LoginPage = () => {
               </div>
               <div className="password-input-wrapper">
                 <input
+                  ref={signInPasswordRef}
                   type={showPassword ? "text" : "password"}
                   placeholder="Type your password"
                   value={signInPassword}
-                  onChange={(e) => setSignInPassword(e.target.value)}
+                  onChange={(e) => {
+                    setSignInPassword(e.target.value);
+                    if (signInError) setSignInError("");
+                  }}
                   disabled={isLoading}
                   required
                 />
@@ -541,6 +560,18 @@ const LoginPage = () => {
                   )}
                 </button>
               </div>
+            </div>
+
+            {/* Keep me logged in */}
+            <div className="keep-logged-in">
+              <input
+                type="checkbox"
+                id="keepLoggedIn"
+                checked={keepLoggedIn}
+                onChange={(e) => setKeepLoggedIn(e.target.checked)}
+                disabled={isLoading}
+              />
+              <label htmlFor="keepLoggedIn">Keep me logged in on this device</label>
             </div>
 
             {/* CAPTCHA */}
@@ -603,7 +634,7 @@ const LoginPage = () => {
                   <button 
                     type="button"
                     onClick={() => {
-                      completeLogin(activeSessionWarning.user, activeSessionWarning.token, activeSessionWarning.session_id);
+                      completeLogin(activeSessionWarning.user, activeSessionWarning.token, activeSessionWarning.session_id, keepLoggedIn);
                       logAction("User logged in (concurrent)", "auth", { email: signInEmail });
                     }}
                     className="session-continue-btn"

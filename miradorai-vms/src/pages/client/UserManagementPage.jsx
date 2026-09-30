@@ -9,7 +9,7 @@ const API = import.meta.env.VITE_API_URL || "";
 import { encryptPassword, getPublicKey } from "../../utils/crypto";
 
 function getAuthHeaders() {
-  const token = localStorage.getItem("miradorai_token");
+  const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
   return token ? { 
     "Authorization": "Bearer " + token,
     "Content-Type": "application/json"

@@ -165,7 +165,7 @@ function SupervisorDetailsModal({ onClose, onStatusChange }) {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const token = localStorage.getItem("miradorai_token");
+        const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
         const res = await fetch(`${API_BASE}/api/auth/supervisor-status`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
@@ -196,7 +196,7 @@ function SupervisorDetailsModal({ onClose, onStatusChange }) {
 
     setLoading(true);
     try {
-      const token = localStorage.getItem("miradorai_token");
+      const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
       const res = await fetch(`${API_BASE}/api/auth/supervisor-password`, {
         method: "POST",
         headers: {
@@ -228,7 +228,7 @@ function SupervisorDetailsModal({ onClose, onStatusChange }) {
     setError("");
     setLoading(true);
     try {
-      const token = localStorage.getItem("miradorai_token");
+      const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
       const res = await fetch(`${API_BASE}/api/auth/supervisor-password`, {
         method: "DELETE",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -515,7 +515,7 @@ const updateUserMenuPosition = () => {
   useEffect(() => {
     const fetchAiStatus = async () => {
       try {
-        const token = localStorage.getItem('miradorai_token') || localStorage.getItem('token');
+        const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || localStorage.getItem('token');
         const res = await fetch(`${API_BASE}/api/integrations`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
@@ -544,7 +544,7 @@ const updateUserMenuPosition = () => {
     if (role !== "admin") return;
     const fetchSvStatus = async () => {
       try {
-        const token = localStorage.getItem("miradorai_token");
+        const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
         const res = await fetch(`${API_BASE}/api/auth/supervisor-status`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });

@@ -38,7 +38,7 @@ export default function AiAnalyticsPage() {
         let ssoAppName = "";
         let ssoAccessToken = "";
         try {
-          const tokenForApi = localStorage.getItem("token") || localStorage.getItem("miradorai_token");
+          const tokenForApi = localStorage.getItem("token") || (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
           const API_BASE = (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) || "";
           const integRes = await fetch(`${API_BASE}/api/integrations`, {
             headers: { Authorization: tokenForApi ? `Bearer ${tokenForApi}` : "" }

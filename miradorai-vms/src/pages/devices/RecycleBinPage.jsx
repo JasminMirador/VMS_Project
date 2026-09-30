@@ -82,7 +82,7 @@ function RecycleBinPage() {
   const fetchTrash = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem("miradorai_token") || "";
+      const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || "";
       const res = await fetch(`${BACKEND}/api/cameras/trash`, {
         headers: { "Authorization": `Bearer ${token}` }
       });
@@ -109,7 +109,7 @@ function RecycleBinPage() {
       },
       async () => {
         try {
-          const token = localStorage.getItem("miradorai_token") || "";
+          const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || "";
           const res = await fetch(`${BACKEND}/api/cameras/${cam.ip}/restore`, {
             method: "PUT",
             headers: { "Authorization": `Bearer ${token}` }
@@ -134,7 +134,7 @@ function RecycleBinPage() {
       },
       async () => {
         try {
-          const token = localStorage.getItem("miradorai_token") || "";
+          const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || "";
           const res = await fetch(`${BACKEND}/api/cameras/${cam.ip}/hard`, {
             method: "DELETE",
             headers: { "Authorization": `Bearer ${token}` }

@@ -69,7 +69,7 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
 
   const API = import.meta.env.VITE_API_URL || '';
   function getAuthHeaders() {
-    const token = localStorage.getItem('miradorai_token') || localStorage.getItem('token') || localStorage.getItem('authToken');
+    const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || localStorage.getItem('token') || localStorage.getItem('authToken');
     return token ? { Authorization: `Bearer ${token}` } : {};
   }
 

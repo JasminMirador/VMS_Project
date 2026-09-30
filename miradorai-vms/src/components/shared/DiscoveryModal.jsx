@@ -83,7 +83,7 @@ export default function DiscoveryModal({
   };
 
   const startDiscovery = async () => {
-    const token = localStorage.getItem("miradorai_token");
+    const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
     setIsScanning(true);
     setError(null);
     setAlertMsg("");
@@ -265,7 +265,7 @@ export default function DiscoveryModal({
             method: "POST",
             headers: { 
               "Content-Type": "application/json",
-              "Authorization": "Bearer " + (localStorage.getItem("miradorai_token") || "")
+              "Authorization": "Bearer " + ((localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || "")
             },
             body: JSON.stringify(probePayload),
           });

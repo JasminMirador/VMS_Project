@@ -5,7 +5,7 @@ import "./EmailSchedulesPage.css";
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
 const getAuthHeaders = () => {
-  const token = localStorage.getItem("miradorai_token");
+  const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
   return token ? { "Authorization": "Bearer " + token } : {};
 };
 

@@ -70,7 +70,7 @@ export default function ProfilePage() {
     setMfaError("");
     setIsLoading(true);
     try {
-      const token = localStorage.getItem("miradorai_token");
+      const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
       const res = await fetch("/api/auth/mfa/setup", {
         method: "POST",
         headers: { "Authorization": "Bearer " + token }
@@ -93,7 +93,7 @@ export default function ProfilePage() {
     setMfaError("");
     setIsLoading(true);
     try {
-      const token = localStorage.getItem("miradorai_token");
+      const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
       const res = await fetch("/api/auth/mfa/verify", {
         method: "POST",
         headers: { 

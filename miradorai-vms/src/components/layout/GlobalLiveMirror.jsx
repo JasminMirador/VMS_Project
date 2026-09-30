@@ -90,7 +90,7 @@ export default function GlobalLiveMirror() {
       const apiBase = import.meta.env.VITE_API_URL || '';
       
       const sendGlobalHeartbeat = async () => {
-        const token = localStorage.getItem("miradorai_token");
+        const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
         if (!token || window.location.pathname.includes('/live-view')) return;
         try {
           await fetch(`${apiBase}/api/viewing-stations/heartbeat`, {

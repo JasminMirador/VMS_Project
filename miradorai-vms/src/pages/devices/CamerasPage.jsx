@@ -52,7 +52,7 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
   useEffect(() => {
     const fetchLatestDevices = async () => {
       try {
-        const token = localStorage.getItem("miradorai_token");
+        const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
         const res = await fetch(`${API_BASE}/api/cameras`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
@@ -87,7 +87,7 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
     setEditingGroupId(null);
 
     try {
-      const token = localStorage.getItem("miradorai_token");
+      const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
       await fetch(`${API_BASE}/api/groups/${groupId}`, {
         method: "PUT",
         headers: {
@@ -189,7 +189,7 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
     let hasError = false;
     for (const cam of camsToRemove) {
       try {
-        const token = localStorage.getItem("miradorai_token");
+        const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
         const res = await fetch(`${API_BASE}/api/cameras/delete-by-rtsp`, { 
           method: "DELETE",
           headers: { 
@@ -260,7 +260,7 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
     saveDevices(updated);
     
     // Call backend API for each moved camera
-    const token = localStorage.getItem("miradorai_token");
+    const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
     for (const cam of updated) {
       if (groupChecked.includes(cam.id)) {
         try {
@@ -289,7 +289,7 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
     const url    = `${API_BASE}/api/cameras/by-ip/${ip}/${action}`;
     const method = action === "delete" ? "DELETE" : "POST";
     
-    const token = localStorage.getItem("miradorai_token");
+    const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
     const headers = {
       "Authorization": "Bearer " + (token || ""),
       "Content-Type": "application/json"
@@ -395,7 +395,7 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
     let hasError = false;
     for (const cam of camsToRemove) {
       try {
-        const token = localStorage.getItem("miradorai_token");
+        const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
         const res = await fetch(`${API_BASE}/api/cameras/delete-by-rtsp`, { 
           method: "DELETE",
           headers: { 
@@ -440,7 +440,7 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
 
     for (const gid of checked) {
       try {
-        const token = localStorage.getItem("miradorai_token");
+        const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
         await fetch(`${API_BASE}/api/groups/${gid}`, {
           method: "DELETE",
           headers: {

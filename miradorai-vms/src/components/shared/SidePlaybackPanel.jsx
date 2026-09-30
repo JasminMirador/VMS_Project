@@ -12,7 +12,7 @@ import "./SidePlaybackPanel.css";
 const API = import.meta.env.VITE_API_URL || "";
 function getToken() {
   return (
-    localStorage.getItem("miradorai_token") ||
+    (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) ||
     localStorage.getItem("token") ||
     localStorage.getItem("authToken") ||
     ""

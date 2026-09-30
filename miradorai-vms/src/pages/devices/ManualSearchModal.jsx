@@ -430,7 +430,7 @@ export default function ManualSearchModal({
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
-          "Authorization": "Bearer " + (localStorage.getItem("miradorai_token") || "")
+          "Authorization": "Bearer " + ((localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || "")
         },
         body: JSON.stringify({
           ip,
@@ -494,7 +494,7 @@ export default function ManualSearchModal({
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
-          "Authorization": "Bearer " + (localStorage.getItem("miradorai_token") || "")
+          "Authorization": "Bearer " + ((localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || "")
         },
         body: JSON.stringify({ 
           rtsp_url: rtspUrl.trim(),

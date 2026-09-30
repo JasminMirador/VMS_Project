@@ -25,7 +25,7 @@ function normalizeStatus(raw) {
 }
 
 function getAuthHeaders() {
-  const t = localStorage.getItem("miradorai_token");
+  const t = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
   return t ? { Authorization: `Bearer ${t}`, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
 }
 
@@ -560,7 +560,7 @@ export default function AddDevicesPage({ onNavigate }) {
 
   const handleCreateGroupSubmit = async (name) => {
     try {
-      const token = localStorage.getItem("miradorai_token");
+      const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/groups`, {
         method: "POST",
         headers: {
@@ -583,7 +583,7 @@ export default function AddDevicesPage({ onNavigate }) {
     if (!window.confirm("Delete this group? Cameras will move to Default.")) return;
     
     try {
-      const token = localStorage.getItem("miradorai_token");
+      const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
       await fetch(`${import.meta.env.VITE_API_URL}/api/groups/${groupId}`, {
         method: "DELETE",
         headers: { "Authorization": token ? `Bearer ${token}` : "" }

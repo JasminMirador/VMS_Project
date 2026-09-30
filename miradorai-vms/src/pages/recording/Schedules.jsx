@@ -90,7 +90,7 @@ const TOTAL_SLOTS = 24 * 12; // 5-min intervals
 const BACKEND = import.meta.env.VITE_API_URL || "";
 
 function getAuthHeaders() {
-  const token = localStorage.getItem("miradorai_token");
+  const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
   return token ? { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
 }
 
