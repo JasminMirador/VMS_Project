@@ -322,8 +322,18 @@ const LoginPage = () => {
     await new Promise((resolve) => setTimeout(resolve, 500));
 
     if (forgotStep === "email") {
-      const result = await forgotPassword(forgotEmail);
+      if (requiresCaptcha && (!robotChecked || !captchaId || !captchaText)) {
+        setForgotError("Please verify you are not a robot and enter the CAPTCHA text");
+        setIsLoading(false);
+        return;
+      }
+
+      const result = await forgotPassword(forgotEmail, captchaId, captchaText);
       if (!result.success) {
+        if (result.requires_captcha) {
+          setRequiresCaptcha(true);
+          fetchCaptcha();
+        }
         setForgotError(result.error);
         setIsLoading(false);
         return;
@@ -331,6 +341,9 @@ const LoginPage = () => {
 
       setForgotSuccess(result.message);
       setForgotStep("reset");
+      setRequiresCaptcha(false);
+      setCaptchaId(null);
+      setCaptchaText("");
       setIsLoading(false);
     } else {
       const result = await resetPassword(forgotEmail, resetOtp, resetNewPassword, resetConfirm);
@@ -528,6 +541,8 @@ const LoginPage = () => {
                     setActiveForm("forgot");
                     setForgotEmail("");
                     setForgotStep("email");
+                    setRequiresCaptcha(true);
+                    fetchCaptcha();
                   }}
                   className="forgot-link"
                 >
@@ -716,6 +731,50 @@ const LoginPage = () => {
                 {forgotError && <div className="error-message">{forgotError}</div>}
                 {forgotSuccess && (
                   <div className="success-message">{forgotSuccess}</div>
+                )}
+
+                {/* CAPTCHA */}
+                {requiresCaptcha && (
+                  <div className="form-group captcha-group" style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', border: '1px solid #333', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)' }}>
+                      <input 
+                        type="checkbox" 
+                        id="robotCheckForgot"
+                        checked={robotChecked}
+                        onChange={(e) => setRobotChecked(e.target.checked)}
+                        style={{ width: '20px', height: '20px', cursor: 'pointer' }}
+                      />
+                      <label htmlFor="robotCheckForgot" style={{ margin: 0, cursor: 'pointer', fontSize: '1rem', flex: 1 }}>
+                        I'm not a robot
+                      </label>
+                      <img src="https://www.gstatic.com/recaptcha/api2/logo_48.png" alt="captcha icon" style={{ width: '28px', opacity: 0.7 }} />
+                    </div>
+
+                    {robotChecked && captchaImageBase64 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <img src={captchaImageBase64} alt="CAPTCHA" style={{ flex: 1, borderRadius: '4px', border: '1px solid #333', height: '70px', objectFit: 'cover', width: '100%' }} />
+                          <button 
+                            type="button" 
+                            onClick={fetchCaptcha} 
+                            className="btn-secondary" 
+                            style={{ padding: 0, fontSize: '1.2rem', height: '32px', width: '32px', minWidth: '32px', minHeight: '32px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }} 
+                            title="Reload CAPTCHA"
+                          >
+                            ↻
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="Enter the letters above"
+                          value={captchaText}
+                          onChange={(e) => setCaptchaText(e.target.value)}
+                          disabled={isLoading}
+                          required={robotChecked}
+                        />
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 <SpecularButton

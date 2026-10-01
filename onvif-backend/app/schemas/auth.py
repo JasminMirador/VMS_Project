@@ -25,6 +25,8 @@ class LoginRequest(BaseModel):
 
 class ForgotPasswordRequest(BaseModel):
     email: str
+    captcha_id: Optional[str] = None
+    captcha_text: Optional[str] = None
 
 class SupervisorPasswordRequest(BaseModel):
     password:         str

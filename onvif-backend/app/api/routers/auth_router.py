@@ -1054,6 +1054,21 @@ async def verify_mfa(req: MFAVerifyRequest, payload=Depends(verify_token)):
 
 @router.post("/forgot-password")
 async def forgot_password(req: ForgotPasswordRequest):
+    if not req.captcha_id or not req.captcha_text:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=401, content={
+            "detail": "CAPTCHA required for password reset.",
+            "requires_captcha": True
+        })
+        
+    captcha_doc = _db["captchas"].find_one({"_id": req.captcha_id}) if _db is not None else None
+    
+    if not captcha_doc or captcha_doc["text"] != req.captcha_text.lower():
+        raise HTTPException(status_code=401, detail="Invalid CAPTCHA code")
+        
+    if _db is not None:
+        _db["captchas"].delete_one({"_id": req.captcha_id})
+
     if users_col is None:
         raise HTTPException(status_code=500, detail="Database not connected")
     

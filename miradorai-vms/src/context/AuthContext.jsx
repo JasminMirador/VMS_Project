@@ -360,7 +360,7 @@ export const AuthProvider = ({ children }) => {
   // ------------------------------------------------------------------
   // Forgot Password — checks email exists in MongoDB via backend
   // ------------------------------------------------------------------
-  const forgotPassword = async (email) => {
+  const forgotPassword = async (email, captchaId = null, captchaText = null) => {
     if (!email) {
       return { success: false, error: "Email is required" };
     }
@@ -374,7 +374,7 @@ export const AuthProvider = ({ children }) => {
       const res = await fetch(`${API_BASE}/api/auth/forgot-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, captcha_id: captchaId, captcha_text: captchaText }),
       });
 
       let data = null;
@@ -385,7 +385,11 @@ export const AuthProvider = ({ children }) => {
       }
 
       if (!res.ok) {
-        return { success: false, error: data?.detail || data?.message || `Server error (${res.status})` };
+        return { 
+          success: false, 
+          error: data?.detail || data?.message || `Server error (${res.status})`,
+          requires_captcha: data?.requires_captcha 
+        };
       }
 
       return { success: true, message: data?.message };
