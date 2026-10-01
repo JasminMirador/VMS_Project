@@ -316,10 +316,10 @@ export default function IntegrationPage() {
       errors.type = "Type cannot be only numbers.";
     }
 
-    if (!formData.serverName?.trim()) {
+    if (!formData.serverName.trim()) {
       errors.serverName = "Server Name is required.";
-    } else if (!/^[a-zA-Z0-9 _-]+$/.test(formData.serverName.trim())) {
-      errors.serverName = "Server Name can only contain alphanumeric characters, spaces, dashes, and underscores.";
+    } else if (!/^[a-zA-Z0-9 _.\-]+$/.test(formData.serverName.trim())) {
+      errors.serverName = "Server Name can only contain letters, numbers, spaces, hyphens, underscores, and dots.";
     }
 
     if (!formData.serverIp.trim()) {
@@ -351,14 +351,14 @@ export default function IntegrationPage() {
     for (let stream of formData.streams) {
       if (!stream.name.trim() || !stream.value.trim()) {
         hasStreamError = true;
-      } else if (!/^[a-zA-Z0-9 _-]+$/.test(stream.name.trim())) {
+      } else if (!/^[a-zA-Z0-9 _.\-]+$/.test(stream.name.trim())) {
         hasStreamInvalidChars = true;
       }
     }
     if (hasStreamError) {
       errors.streams = "All streams must have a Name and a Topic/Key.";
     } else if (hasStreamInvalidChars) {
-      errors.streams = "Stream Name can only contain alphanumeric characters, spaces, dashes, and underscores.";
+      errors.streams = "Stream Name can only contain letters, numbers, spaces, hyphens, underscores, and dots.";
     }
 
     if (Object.keys(errors).length > 0) {

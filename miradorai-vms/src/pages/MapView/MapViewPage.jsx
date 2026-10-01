@@ -428,7 +428,7 @@ function ZoneNameModal({ onSave, onCancel, existingNames }) {
   function handleSave() {
     const trimmed = name.trim();
     if (!trimmed)                           { setErr("Zone name is required."); return; }
-    if (!/^[a-zA-Z0-9 _-]+$/.test(trimmed)) { setErr("Zone Name can only contain alphanumeric characters, spaces, dashes, and underscores."); return; }
+    if (!/^[a-zA-Z0-9 _.\-]+$/.test(trimmed)) { setErr("Zone Name can only contain letters, numbers, spaces, hyphens, underscores, and dots."); return; }
     if (existingNames.includes(trimmed))    { setErr("A zone with this name already exists."); return; }
     onSave(trimmed);
   }
@@ -2292,8 +2292,13 @@ export default function MapViewPage() {
   }
 
   function renameFloor(idx, newName) {
-    if (!newName || !newName.trim()) return;
-    const updated = floors.map((f, i) => i === idx ? { ...f, name: newName.trim() } : f);
+    const trimmed = newName ? newName.trim() : "";
+    if (!trimmed) return;
+    if (!/^[a-zA-Z0-9 _.\-]+$/.test(trimmed)) {
+      alert("Floor name contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed.");
+      return;
+    }
+    const updated = floors.map((f, i) => i === idx ? { ...f, name: trimmed } : f);
     setFloors(updated);
     floorsRef.current = updated;
     persistFloors(updated);

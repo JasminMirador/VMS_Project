@@ -1264,6 +1264,14 @@ async def add_device(device: dict):
         validate_rtsp_url(device.get("rtsp_url"))
     if "recording_rtsp" in device:
         validate_rtsp_url(device.get("recording_rtsp"))
+        
+    import re as _re
+    _NAME_RE = _re.compile(r"^[a-zA-Z0-9 _.\-]+$")
+    for _field in ("name", "device_name", "manufacturer", "model", "group_id"):
+        _val = device.get(_field)
+        if _val and not _NAME_RE.match(str(_val).strip()):
+            raise HTTPException(status_code=400, detail=f"'{_field}' contains invalid characters.")
+
     print("DEVICE REGISTERED:", device)
     stream_id = device.get("stream_key") or device.get("ip_address")
     if not stream_id:

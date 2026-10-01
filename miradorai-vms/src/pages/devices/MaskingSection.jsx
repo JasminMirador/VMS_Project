@@ -620,6 +620,11 @@ export default function MaskingSection({ device, showToast, onMasksChange }) {
 
   const handleSaveModal = async () => {
     if (!pendingPts) return;
+    const finalName = newMaskName.trim() || `Region ${masks.length + 1}`;
+    if (!/^[a-zA-Z0-9 _.\-]+$/.test(finalName)) {
+      showToast("Invalid characters in region name.", "error");
+      return;
+    }
     const m = {
       id: `mask_${Date.now()}`,
       name: newMaskName.trim() || `Region ${masks.length + 1}`,
@@ -773,6 +778,12 @@ export default function MaskingSection({ device, showToast, onMasksChange }) {
   const renameMask = (id, name) => setMasks(p => p.map(m => m.id === id ? { ...m, name } : m));
   
   const commitRename = async (id) => {
+    const mask = masks.find(m => m.id === id);
+    if (mask && !/^[a-zA-Z0-9 _.\-]+$/.test(mask.name.trim())) {
+      showToast("Invalid characters in region name.", "error");
+      setMasks(savedMasks); // revert
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch(`${API}/api/masks/${encodeURIComponent(device.ip)}/all`, {

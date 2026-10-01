@@ -591,23 +591,34 @@ export default function Schedules() {
                   className="m-btn m-btn--primary"
                   disabled={loading}
                   onClick={async () => {
+                    const trimmedName = selected.name.trim();
+                    if (!trimmedName || !/^[a-zA-Z0-9 _.\-]+$/.test(trimmedName)) {
+                      showToast("Invalid Name", "Schedule name can only contain letters, numbers, spaces, hyphens, underscores, and dots.", "error");
+                      return;
+                    }
                     setLoading(true);
                     try {
                       const readableRanges = {};
                       DAYS.forEach((d) => { readableRanges[d] = getRangeLabel(selected.week[d]); });
                       const payload = { ...selected, ranges: readableRanges };
-                      await fetch(`${BACKEND}/api/storage/schedules`, {
+                      const res = await fetch(`${BACKEND}/api/storage/schedules`, {
                         method: "POST",
                         headers: getAuthHeaders(),
                         body: JSON.stringify(payload),
                       });
-                    } catch (err) { console.error(err); }
-                    finally {
-                      setLoading(false);
+                      if (!res.ok) {
+                        showToast("Error", "Failed to save schedule. Check the name format.", "error");
+                        return;
+                      }
                       showToast(
                         "Schedule Applied",
                         `"${selected.name}" has been saved and is now active.`
                       );
+                    } catch (err) { 
+                      console.error(err);
+                      showToast("Error", "An error occurred while saving the schedule.", "error");
+                    } finally {
+                      setLoading(false);
                     }
                   }}
                 >

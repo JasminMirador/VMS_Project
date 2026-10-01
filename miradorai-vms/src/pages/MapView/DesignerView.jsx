@@ -9380,7 +9380,7 @@ function ZoneNameModal({ onSave, onCancel, existingNames }) {
   function handleSave() {
     const trimmed = name.trim();
     if (!trimmed) { setErr("Zone name is required."); return; }
-    if (!/^[a-zA-Z0-9 _-]+$/.test(trimmed)) { setErr("Zone Name can only contain alphanumeric characters, spaces, dashes, and underscores."); return; }
+    if (!/^[a-zA-Z0-9 _.\-]+$/.test(trimmed)) { setErr("Zone Name can only contain letters, numbers, spaces, hyphens, underscores, and dots."); return; }
     if (existingNames.includes(trimmed)) { setErr("A zone with this name already exists."); return; }
     onSave(trimmed);
   }
