@@ -2973,6 +2973,14 @@ export default function DesignerView({ onBack }) {
   const handleJsonImport = useCallback((e) => {
     const file = e.target.files[0];
     if (!file) return;
+
+    // Security Fix: Enforce file size restriction (5MB)
+    const MAX_FILE_SIZE = 5 * 1024 * 1024;
+    if (file.size > MAX_FILE_SIZE) {
+      alert("File upload failed. The selected file exceeds the maximum allowed size of 5MB.");
+      e.target.value = "";
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
@@ -3017,6 +3025,14 @@ export default function DesignerView({ onBack }) {
   const handleDatasheetUpload = useCallback(async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    
+    // Security Fix: Enforce file size restriction (5MB)
+    const MAX_FILE_SIZE = 5 * 1024 * 1024;
+    if (file.size > MAX_FILE_SIZE) {
+      alert("File upload failed. The selected file exceeds the maximum allowed size of 5MB.");
+      e.target.value = "";
+      return;
+    }
     
     const uploadFile = async (overwriteFlag) => {
       const formData = new FormData();
@@ -4780,6 +4796,15 @@ export default function DesignerView({ onBack }) {
   // ── Floor plan import ─────────────────────────────────────────────────────
   async function handleFileChange(e) {
     const file = e.target.files[0]; if (!file) return;
+
+    // Security Fix: Enforce file size restriction (5MB)
+    const MAX_FILE_SIZE = 5 * 1024 * 1024;
+    if (file.size > MAX_FILE_SIZE) {
+      alert("File upload failed. The selected file exceeds the maximum allowed size of 5MB.");
+      e.target.value = "";
+      return;
+    }
+
     const name = file.name.replace(/\.[^/.]+$/, "");
     const ext = file.name.toLowerCase().split(".").pop();
 

@@ -2139,6 +2139,14 @@ export default function MapViewPage() {
     const file = e.target.files[0];
     if (!file) return;
 
+    // Security Fix: Enforce file size restriction (5MB)
+    const MAX_FILE_SIZE = 5 * 1024 * 1024;
+    if (file.size > MAX_FILE_SIZE) {
+      alert("File upload failed. The selected file exceeds the maximum allowed size of 5MB.");
+      e.target.value = "";
+      return;
+    }
+
     const ext = file.name.toLowerCase().split(".").pop();
 
     // ── .gltf / .glb → load 3D model and generate 2D fallback ─────

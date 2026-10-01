@@ -311,7 +311,16 @@ export default function EmailSchedulesPage() {
   const handleFileSelect = (e) => {
     if (e.target.files) {
       const newFiles = Array.from(e.target.files);
-      setComposeFiles(prev => [...prev, ...newFiles]);
+      const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+      const validFiles = newFiles.filter(file => {
+        if (file.size > MAX_FILE_SIZE) {
+          alert(`File "${file.name}" exceeds the maximum allowed size of 5MB and will not be attached.`);
+          return false;
+        }
+        return true;
+      });
+      setComposeFiles(prev => [...prev, ...validFiles]);
+      e.target.value = "";
     }
   };
 
