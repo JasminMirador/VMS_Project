@@ -8,7 +8,7 @@ Mount in main.py:
 """
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from typing import List, Optional
 import os, json
 
@@ -68,6 +68,15 @@ class MaskModel(BaseModel):
     points:    List[List[float]]   # [[x,y], ...]
     color_idx: int   = 0
     enabled:   bool  = True
+
+    @validator('name')
+    def validate_mask_name(cls, v):
+        import re
+        if not v or not v.strip():
+            raise ValueError('Mask name is required')
+        if not re.match(r'^[a-zA-Z0-9 _.\-]+$', v.strip()):
+            raise ValueError('Mask name contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed.')
+        return v.strip()
 
 
 class SaveMaskRequest(BaseModel):

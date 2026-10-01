@@ -36,6 +36,15 @@ class Floor(BaseModel):
     partsReport:  Optional[dict] = None
     markers:      List[Marker]  = []
 
+    @validator('name')
+    def validate_floor_name(cls, v):
+        import re
+        if not v or not v.strip():
+            raise ValueError('Floor name is required')
+        if not re.match(r'^[a-zA-Z0-9 _.\-]+$', v.strip()):
+            raise ValueError('Floor name contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed.')
+        return v.strip()
+
     @validator('imageDataUrl')
     def validate_image_data_url(cls, v):
         if v is not None and not v.startswith('data:image/'):
@@ -85,6 +94,15 @@ class Zone(BaseModel):
     color:      str
     polygon:    List[ZonePoint]
     floorIndex: Optional[int] = 0   # which floor this zone belongs to
+
+    @validator('name')
+    def validate_zone_name(cls, v):
+        import re
+        if not v or not v.strip():
+            raise ValueError('Zone name is required')
+        if not re.match(r'^[a-zA-Z0-9 _.\-]+$', v.strip()):
+            raise ValueError('Zone name contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed.')
+        return v.strip()
 
 
 class ZoneSaveRequest(BaseModel):

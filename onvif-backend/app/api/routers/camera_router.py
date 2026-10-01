@@ -379,10 +379,17 @@ async def delete_camera_by_stream(stream_name: str):
 
 @router.put("/cameras/by-ip/{ip}", dependencies=[Depends(require_admin)])
 async def update_camera_by_ip(ip: str, request: Request):
+    import re as _re
+    _NAME_RE = _re.compile(r"^[a-zA-Z0-9 _.\-]+$")
     validate_ip_only(ip)
     data = await request.json()
     if "rtsp_url" in data:
         validate_rtsp_url(data["rtsp_url"])
+    # Validate name fields
+    for _field in ("name", "device_name", "manufacturer", "model", "group_id"):
+        if _field in data and data[_field]:
+            if not _NAME_RE.match(str(data[_field]).strip()):
+                raise HTTPException(status_code=400, detail=f"'{_field}' contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed.")
     actual_updated_fields = []
     
     if cameras_col is not None:

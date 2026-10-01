@@ -76,8 +76,8 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
       setEditingGroupId(null);
       return;
     }
-    if (!/^[a-zA-Z0-9 _-]+$/.test(trimmed)) {
-      setUiError("Group Name can only contain alphanumeric characters, spaces, dashes, and underscores.");
+    if (!/^[a-zA-Z0-9 _.\-]+$/.test(trimmed)) {
+      setUiError("Group Name can only contain letters, numbers, spaces, hyphens, underscores, and dots. Special characters are not allowed.");
       return;
     }
     const updatedGroups = groups.map(g => 
@@ -344,8 +344,8 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
   const saveEdit = () => {
     if (editForm.name) {
       const trimmed = editForm.name.trim();
-      if (!/^[a-zA-Z0-9 _-]+$/.test(trimmed)) {
-        setUiError("Camera Name can only contain alphanumeric characters, spaces, dashes, and underscores.");
+      if (!/^[a-zA-Z0-9 _.\-]+$/.test(trimmed)) {
+        setUiError("Camera Name can only contain letters, numbers, spaces, hyphens, underscores, and dots. Special characters are not allowed.");
         return;
       }
     }

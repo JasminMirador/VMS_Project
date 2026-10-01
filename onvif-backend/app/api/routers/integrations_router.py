@@ -77,6 +77,14 @@ async def create_integration(request: Request):
         return JSONResponse({"error": "Database not connected"}, status_code=500)
         
     data = await request.json()
+
+    # Validate name fields against safe-name pattern
+    import re as _re
+    _NAME_RE = _re.compile(r'^[a-zA-Z0-9 _.\-]*$')
+    for _nf in ("serverName", "appName"):
+        _val = data.get(_nf, "")
+        if _val and not _NAME_RE.match(str(_val).strip()):
+            raise HTTPException(status_code=400, detail=f"'{_nf}' contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed.")
     
     doc_id = str(data.get("id") or uuid.uuid4())
     doc = {
@@ -90,6 +98,8 @@ async def create_integration(request: Request):
         "port": data.get("port", ""),
         "username": data.get("username", ""),
         "password": data.get("password", ""),
+        "appName": data.get("appName", ""),
+        "accessToken": data.get("accessToken", ""),
         "streams": data.get("streams", []),
         "created_at": time.time(),
         "is_deleted": False
@@ -115,6 +125,14 @@ async def update_integration(integration_id: str, request: Request):
         
     data = await request.json()
     
+    # Validate name fields against safe-name pattern
+    import re as _re
+    _NAME_RE = _re.compile(r'^[a-zA-Z0-9 _.\-]*$')
+    for _nf in ("serverName", "appName"):
+        _val = data.get(_nf)
+        if _val and not _NAME_RE.match(str(_val).strip()):
+            raise HTTPException(status_code=400, detail=f"'{_nf}' contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed.")
+
     update_data = {
         "type": data.get("type"),
         "isActive": data.get("isActive"),
@@ -125,6 +143,8 @@ async def update_integration(integration_id: str, request: Request):
         "port": data.get("port"),
         "username": data.get("username"),
         "password": data.get("password"),
+        "appName": data.get("appName"),
+        "accessToken": data.get("accessToken"),
         "streams": data.get("streams"),
         "updated_at": time.time()
     }
