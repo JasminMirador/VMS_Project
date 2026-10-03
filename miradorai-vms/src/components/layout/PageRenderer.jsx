@@ -151,7 +151,7 @@ const CLIENT_SUPERVISOR_PAGES = ["media-player", "backup", "masking"];
 const CLIENT_BLOCKED_PAGES = ["designer-view", "topology-map", "network-health", "system-performance", "raid-mgmt", "viewing-stations", "user-management"];
 
 // Pages the OPERATOR role is allowed to access
-const OPERATOR_ALLOWED_PAGES = ["live-view", "map-view", "client-settings", "profile"];
+const OPERATOR_ALLOWED_PAGES = ["live-view", "map-view", "client-settings", "profile", "ai-analytics"];
 
 // Friendly names for the supervisor modal
 const SUPERVISOR_PAGE_NAMES = {
