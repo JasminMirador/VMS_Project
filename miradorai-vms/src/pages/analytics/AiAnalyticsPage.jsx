@@ -26,12 +26,15 @@ export default function AiAnalyticsPage() {
         // Get current logged-in email from localStorage
         let email = "";
         try {
-          const user = JSON.parse(localStorage.getItem("miradorai_user"));
-          if (user && user.email) {
-            email = user.email;
+          const userStr = localStorage.getItem("miradorai_user") || sessionStorage.getItem("miradorai_user");
+          if (userStr) {
+            const user = JSON.parse(userStr);
+            if (user && user.email) {
+              email = user.email;
+            }
           }
         } catch (e) {
-          console.error("Failed to parse user from localStorage", e);
+          console.error("Failed to parse user from storage", e);
         }
 
         // Fetch dynamic appName and accessToken from integrations

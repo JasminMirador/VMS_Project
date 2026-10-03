@@ -65,12 +65,27 @@ const fetchSsoToken = async (accessToken) => {
       console.warn("[SSO] Failed to fetch dynamic appName and accessToken from integrations", e);
     }
 
+    // Get email from storage to pass to the SSO API
+    let userEmail = "";
+    try {
+      const storedUser = getAuthItem("miradorai_user");
+      if (storedUser) {
+        const parsed = JSON.parse(storedUser);
+        if (parsed && parsed.email) {
+          userEmail = parsed.email;
+        }
+      }
+    } catch (e) {
+      console.warn("Could not get email for SSO", e);
+    }
+
     const res = await fetch(ssoUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ 
         accessToken: ssoAccessToken, 
-        appName: ssoAppName 
+        appName: ssoAppName,
+        email: userEmail
       }),
     });
     let data = null;
