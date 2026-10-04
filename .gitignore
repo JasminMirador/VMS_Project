@@ -1,2 +1,16 @@
-onvif-backend/venv/
-miradorai-vms/node_modules/
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+.env.*
+!.env.example
+video.key
+*.mp4
+player/decrypted/
+
+# Synopsis Service & Video Detection
+devices_data/
+*.pt
+*.zip
+node_modules/
+venv/
