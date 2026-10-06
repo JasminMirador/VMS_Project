@@ -332,6 +332,12 @@ export default function VideoSynopsisPage() {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [activeProcessingTab, setActiveProcessingTab] = useState('overall');
   const [viewMode, setViewMode] = useState('cases');
+  const [viewModeDetail, setViewModeDetail] = useState('grid');
+  const [filterSource, setFilterSource] = useState([]);
+  const [filterDateRange, setFilterDateRange] = useState({ start: '', end: '' });
+  const [filterDwell, setFilterDwell] = useState([0, 60]);
+  const [selectedObjects, setSelectedObjects] = useState([]);
+  const [gridSortBy, setGridSortBy] = useState('Oldest');
   const [editingJobId, setEditingJobId] = useState(null);
   const [editJobName, setEditJobName] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -340,6 +346,7 @@ export default function VideoSynopsisPage() {
   const [createIncidentDate, setCreateIncidentDate] = useState('');
   const [createIncidentTime, setCreateIncidentTime] = useState('');
   const [showAddVideoModal, setShowAddVideoModal] = useState(false);
+  const [shareModalGroup, setShareModalGroup] = useState(null);
   const [addVideoStep, setAddVideoStep] = useState(1); // 1=Time Range, 2=Camera Selection
   const [addVideoJob, setAddVideoJob] = useState(null);
   const [addVideoSourceTab, setAddVideoSourceTab] = useState('CAMERAS');
@@ -448,8 +455,16 @@ export default function VideoSynopsisPage() {
           // De-duplicate by track_id — keep ONE representative frame per unique person/object.
           // Pick the frame with the largest bbox area (= person closest to camera = best thumbnail).
           const trackMap = new Map();
+          const trackDurationMap = new Map();
           merged.forEach(item => {
             const key = item.track_id || `${item.camera_id}_${item.original_timestamp}`;
+            
+            if (!trackDurationMap.has(key)) {
+              trackDurationMap.set(key, 1);
+            } else {
+              trackDurationMap.set(key, trackDurationMap.get(key) + 1);
+            }
+
             if (!trackMap.has(key)) {
               trackMap.set(key, item);
             } else {
@@ -460,7 +475,11 @@ export default function VideoSynopsisPage() {
             }
           });
 
-          const deduped = Array.from(trackMap.values());
+          const deduped = Array.from(trackMap.values()).map(item => {
+            const key = item.track_id || `${item.camera_id}_${item.original_timestamp}`;
+            item._dwellTimeSec = trackDurationMap.get(key) / 25.0; // Assuming 25 FPS
+            return item;
+          });
           // Sort chronologically by original_timestamp
           deduped.sort((a, b) => {
             const ta = a.original_timestamp ? new Date(a.original_timestamp.replace(' ', 'T') + '+05:30').getTime() : 0;
@@ -855,6 +874,22 @@ export default function VideoSynopsisPage() {
     }
   }, [toastMessage]);
 
+  // Live update Processing Details popup if open and processing
+  useEffect(() => {
+    let interval;
+    if (showDetailsModal && currentJobDetails && (currentJobDetails.status === 'processing' || currentJobDetails.status === 'queued')) {
+      interval = setInterval(async () => {
+        try {
+          const data = await fetchGroupedJobDetails(currentJobDetails);
+          setCurrentJobDetails(data);
+        } catch (e) {
+          console.error(e);
+        }
+      }, 2500);
+    }
+    return () => clearInterval(interval);
+  }, [showDetailsModal, currentJobDetails?.status, currentJobDetails?.job_id, currentJobDetails?.group_id]);
+
   // Groups jobHistory (flat, one entry per camera per generate request)
   // into one array per "case": every job sharing a group_id together, and
   // any job without one (e.g. local no_video cards, or older jobs created
@@ -887,7 +922,7 @@ export default function VideoSynopsisPage() {
     const toMin = (hhmm) => { if (!hhmm) return null; const [h, m] = hhmm.split(':'); return parseInt(h, 10) * 60 + parseInt(m, 10); };
     const from = toMin(filterTimeFrom);
     const to = toMin(filterTimeTo);
-    return allMulticamMetadata.filter(item => {
+    const filtered = allMulticamMetadata.filter(item => {
       if (filterCams && !filterCams.includes(item.camera_id)) return false;
       if (from !== null || to !== null) {
         const t = toMinutesIST(item.original_timestamp);
@@ -895,11 +930,20 @@ export default function VideoSynopsisPage() {
         if (from !== null && t < from) return false;
         if (to !== null && t > to) return false;
       }
+      if (item._dwellTimeSec < filterDwell[0] || item._dwellTimeSec > filterDwell[1]) return false;
       return true;
     });
-  }, [allMulticamMetadata, filterCams, filterTimeFrom, filterTimeTo]);
 
-  const activeFilterCount = (filterCams ? 1 : 0) + ((filterTimeFrom || filterTimeTo) ? 1 : 0);
+    filtered.sort((a, b) => {
+       const tsA = a.original_timestamp ? new Date(a.original_timestamp.replace(' ', 'T') + (a.original_timestamp.includes('Z') || a.original_timestamp.includes('+') ? '' : '+05:30')).getTime() : 0;
+       const tsB = b.original_timestamp ? new Date(b.original_timestamp.replace(' ', 'T') + (b.original_timestamp.includes('Z') || b.original_timestamp.includes('+') ? '' : '+05:30')).getTime() : 0;
+       return gridSortBy === 'Newest' ? tsB - tsA : tsA - tsB;
+    });
+
+    return filtered;
+  }, [allMulticamMetadata, filterCams, filterTimeFrom, filterTimeTo, gridSortBy, filterDwell]);
+
+  const activeFilterCount = (filterCams ? 1 : 0) + ((filterTimeFrom || filterTimeTo) ? 1 : 0) + ((filterDwell[0] > 0 || filterDwell[1] < 60) ? 1 : 0);
 
   // status: 'live' = works today; 'soon' = needs new fields from the backend sidecar.
   const FILTER_CATALOGUE = [
@@ -910,7 +954,7 @@ export default function VideoSynopsisPage() {
     { key: 'color', label: 'Color', icon: 'palette', status: 'soon', note: 'Needs dominant clothing/vehicle colour extracted per track.' },
     { key: 'size', label: 'Size', icon: 'straighten', status: 'soon', note: 'Can be derived from bbox area — not wired up yet.' },
     { key: 'speed', label: 'Speed', icon: 'speed', status: 'soon', note: 'Can be derived from bbox movement over time — needs all frames per track, not one.' },
-    { key: 'dwell', label: 'Dwell', icon: 'hourglass_empty', status: 'soon', note: 'Can be derived from first/last timestamp per track — not wired up yet.' },
+    { key: 'dwell', label: 'Dwell', icon: 'hourglass_empty', status: 'live' },
     { key: 'direction', label: 'Direction', icon: 'explore', status: 'soon', note: 'Direction is currently set when creating the summary (Add Video step 3), not as a viewer filter.' },
     { key: 'appearance', label: 'Appearance Similarity', icon: 'image_search', status: 'soon', note: 'Needs re-ID embeddings per track.' },
     { key: 'face', label: 'Face Recognition', icon: 'face', status: 'soon', note: 'Face boxes are extracted, but there is no recognition / known-person database yet.' },
@@ -926,6 +970,7 @@ export default function VideoSynopsisPage() {
         <div style={{
           position: 'fixed',
           bottom: '24px',
+          zIndex: 99999999,
           right: '24px',
           backgroundColor: 'rgba(239, 68, 68, 0.95)',
           backdropFilter: 'blur(10px)',
@@ -1011,9 +1056,9 @@ export default function VideoSynopsisPage() {
                 const avgProgress = group.reduce((acc, j) => acc + (j.progress || 0), 0) / group.length;
 
                 // "ENTRY + EXIT" for a multi-camera case, otherwise the job's own name.
-                const groupTitle = isGrouped
+                const groupTitle = job.job_name || (isGrouped
                   ? group.map(j => cameras?.find(c => (c.id || c._id) === j.camera_id)?.name || j.camera_id).join(' + ')
-                  : (job.job_name || job.job_id);
+                  : job.job_id);
 
                 const firstCreated = group.reduce((earliest, j) => {
                   const dt = j.started_at || j.created_at;
@@ -1041,7 +1086,7 @@ export default function VideoSynopsisPage() {
                       openAddVideoModal(job);
                       return;
                     }
-                    if (isGrouped && groupStatus === 'completed') {
+                    if (groupStatus === 'completed') {
                       setMulticamGroup(group);
                       setActiveJobs(group);
                       setActiveViewIndex(0);
@@ -1122,7 +1167,7 @@ export default function VideoSynopsisPage() {
 
                   {/* Info */}
                   <div style={{ padding: '16px', flex: 1 }}>
-                    {!isGrouped && editingJobId === job.job_id ? (
+                    {editingJobId === job.job_id ? (
                       <input 
                         autoFocus
                         value={editJobName}
@@ -1131,16 +1176,16 @@ export default function VideoSynopsisPage() {
                           if (e.key === 'Enter') {
                             try {
                               setJobHistory(prev => prev.map(j => {
-                                if (j.job_id === job.job_id) {
+                                if (group.some(g => g.job_id === j.job_id)) {
                                   return { ...j, job_name: editJobName.trim(), updated_at: new Date().toISOString() };
                                 }
                                 return j;
                               }));
-                              await fetch(`http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005/a1/v1/synopsis/jobs/${job.job_id}`, {
+                              await Promise.all(group.map(j => fetch(`http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005/a1/v1/synopsis/jobs/${j.job_id}`, {
                                 method: 'PATCH',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ job_name: editJobName.trim() })
-                              });
+                              })));
                               setEditingJobId(null);
                               fetchJobHistory();
                               setToastMessage("Job name updated.");
@@ -1207,13 +1252,11 @@ export default function VideoSynopsisPage() {
                           }
                         }}
                       >info</span>
-                      {!isGrouped && (
-                        <span className="material-icons-outlined" style={{ fontSize: '1rem', cursor: 'pointer' }} onClick={(e) => { 
-                          e.stopPropagation(); 
-                          setEditJobName(job.job_name || job.job_id);
-                          setEditingJobId(job.job_id);
-                        }} title="Rename">edit</span>
-                      )}
+                      <span className="material-icons-outlined" style={{ fontSize: '1rem', cursor: 'pointer' }} onClick={(e) => { 
+                        e.stopPropagation(); 
+                        setEditJobName(groupTitle);
+                        setEditingJobId(job.job_id);
+                      }} title="Rename">edit</span>
                       <span className="material-icons-outlined" style={{ fontSize: '1rem', cursor: 'pointer' }} title={isGrouped ? "Delete all cameras in this case" : "Delete"} onClick={async (e) => { 
                           e.stopPropagation(); 
                           const idsToDelete = group.map(j => j.job_id);
@@ -1228,11 +1271,15 @@ export default function VideoSynopsisPage() {
                       }}>delete</span>
                       <span className="material-icons-outlined" style={{ fontSize: '1rem', cursor: 'pointer' }} onClick={(e) => { 
                         e.stopPropagation(); 
-                        if (completedJob.output_video_url) {
-                          const url = `http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005${completedJob.output_video_url}`;
-                          navigator.clipboard.writeText(url).then(() => setToastMessage(isGrouped ? "First camera's video URL copied to clipboard!" : "Video URL copied to clipboard!")).catch(() => setToastMessage("Failed to copy URL"));
+                        if (isGrouped) {
+                          setShareModalGroup(group);
                         } else {
-                          setToastMessage("Video not available yet.");
+                          if (completedJob.output_video_url) {
+                            const url = `http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005${completedJob.output_video_url}`;
+                            navigator.clipboard.writeText(url).then(() => setToastMessage("Video URL copied to clipboard!")).catch(() => setToastMessage("Failed to copy URL"));
+                          } else {
+                            setToastMessage("Video not available yet.");
+                          }
                         }
                       }}>share</span>
                     </div>
@@ -1272,6 +1319,10 @@ export default function VideoSynopsisPage() {
                   {multicamGroup[0]?.job_name || "Multi-Camera Summary"}
                 </h3>
               </div>
+              <button onClick={() => setShowCreateModal(true)} style={{ background: '#3b82f6', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span className="material-icons-outlined" style={{ fontSize: '1rem' }}>add</span>
+                ADD VIDEO
+              </button>
             </div>
 
             {/* Main Layout Area */}
@@ -1336,7 +1387,33 @@ export default function VideoSynopsisPage() {
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, position: 'relative' }}>
                 
                 {activeCamVideoId === null ? (
-                  /* Detection Object Grid — one tile per detected person/vehicle, sorted chronologically */
+                  <>
+                  {/* Grid Top Control Bar */}
+                  <div style={{ display: 'flex', flexDirection: 'column', background: '#111827', borderBottom: '1px solid #1e293b' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 16px', background: '#1f2937' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Sort by:</span>
+                        <div style={{ display: 'flex', gap: '8px', fontSize: '0.85rem' }}>
+                          <button onClick={() => setGridSortBy('Oldest')} style={{ background: 'none', border: 'none', color: gridSortBy === 'Oldest' ? '#f8fafc' : '#64748b', fontWeight: gridSortBy === 'Oldest' ? 600 : 400, cursor: 'pointer', padding: 0 }}>Oldest</button>
+                          <span style={{ color: '#475569' }}>|</span>
+                          <button onClick={() => setGridSortBy('Newest')} style={{ background: 'none', border: 'none', color: gridSortBy === 'Newest' ? '#f8fafc' : '#64748b', fontWeight: gridSortBy === 'Newest' ? 600 : 400, cursor: 'pointer', padding: 0 }}>Newest</button>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1', cursor: 'pointer' }}>
+                          <input type="checkbox" checked={selectedObjects.length > 0 && selectedObjects.length === filteredMulticamMetadata.length} onChange={(e) => setSelectedObjects(e.target.checked ? filteredMulticamMetadata.map(m => m.track_id) : [])} style={{ accentColor: '#38bdf8' }} />
+                          Select all
+                        </label>
+                        <span style={{ fontSize: '0.85rem', color: '#cbd5e1' }}>
+                          {multicamGroup[0]?.range_start && new Date(multicamGroup[0].range_start.includes('+') ? multicamGroup[0].range_start : multicamGroup[0].range_start + '+05:30').toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true })}
+                          {' - '}
+                          {multicamGroup[0]?.range_end && new Date(multicamGroup[0].range_end.includes('+') ? multicamGroup[0].range_end : multicamGroup[0].range_end + '+05:30').toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true })}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Detection Object Grid - one tile per detected person/vehicle, sorted chronologically */}
                   <div style={{ flex: 1, overflowY: 'auto', padding: '20px', background: '#0d1117' }}>
                     {allMulticamMetadata.length === 0 ? (
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '12px', color: '#555' }}>
@@ -1348,7 +1425,7 @@ export default function VideoSynopsisPage() {
                         <span className="material-icons-outlined" style={{ fontSize: '3rem' }}>filter_alt_off</span>
                         <span style={{ fontSize: '0.9rem' }}>No detections match the current filters.</span>
                         <button
-                          onClick={() => { setFilterCams(null); setFilterTimeFrom(''); setFilterTimeTo(''); }}
+                          onClick={() => { setFilterCams(null); setFilterTimeFrom(''); setFilterTimeTo(''); setFilterDwell([0, 60]); }}
                           style={{ background: 'transparent', border: '1px solid #333', color: '#94a3b8', borderRadius: '4px', padding: '4px 12px', cursor: 'pointer', fontSize: '0.8rem' }}
                         >Reset filters</button>
                       </div>
@@ -1448,7 +1525,7 @@ export default function VideoSynopsisPage() {
                       })()
                     )}
                   </div>
-
+                  </>
                 ) : (
                   /* Single Camera Full Video — with bounding boxes + click-to-jump, identical to single-cam view */
                   (() => {
@@ -1627,7 +1704,7 @@ export default function VideoSynopsisPage() {
                     FILTERS{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
                   </span>
                   <span
-                    onClick={() => { setFilterCams(null); setFilterTimeFrom(''); setFilterTimeTo(''); }}
+                    onClick={() => { setFilterCams(null); setFilterTimeFrom(''); setFilterTimeTo(''); setFilterDwell([0, 60]); }}
                     style={{ fontSize: '0.7rem', color: activeFilterCount > 0 ? '#38bdf8' : '#475569', cursor: activeFilterCount > 0 ? 'pointer' : 'default' }}
                   >Reset</span>
                 </div>
@@ -1636,7 +1713,7 @@ export default function VideoSynopsisPage() {
                   {FILTER_CATALOGUE.map(f => {
                     const isOpen = expandedFilter === f.key;
                     const isLive = f.status === 'live';
-                    const isApplied = (f.key === 'source' && filterCams) || (f.key === 'time_range' && (filterTimeFrom || filterTimeTo));
+                    const isApplied = (f.key === 'source' && filterCams) || (f.key === 'time_range' && (filterTimeFrom || filterTimeTo)) || (f.key === 'dwell' && (filterDwell[0] > 0 || filterDwell[1] < 60));
                     return (
                       <div key={f.key} style={{ borderBottom: '1px solid #1e293b' }}>
                         <div
@@ -1690,6 +1767,29 @@ export default function VideoSynopsisPage() {
                               <input type="time" value={filterTimeTo} onChange={e => setFilterTimeTo(e.target.value)}
                                 style={{ display: 'block', width: '100%', marginTop: '3px', background: 'transparent', border: 'none', borderBottom: '1px solid #2a3340', color: '#e2e8f0', fontSize: '0.85rem', outline: 'none', colorScheme: 'dark' }} />
                             </label>
+                          </div>
+                        )}
+
+                        {isOpen && f.key === 'dwell' && (
+                          <div style={{ padding: '4px 16px 16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '0.75rem' }}>
+                              <span>Min: {filterDwell[0]}s</span>
+                              <span>Max: {filterDwell[1]}s</span>
+                            </div>
+                            <input 
+                              type="range" 
+                              min="0" max="60" step="1"
+                              value={filterDwell[0]} 
+                              onChange={e => setFilterDwell([Number(e.target.value), Math.max(Number(e.target.value), filterDwell[1])])}
+                              style={{ width: '100%', accentColor: '#38bdf8' }}
+                            />
+                            <input 
+                              type="range" 
+                              min="0" max="60" step="1"
+                              value={filterDwell[1]} 
+                              onChange={e => setFilterDwell([Math.min(Number(e.target.value), filterDwell[0]), Number(e.target.value)])}
+                              style={{ width: '100%', accentColor: '#38bdf8' }}
+                            />
                           </div>
                         )}
 
@@ -2309,6 +2409,46 @@ export default function VideoSynopsisPage() {
 
       {/* ── Create New Summary Modal ── */}
       {/* ── Add Video Multi-Step Modal ── */}
+      {/* Share Multicam URLs Modal */}
+      {shareModalGroup && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999999 }} onClick={() => setShareModalGroup(null)}>
+          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: '8px', width: '400px', maxWidth: '90%', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600 }}>Share Camera Videos</h3>
+              <button onClick={() => setShareModalGroup(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex' }}>
+                <span className="material-icons-outlined">close</span>
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '400px', overflowY: 'auto' }}>
+              {shareModalGroup.map(j => {
+                const cId = Array.isArray(j.camera_id) ? j.camera_id[0] : j.camera_id;
+                const camInfo = cameras?.find(c => (c.id || c._id) === cId);
+                const camName = camInfo?.name || cId;
+                const url = j.output_video_url ? `http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005${j.output_video_url}` : null;
+                return (
+                  <div key={j.job_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'var(--bg-base)', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                    <span style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '200px' }}>{camName}</span>
+                    <button
+                      onClick={() => {
+                        if (url) {
+                          navigator.clipboard.writeText(url).then(() => setToastMessage("Copied " + camName + " URL")).catch(() => setToastMessage("Failed to copy"));
+                        } else {
+                          setToastMessage("Video not available for " + camName);
+                        }
+                      }}
+                      style={{ background: 'var(--bg-active)', border: '1px solid var(--border)', color: url ? 'var(--text-primary)' : 'var(--text-muted)', padding: '6px 12px', borderRadius: '4px', cursor: url ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}
+                    >
+                      <span className="material-icons-outlined" style={{ fontSize: '1rem' }}>content_copy</span>
+                      Copy
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {showAddVideoModal && (
         <div
           style={{

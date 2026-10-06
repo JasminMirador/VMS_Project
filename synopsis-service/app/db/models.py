@@ -23,6 +23,9 @@ class TrackSkeleton(BaseModel):
     frames: List[FrameMeta]
 
 class SynopsisJobCreate(BaseModel):
+    job_name: Optional[str] = None
+    description: Optional[str] = None
+    incident_time: Optional[str] = None
     camera_id: Union[str, List[str]]
     range_start: str
     range_end: str
@@ -34,11 +37,15 @@ class SynopsisJobCreate(BaseModel):
 
 class SynopsisJobUpdate(BaseModel):
     job_name: Optional[str] = None
+    description: Optional[str] = None
+    incident_time: Optional[str] = None
     status: Optional[str] = None
 
 class SynopsisJobResponse(BaseModel):
     job_id: str
     job_name: Optional[str] = None
+    description: Optional[str] = None
+    incident_time: Optional[str] = None
     camera_id: str
     group_id: Optional[str] = None
     range_start: str

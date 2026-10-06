@@ -97,7 +97,9 @@ async def create_synopsis_job(payload: SynopsisJobCreate, background_tasks: Back
 
         job_doc = {
             "job_id": job_id,
-            "job_name": job_id,
+            "job_name": payload.job_name if payload.job_name else job_id,
+            "description": payload.description,
+            "incident_time": payload.incident_time,
             "camera_id": cam_id,
             "group_id": group_id,
             "range_start": payload.range_start,
@@ -175,7 +177,7 @@ async def update_synopsis_job(job_id: str, payload: SynopsisJobUpdate):
     ist = timezone(timedelta(hours=5, minutes=30))
     now_ist = datetime.now(ist).isoformat()
     
-    await jobs_col.update_one({"job_id": job_id}, {"$set": {"job_name": payload.job_name, "updated_at": now_ist}})
+    await jobs_col.update_one({"job_id": job_id}, {"$set": {"job_name": payload.job_name, "description": getattr(payload, "description", None), "incident_time": getattr(payload, "incident_time", None), "updated_at": now_ist}})
     job["job_name"] = payload.job_name
     job["updated_at"] = now_ist
     return SynopsisJobResponse(**job)
@@ -498,7 +500,9 @@ async def create_face_job(payload: FaceJobCreate, background_tasks: BackgroundTa
     from datetime import datetime
     job_doc = {
         "job_id": job_id,
-        "job_name": job_id,
+        "job_name": payload.job_name if payload.job_name else job_id,
+            "description": payload.description,
+            "incident_time": payload.incident_time,
         "camera_id": camera_ids, # Keep original payload list for db record
         "range_start": payload.range_start,
         "range_end": payload.range_end,
@@ -563,6 +567,10 @@ async def update_face_job(job_id: str, payload: SynopsisJobUpdate):
     update_data = {}
     if payload.job_name is not None:
         update_data["job_name"] = payload.job_name
+    if hasattr(payload, "description") and payload.description is not None:
+        update_data["description"] = payload.description
+    if hasattr(payload, "incident_time") and payload.incident_time is not None:
+        update_data["incident_time"] = payload.incident_time
     if payload.status is not None:
         update_data["status"] = payload.status
         if payload.status == "cancelled":
