@@ -1,156 +1,361 @@
-/* =========================================================
-   MIRADOR VMS LOGIN PAGE — LIGHT + DARK THEME
-   ========================================================= */
+/* ==========================================================================
+   Mirador VMS — Login
+   Light, split "SaaS admin" layout: marketing panel + a bordered auth card.
+   Self-contained token set (this page intentionally breaks from the app's
+   dark theme, by request, so it does not reuse global.css's dark tokens).
+
+   Responsive strategy: mobile-first. Sizing lives in CSS custom properties
+   on .login-page so each breakpoint just redefines the handful of tokens
+   that need to change, instead of repeating whole rules. Breakpoints:
+     ≤479   small phones
+     480–639  large phones
+     640–767  phablets / small tablets (portrait)
+     768–959  tablets (brand panel still hidden — not enough width for it)
+     960–1199 small desktop / laptop (brand panel appears)
+     1200–1599 desktop
+     ≥1600   wide / ultra-wide monitors (growth capped, don't stretch thin)
+   Plus a short-viewport (height) and landscape-phone pass so the card
+   never forces a scroll on a small laptop or a phone turned sideways.
+   ========================================================================== */
 
 .login-page {
-  --login-bg: #080a0e;
-  --login-text: #ffffff;
-  --login-text-secondary: #9ca3af;
-  --login-text-muted: #6b7280;
-  --login-surface: rgba(255,255,255,.03);
-  --login-surface-hover: rgba(255,255,255,.05);
-  --login-input-bg: rgba(255,255,255,.05);
-  --login-border: rgba(255,255,255,.10);
-  --login-border-soft: rgba(255,255,255,.08);
-  --login-green: #10b981;
-  --login-green-hover: #059669;
-  --login-error-bg: rgba(239,68,68,.15);
-  --login-error-border: rgba(239,68,68,.30);
-  --login-error-text: #fca5a5;
-  --login-success-bg: rgba(16,185,129,.15);
-  --login-success-border: rgba(16,185,129,.30);
-  --login-success-text: #6ee7b7;
+  --auth-bg:        #f8fafd;
+  --auth-card-bg:   #ffffff;
+  --auth-border:    #dce2eb;
+  --auth-border-soft: #e7ecf3;
+  --auth-text:      #171e2a;
+  --auth-muted:     #626c7e;
+  --auth-muted-soft:#8892a0;
+  --auth-primary:   #0e7490;
+  --auth-primary-hover: #0b5b73;
+  --auth-primary-tint: #ecfeff;
+  --auth-primary-tint-border: #a5f3fc;
+  --auth-badge-bg:  rgba(14, 116, 144, 0.10);
+  --auth-badge-text:#0e7490;
+  --auth-check-bg:  #eef1f5;
+  --auth-check:     #3b4657;
+  --auth-red-bg:    #fdf0ef;
+  --auth-red-border:#f6c9c6;
+  --auth-red-text:  #b42318;
+  --auth-green-bg:  #eefaf1;
+  --auth-green-border:#bfe9cc;
+  --auth-green-text:#0f7a3d;
 
+  /* Secondary surfaces / states — split out from the tokens above so a
+     dark-mode override (further down) can retune each one independently. */
+  --auth-surface-alt:    #f1f4f9; /* recessed tracks: role selector, ghost/secondary buttons */
+  --auth-surface-raised: #ffffff; /* raised chips inside a surface-alt track (active pill, selects) */
+  --auth-text-soft:      #3b4657; /* body copy that's a touch softer than --auth-text (checklist, remember-me) */
+  --auth-placeholder:    #a7afbc;
+  --auth-tint-hover:     #e2ecff;
+  --auth-warning-text:   #164e63;
+  --auth-primary-glow:   rgba(14, 116, 144, 0.14); /* input focus box-shadow */
+  --auth-primary-ring:   rgba(14, 116, 144, 0.5);  /* icon-button focus outline */
+  --auth-shadow-card:    0 1px 2px rgba(23, 30, 42, 0.04);
+  --auth-shadow-pill:    0 1px 2px rgba(23, 30, 42, 0.08);
+  /* The primary button keeps its own bg tokens so dark mode can brighten
+     --auth-primary for text/links/accents without the button (white text
+     on top of it) losing contrast. */
+  --auth-button-bg:       var(--auth-primary);
+  --auth-button-bg-hover: var(--auth-primary-hover);
+
+  /* ---- Responsive sizing tokens (mobile-first defaults) ---- */
+  --fs-eyebrow:     11px;
+  --fs-title:       21px;
+  --fs-subtitle:    13px;
+  --fs-input:       16px; /* 16px on touch widths stops iOS Safari auto-zoom on focus */
+  --fs-button:      14px;
+  --fs-brand-name:  26px;
+  --fs-brand-headline: 26px;
+  --fs-brand-copy:  14px;
+
+  --panel-pad:      14px;
+  --card-pad:       18px;
+  --card-radius:    12px;
+  --card-max-width: 440px;
+  --form-gap:       14px;
+  --header-gap:     16px;
+
+  --brand-pad-y:    40px;
+  --brand-pad-x:    24px;
+  --brand-max-width: 460px;
+  --brand-top-gap:  32px;
+  --brand-footer-gap: 28px;
+
+  /* The app shell sets body { overflow: hidden; height: 100vh; }, so this
+     page must own its own scrolling — otherwise content taller than the
+     viewport (short/landscape screens) is clipped with no way to reach it. */
+  height: 100vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  background: var(--auth-bg);
+  color: var(--auth-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+.login-shell {
+  display: grid;
+  grid-template-columns: 1fr;
   min-height: 100vh;
-  width: 100%;
+}
+
+/* --------------------------------------------------------------------------
+   Brand / marketing panel — hidden below the desktop breakpoint.
+   -------------------------------------------------------------------------- */
+
+.brand-panel {
+  display: none;
+}
+
+.brand-panel-inner {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: 100%;
+  max-width: var(--brand-max-width);
+  margin: 0 0 0 auto; /* right-align the block within the brand panel */
+  padding: var(--brand-pad-y) var(--brand-pad-x);
+}
+
+.brand-panel-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: var(--brand-top-gap);
+}
+
+.brand-panel-logo {
+  width: 72px;
+  height: 72px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--login-bg);
-  color: var(--login-text);
-  position: relative;
-  overflow: hidden;
-  transition: background-color .25s ease, color .25s ease;
 }
 
-.login-page.light {
-  --login-bg: #f7f9fb;
-  --login-text: #111827;
-  --login-text-secondary: #4b5563;
-  --login-text-muted: #6b7280;
-  --login-surface: rgba(255,255,255,.92);
-  --login-surface-hover: #ffffff;
-  --login-input-bg: #ffffff;
-  --login-border: #d1d5db;
-  --login-border-soft: #e5e7eb;
-  --login-green: #059669;
-  --login-green-hover: #047857;
-  --login-error-bg: rgba(239,68,68,.08);
-  --login-error-border: rgba(239,68,68,.25);
-  --login-error-text: #b91c1c;
-  --login-success-bg: rgba(16,185,129,.08);
-  --login-success-border: rgba(16,185,129,.25);
-  --login-success-text: #047857;
+.brand-panel-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.brand-panel-name {
+  font-size: var(--fs-brand-name);
+  font-weight: 700;
+  color: var(--auth-text);
+  line-height: 1.3;
+}
+
+.brand-panel-sub {
+  font-size: 18px;
+  color: var(--auth-muted-soft);
+  line-height: 1.3;
+}
+
+.brand-badge {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: var(--auth-badge-bg);
+  color: var(--auth-badge-text);
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 18px;
+}
+
+.brand-headline {
+  font-size: var(--fs-brand-headline);
+  line-height: 1.18;
+  font-weight: 700;
+  color: var(--auth-text);
+  margin: 0 0 14px;
+  letter-spacing: -0.4px;
+}
+
+.brand-copy {
+  font-size: var(--fs-brand-copy);
+  line-height: 1.65;
+  color: var(--auth-muted);
+  margin: 0 0 30px;
+  max-width: 420px;
+}
+
+.brand-checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1em;
+  /* Grows smoothly with the screen: 13.5px on phones/tablets up to 16px on
+     wide desktops (the login-shell zoom then scales it further on huge
+     monitors). The tick box and gaps are in em so they scale with it. */
+  font-size: clamp(13.5px, 0.4vw + 8px, 16px);
+}
+
+.brand-checklist li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75em;
+  font-size: inherit;
+  color: var(--auth-text-soft);
+  line-height: 1.5;
+}
+
+.brand-check {
+  flex-shrink: 0;
+  width: 1.5em;
+  height: 1.5em;
+  border-radius: 0.4em;
+  background: var(--auth-check-bg);
+  color: var(--auth-check);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+
+.brand-check svg {
+  width: 0.75em;
+  height: 0.75em;
+}
+
+.brand-panel-footer {
+  font-size: 12px;
+  color: var(--auth-muted-soft);
+  margin-top: var(--brand-footer-gap);
+}
+
+/* --------------------------------------------------------------------------
+   Form panel + card
+   -------------------------------------------------------------------------- */
+
+.form-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--panel-pad);
 }
 
 .login-container {
   width: 100%;
-  max-width: 450px;
-  padding: 40px;
-  position: relative;
-  z-index: 10;
+  max-width: var(--card-max-width);
+  background: var(--auth-card-bg);
+  border: 1px solid var(--auth-border);
+  border-radius: var(--card-radius);
+  padding: var(--card-pad);
+  box-shadow: var(--auth-shadow-card);
 }
 
 .login-header {
-  text-align: center;
-  margin-bottom: 40px;
+  margin-bottom: var(--header-gap);
+}
+
+.login-eyebrow {
+  display: block;
+  font-size: var(--fs-eyebrow);
+  font-weight: 700;
+  color: var(--auth-primary);
+  letter-spacing: 0.4px;
+  margin-bottom: 8px;
 }
 
 .login-title {
-  font-size: 42px;
+  font-size: var(--fs-title);
   font-weight: 700;
-  color: var(--login-text) !important;
-  margin: 0 0 8px;
-  letter-spacing: -.5px;
-  transition: color .25s ease;
+  color: var(--auth-text);
+  margin: 0 0 8px 0;
+  letter-spacing: -0.3px;
 }
 
 .login-subtitle {
-  font-size: 12px;
-  color: var(--login-text-secondary) !important;
+  font-size: var(--fs-subtitle);
+  color: var(--auth-muted);
   margin: 0;
-  letter-spacing: 2px;
-  font-weight: 600;
-  text-transform: uppercase;
+  line-height: 1.5;
 }
 
 .auth-form {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--form-gap);
   width: 100%;
 }
 
+.auth-form-note {
+  color: var(--auth-muted);
+  font-size: 13.5px;
+  margin: -4px 0 0;
+  line-height: 1.5;
+}
+
+/* Role Selector — segmented control */
 .role-selector {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 16px;
-  background: var(--login-surface);
-  border: 1px solid var(--login-border-soft);
-  border-radius: 8px;
-  transition: background-color .25s ease, border-color .25s ease;
+  gap: 8px;
 }
 
 .role-label {
-  font-size: 12px;
-  color: var(--login-text-secondary) !important;
+  font-size: 12.5px;
+  color: var(--auth-text);
   font-weight: 600;
+  display: block;
   text-transform: uppercase;
-  letter-spacing: .5px;
+  letter-spacing: .8px;
 }
 
 .role-options {
   display: flex;
-  gap: 10px;
+  gap: 4px;
+  padding: 4px;
+  background: var(--auth-surface-alt);
+  border-radius: 10px;
 }
 
 .role-option {
   flex: 1;
-  padding: 10px 12px;
-  background: var(--login-surface-hover);
-  border: 1px solid var(--login-border);
-  color: var(--login-text) !important;
-  border-radius: 6px;
-  font-size: 13px;
+  padding: 8px 6px;
+  background: transparent;
+  border: none;
+  color: var(--auth-muted);
+  border-radius: 8px;
+  font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
-  transition: all .2s ease;
+  transition: all 0.15s ease;
 }
 
-.role-option:hover {
-  border-color: rgba(16,185,129,.45);
-  background: rgba(16,185,129,.08);
+.role-option:hover:not(:disabled) {
+  color: var(--auth-text);
+}
+
+.role-option:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .role-option.active {
-  background: rgba(16,185,129,.12);
-  border-color: rgba(16,185,129,.5);
-  color: var(--login-green) !important;
+  background: var(--auth-surface-raised);
+  color: var(--auth-primary);
   font-weight: 600;
+  box-shadow: var(--auth-shadow-pill);
 }
 
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 7px;
   width: 100%;
 }
 
-.form-group > label,
-.password-header label {
-  font-size: 11px;
-  color: var(--login-text) !important;
+.form-group > label {
+  font-size: 12.5px;
+  color: var(--auth-text);
   font-weight: 600;
   display: block;
   text-transform: uppercase;
@@ -161,60 +366,75 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: -4px;
 }
 
-.forgot-link,
-.link-btn,
-.login-footer-link,
-.resend-otp-btn {
-  color: var(--login-green) !important;
+.password-header label {
+  font-size: 12.5px;
+  color: var(--auth-text);
+  font-weight: 600;
 }
 
 .forgot-link {
   font-size: 12px;
-  text-decoration: underline;
+  color: var(--auth-primary);
+  font-weight: 600;
+  text-decoration: none;
   cursor: pointer;
-  transition: color .2s ease;
 }
 
-.forgot-link:hover,
-.link-btn:hover,
-.login-footer-link:hover,
-.resend-otp-btn:hover {
-  color: var(--login-green-hover) !important;
+.forgot-link:hover {
+  text-decoration: underline;
 }
 
-.form-group input,
+.hint-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--auth-muted-soft);
+  cursor: pointer;
+  border-radius: 50%;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.hint-toggle:hover {
+  color: var(--auth-primary);
+  background: var(--auth-primary-tint);
+}
+
+.hint-toggle:focus-visible {
+  outline: 2px solid var(--auth-primary-ring);
+  outline-offset: 1px;
+}
+
+/* Inputs */
+.form-group input:not([type="checkbox"]),
 .password-input-wrapper input {
-  box-sizing: border-box;
-  width: 100%;
-  padding: 12px 14px;
-  background: var(--login-input-bg) !important;
-  border: 1px solid var(--login-border) !important;
-  border-radius: 8px;
-  color: var(--login-text) !important;
-  -webkit-text-fill-color: var(--login-text) !important;
-  caret-color: var(--login-text) !important;
-  font-size: 14px;
+  padding: 10px 14px;
+  background: var(--auth-card-bg);
+  border: 1px solid var(--auth-border);
+  border-radius: 10px;
+  color: var(--auth-text);
+  font-size: var(--fs-input);
   font-family: inherit;
-  transition: all .25s ease;
+  width: 100%;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .form-group input::placeholder,
 .password-input-wrapper input::placeholder {
-  color: var(--login-text-muted) !important;
-  opacity: 1;
+  color: var(--auth-placeholder);
 }
 
 .form-group input:focus,
 .password-input-wrapper input:focus {
   outline: none;
-  border-color: rgba(16,185,129,.6) !important;
-  background: var(--login-input-bg) !important;
-  color: var(--login-text) !important;
-  -webkit-text-fill-color: var(--login-text) !important;
-  box-shadow: 0 0 12px rgba(16,185,129,.10);
+  border-color: var(--auth-primary);
+  box-shadow: 0 0 0 3px var(--auth-primary-glow);
 }
 
 .form-group input:disabled,
@@ -243,70 +463,66 @@
 
 .form-hint {
   font-size: 12px;
-  color: var(--login-text-muted) !important;
-  margin-top: 4px;
+  color: var(--auth-muted-soft);
+  margin-top: 2px;
 }
 
-/* Keep me logged in */
-.keep-logged-in {
+/* Icon-prefixed inputs (email / password) */
+.input-with-icon {
+  position: relative;
   display: flex;
-  flex-direction: row;
   align-items: center;
-  justify-content: flex-start;
-  gap: 8px;
 }
 
-.keep-logged-in input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  min-width: 16px;
-  margin: 0;
-  padding: 0;
-  cursor: pointer;
-  accent-color: var(--login-green);
+.form-group .input-with-icon input {
+  padding-left: 38px;
 }
 
-.keep-logged-in input[type="checkbox"]:disabled {
-  cursor: not-allowed;
-  opacity: .6;
+.input-with-icon .input-icon {
+  position: absolute;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--auth-muted-soft);
+  pointer-events: none;
 }
 
-.keep-logged-in label {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 400;
-  color: var(--login-text-secondary);
-  cursor: pointer;
-  user-select: none;
-}
-
+/* Password Input Wrapper (icon on the left, toggle on the right) */
 .password-input-wrapper {
   position: relative;
   display: flex;
   align-items: center;
 }
 
-.password-input-wrapper input {
+.form-group .password-input-wrapper input {
+  width: 100%;
   padding-right: 40px;
 }
 
 .password-toggle {
   position: absolute;
-  right: 12px;
-  background: none !important;
-  border: none !important;
-  color: var(--login-text-secondary) !important;
-  font-size: 16px;
+  right: 10px;
+  background: none;
+  border: none;
+  color: var(--auth-muted-soft);
   cursor: pointer;
   padding: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color .2s ease;
+  border-radius: 6px;
+  transition: color 0.15s ease, background 0.15s ease;
 }
 
 .password-toggle:hover {
-  color: var(--login-green) !important;
+  color: var(--auth-primary);
+  background: var(--auth-primary-tint);
+}
+
+.password-toggle:focus-visible {
+  outline: 2px solid var(--auth-primary-ring);
+  outline-offset: 1px;
 }
 
 .password-toggle:disabled {
@@ -314,127 +530,202 @@
   cursor: not-allowed;
 }
 
-.btn-primary {
-  padding: 12px 16px;
-  background: var(--login-green);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
+/* Remember me */
+.remember-me-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  color: var(--auth-text-soft);
   cursor: pointer;
-  transition: all .3s ease;
-  width: 100%;
-  text-transform: uppercase;
-  letter-spacing: .5px;
+  user-select: none;
 }
 
-.btn-primary:hover:not(:disabled) {
-  background: var(--login-green-hover);
-  box-shadow: 0 0 20px rgba(16,185,129,.3);
-}
-
-.btn-primary:disabled,
-.btn-secondary:disabled,
-.btn-google:disabled {
-  opacity: .6;
-  cursor: not-allowed;
-}
-
-.btn-secondary,
-.btn-google {
-  padding: 12px 16px;
-  background: var(--login-surface-hover);
-  color: var(--login-text) !important;
-  border: 1px solid var(--login-border);
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
+.remember-me-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--auth-primary);
   cursor: pointer;
-  transition: all .3s ease;
-  width: 100%;
+  flex-shrink: 0;
 }
 
-.btn-secondary:hover:not(:disabled),
-.btn-google:hover:not(:disabled) {
-  background: rgba(128,128,128,.12);
-  border-color: rgba(128,128,128,.5);
-}
-
-.btn-google {
+/* Primary auth button */
+.auth-btn {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  text-transform: uppercase;
-  letter-spacing: .5px;
-}
-
-.btn-google svg { width: 18px; height: 18px; }
-
-.google-chooser {
-  background: var(--login-surface);
-  border: 1px solid var(--login-border);
-  border-radius: 10px;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.google-chooser p {
-  margin: 0;
-  color: var(--login-text) !important;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.google-chooser select {
   width: 100%;
-  padding: 10px;
-  border-radius: 8px;
-  border: 1px solid var(--login-border);
-  background: var(--login-input-bg);
-  color: var(--login-text);
+  padding: 11px 16px;
+  background: var(--auth-button-bg);
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  font-size: var(--fs-button);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
 }
 
-.google-chooser-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+.auth-btn:hover:not(:disabled) {
+  background: var(--auth-button-bg-hover);
+}
+
+.auth-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Secondary buttons (dialogs, cancel actions) */
+.btn-secondary {
+  padding: 10px 16px;
+  background: var(--auth-surface-raised);
+  color: var(--auth-text);
+  border: 1px solid var(--auth-border);
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  width: 100%;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--auth-surface-alt);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-ghost-sm,
+.btn-tint-sm {
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.btn-ghost-sm {
+  background: var(--auth-surface-alt);
+  color: var(--auth-text);
+  border-color: var(--auth-border);
+}
+
+.btn-ghost-sm:hover {
+  background: var(--auth-border-soft);
+}
+
+.btn-tint-sm {
+  background: var(--auth-primary-tint);
+  color: var(--auth-primary);
+  border-color: var(--auth-primary-tint-border);
+}
+
+.btn-tint-sm:hover {
+  background: var(--auth-tint-hover);
+}
+
+/* Resend OTP — the standard small tint button, made compact to sit in the
+   OTP label row without stretching it. */
+.resend-otp-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.resend-otp-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* CAPTCHA */
+.captcha-group {
+  gap: 14px;
+}
+
+.captcha-robot-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--auth-border);
+  border-radius: 10px;
+  background: var(--auth-card-bg);
+}
+
+.captcha-robot-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--auth-primary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.captcha-robot-label {
+  margin: 0;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--auth-text);
+  flex: 1;
+}
+
+.captcha-image {
+  flex: 1;
+  border-radius: 8px;
+  border: 1px solid var(--auth-border);
+  height: 60px;
+  object-fit: cover;
+  width: 100%;
+}
+
+.captcha-reload {
+  padding: 0;
+  font-size: 1.1rem;
+  height: 38px;
+  width: 38px;
+  min-width: 38px;
+  min-height: 38px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .error-message {
-  padding: 12px 14px;
-  background: var(--login-error-bg);
-  border: 1px solid var(--login-error-border);
-  border-radius: 6px;
-  color: var(--login-error-text) !important;
+  padding: 11px 14px;
+  background: var(--auth-red-bg);
+  border: 1px solid var(--auth-red-border);
+  border-radius: 8px;
+  color: var(--auth-red-text);
   font-size: 13px;
-  animation: slideDown .3s ease;
+  animation: slideDown 0.2s ease;
 }
 
 .success-message {
-  padding: 12px 14px;
-  background: var(--login-success-bg);
-  border: 1px solid var(--login-success-border);
-  border-radius: 6px;
-  color: var(--login-success-text) !important;
+  padding: 11px 14px;
+  background: var(--auth-green-bg);
+  border: 1px solid var(--auth-green-border);
+  border-radius: 8px;
+  color: var(--auth-green-text);
   font-size: 13px;
-  animation: slideDown .3s ease;
+  animation: slideDown 0.2s ease;
 }
 
 .warning-message {
-  padding: 14px;
-  background: rgba(59,130,246,.10);
-  border: 1px solid rgba(59,130,246,.25);
+  padding: 13px;
+  background: var(--auth-primary-tint);
+  border: 1px solid var(--auth-primary-tint-border);
   border-radius: 8px;
-  color: var(--login-text) !important;
+  color: var(--auth-warning-text);
   font-size: 13px;
-  animation: slideDown .3s ease;
+  animation: slideDown 0.2s ease;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 11px;
 }
 
 .warning-message p {
@@ -447,6 +738,30 @@
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+/* Divider + switch line */
+.auth-divider {
+  height: 1px;
+  background: var(--auth-border-soft);
+  margin: 2px 0;
+}
+
+.auth-switch-line {
+  text-align: center;
+  font-size: 13px;
+  color: var(--auth-muted);
+}
+
+.auth-switch-line a {
+  color: var(--auth-primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.auth-switch-line a:hover {
+  text-decoration: underline;
 }
 
 .session-cancel-btn {
@@ -499,13 +814,14 @@
 .form-footer {
   text-align: center;
   font-size: 13px;
-  color: var(--login-text-secondary) !important;
+  color: var(--auth-muted);
   margin-top: 8px;
 }
 
 .link-btn {
-  background: none !important;
-  border: none !important;
+  background: none;
+  border: none;
+  color: var(--auth-primary);
   cursor: pointer;
   font-weight: 600;
   text-decoration: underline;
@@ -513,105 +829,255 @@
   font-size: 13px;
 }
 
-.link-btn:disabled { opacity: .6; cursor: not-allowed; }
-
-.login-footer-links {
-  text-align: center;
-  margin-top: 1rem;
-  font-size: .9rem;
-  color: var(--login-text-secondary) !important;
+.link-btn:hover {
+  color: var(--auth-primary-hover);
 }
 
 .login-footer-link {
   text-decoration: none;
 }
 
-.verify-title {
-  text-align: center;
-  color: var(--login-text) !important;
-  margin-bottom: 20px;
-}
-
-.resend-otp-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: .85rem;
-  padding: 0;
-}
-
-.resend-otp-btn:disabled { opacity: .6; cursor: not-allowed; }
-
-.login-specular-btn {
-  width: 100%;
-}
-
-.login-page.light .login-specular-btn {
-  color: #065f46;
-}
-
-.login-page.light .bg-circle { opacity: .025; }
-
-.login-background {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  z-index: 1;
-  pointer-events: none;
-}
-
-.bg-circle {
-  position: absolute;
-  border-radius: 50%;
-  opacity: .05;
-  animation: float 6s ease-in-out infinite;
-}
-
-.bg-circle-1 {
-  width: 300px;
-  height: 300px;
-  background: #10b981;
-  top: -100px;
-  right: -100px;
-  animation-delay: 0s;
-}
-
-.bg-circle-2 {
-  width: 200px;
-  height: 200px;
-  background: #3b82f6;
-  bottom: -50px;
-  left: -50px;
-  animation-delay: 2s;
-}
-
-.bg-circle-3 {
-  width: 150px;
-  height: 150px;
-  background: #8b5cf6;
-  top: 50%;
-  left: 10%;
-  animation-delay: 4s;
-}
-
+/* Animations */
 @keyframes slideDown {
-  from { opacity: 0; transform: translateY(-10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-20px); }
+/* ==========================================================================
+   Responsive breakpoints
+   ========================================================================== */
+
+/* ---- 480px+: large phones ------------------------------------------------ */
+@media (min-width: 480px) {
+  .login-page {
+    --fs-title: 23px;
+    --card-pad: 22px;
+    --card-radius: 13px;
+    --panel-pad: 18px;
+  }
 }
 
-@media (max-width: 640px) {
-  .login-container { padding: 30px 20px; }
-  .login-title { font-size: 32px; }
-  .login-subtitle { font-size: 11px; }
-  .auth-form { gap: 16px; }
-  .btn-primary, .btn-google { padding: 11px 14px; font-size: 13px; }
-  .form-group label { font-size: 12px; }
-  .form-group input, .password-input-wrapper input { padding: 10px 12px; font-size: 13px; }
+/* ---- 640px+: phablets / small tablets in portrait ------------------------ */
+@media (min-width: 640px) {
+  .login-page {
+    --fs-title: 24px;
+    --fs-subtitle: 13.5px;
+    --card-pad: 26px;
+    --card-max-width: 460px;
+    --panel-pad: 24px;
+    --form-gap: 16px;
+    --header-gap: 20px;
+  }
+}
+
+/* ---- 768px+: tablets (still single column — no room yet for the brand
+        panel without squeezing the card) ---------------------------------- */
+@media (min-width: 768px) {
+  .login-page {
+    --panel-pad: 32px;
+  }
+}
+
+/* ---- 960px+: small desktop / laptop — bring in the brand panel ---------- */
+@media (min-width: 960px) {
+  .login-page {
+    --fs-eyebrow: 12px;
+    --fs-title: 26px;
+    --fs-input: 14px; /* pointer input now assumed; drop the iOS zoom-guard size */
+    --fs-button: 14.5px;
+    --fs-brand-name: 28px;
+    --fs-brand-headline: 34px;
+    --fs-brand-copy: 15px;
+    --card-pad: 28px;
+    --panel-pad: 40px;
+    --brand-pad-y: 64px;
+    --brand-pad-x: 40px;
+    --brand-top-gap: 56px;
+    --brand-footer-gap: 48px;
+  }
+
+  .login-shell {
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  }
+
+  .brand-panel {
+    display: block;
+    position: relative;
+    border-right: 1px solid var(--auth-border-soft);
+  }  
+  /* Card sits on the left of the form panel, the same distance from the divider
+     as the brand content is on the other side (--brand-pad-x). */
+  .form-panel {
+    justify-content: flex-start;
+    padding-left: var(--brand-pad-x);
+  }
+}
+
+/* ---- 1200px+: desktop — a bit more breathing room on both sides --------- */
+@media (min-width: 1200px) {
+  .login-page {
+    --card-pad: 32px;
+    --card-max-width: 480px;
+    --panel-pad: 56px;
+    --brand-max-width: 600px;
+    --brand-pad-x: 48px;
+  }
+
+  /* Let the headline grow smoothly with the viewport instead of jumping
+     to another fixed value at the next breakpoint. */
+  .brand-headline {
+    font-size: clamp(34px, 1.05vw + 20px, 44px);
+  }
+}
+
+/* ---- 1600px+: wide / ultra-wide monitors — cap growth so the layout
+        doesn't stretch into unreadably long lines or a lopsided split --- */
+@media (min-width: 1600px) {
+  .login-shell {
+    max-width: 1560px;
+    margin: 0 auto;
+    box-shadow: 0 0 0 1px var(--auth-border-soft);
+  }
+
+  .login-page {
+    --brand-max-width: 660px;
+  }
+}
+/* ---- Large monitors — the whole login screen is scaled smoothly by
+        --ui-zoom, which LoginPage.jsx sets from the window width
+        (innerWidth / 1600, clamped 1–2.5). zoom also scales vh units, so the
+        shell's min-height is divided back down to still fill one viewport
+        with no scrollbar. Browsers without CSS zoom keep the normal layout. */
+.login-page { --ui-zoom: 1; }
+
+.login-shell {
+  zoom: var(--ui-zoom);
+  min-height: calc(100vh / var(--ui-zoom));
+}
+
+@media (min-width: 1600px) {
+  .login-shell { max-width: none; box-shadow: none; }
+}
+
+/* ---- Short viewports (small laptops, browser chrome eating height, or a
+        phone/tablet in landscape) — tighten vertical rhythm so the card
+        doesn't force a scroll --------------------------------------------- */
+@media (max-height: 720px) and (min-width: 960px) {
+  .login-page {
+    --brand-pad-y: 32px;
+    --brand-top-gap: 28px;
+    --brand-footer-gap: 20px;
+  }
+}
+
+@media (max-height: 560px) {
+  .login-page {
+    --panel-pad: 10px;
+    --card-pad: 16px;
+    --form-gap: 10px;
+    --header-gap: 10px;
+  }
+
+  .auth-form-note {
+    margin-top: -2px;
+  }
+}
+
+/* ---- Small-phone landscape specifically: very little vertical room ------ */
+@media (max-width: 767px) and (orientation: landscape) {
+  .login-page {
+    --panel-pad: 12px;
+    --card-pad: 16px;
+    --form-gap: 10px;
+    --header-gap: 10px;
+  }
+
+  .login-container {
+    max-width: 520px;
+  }
+}
+
+/* ---- Very small phones — tighten role-selector and inputs a touch more -- */
+@media (max-width: 359px) {
+  .login-page {
+    --card-pad: 14px;
+    --panel-pad: 10px;
+    --fs-title: 19px;
+  }
+
+  .role-option {
+    padding: 7px 4px;
+    font-size: 11.5px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .error-message,
+  .success-message,
+  .warning-message {
+    animation: none;
+  }
+}
+
+/* ==========================================================================
+   Dark mode
+   Mirrors the app's own dark theme (see [data-theme] in styles/global.css —
+   bg-base/bg-surface/bg-elevated, border, text-primary/secondary/muted) so
+   this screen matches whatever the user already has set post-login instead
+   of introducing a second, unrelated dark palette. It keeps this page's own
+   brand accent (the logo's cyan, not the app's emerald teal) since that hue
+   is this login screen's identity in the light theme too — it's just
+   brightened here for legible contrast against a dark card.
+
+   [data-theme] is set on <html> by ThemeContext before this page ever
+   mounts (its default is "dark"), so this needs no toggle wired up here —
+   it already follows whatever the user picked last.
+   ========================================================================== */
+[data-theme="dark"] .login-page {
+  --auth-bg:          #0a0c10;
+  --auth-card-bg:     #11141b;
+  --auth-border:      #1e2533;
+  --auth-border-soft: #2a3347;
+  --auth-text:        #f8fafc;
+  --auth-muted:       #94a3b8;
+  --auth-muted-soft:  #64748b;
+
+  /* Brand accent — brightened cyan (still the logo's hue family) for
+     contrast on dark surfaces; the button keeps its own darker bg tokens
+     below so white button text stays readable. */
+  --auth-primary:       #22d3ee;
+  --auth-primary-hover: #67e8f9;
+  --auth-primary-tint:        rgba(34, 211, 238, 0.12);
+  --auth-primary-tint-border: rgba(34, 211, 238, 0.32);
+  --auth-primary-glow:        rgba(34, 211, 238, 0.18);
+  --auth-primary-ring:        rgba(34, 211, 238, 0.55);
+
+  --auth-badge-bg:   rgba(34, 211, 238, 0.14);
+  --auth-badge-text: #22d3ee;
+
+  --auth-check-bg: rgba(34, 211, 238, 0.12);
+  --auth-check:    #22d3ee;
+
+  --auth-red-bg:     rgba(239, 68, 68, 0.12);
+  --auth-red-border: rgba(239, 68, 68, 0.35);
+  --auth-red-text:   #f87171;
+
+  --auth-green-bg:     rgba(16, 185, 129, 0.12);
+  --auth-green-border: rgba(16, 185, 129, 0.35);
+  --auth-green-text:   #34d399;
+
+  --auth-surface-alt:    #0a0c10; /* recessed relative to the card */
+  --auth-surface-raised: #1e232e; /* raised relative to surface-alt */
+  --auth-text-soft:      #cbd5e1;
+  --auth-placeholder:    #58637a;
+  --auth-tint-hover:     rgba(34, 211, 238, 0.2);
+  --auth-warning-text:   #67e8f9;
+  --auth-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --auth-shadow-pill: 0 1px 2px rgba(0, 0, 0, 0.35);
+
+  /* Button stays the same teal as the light theme — it was already picked
+     for ≥4.5:1 contrast against the white button label, independent of
+     the page background, so it doesn't need a dark-specific value. */
+  --auth-button-bg:       #0e7490;
+  --auth-button-bg-hover: #0b5b73;
 }
