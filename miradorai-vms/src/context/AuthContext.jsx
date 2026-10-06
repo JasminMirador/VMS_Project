@@ -218,7 +218,7 @@ export const AuthProvider = ({ children }) => {
       }
 
       if (!res.ok) {
-        return { success: false, error: data?.detail || data?.message || `Server error (${res.status})` };
+        return { success: false, error: data?.error || data?.detail || data?.message || `Server error (${res.status})` };
       }
 
       return { success: true, message: data?.message || "Signup request submitted successfully!" };
@@ -318,7 +318,7 @@ export const AuthProvider = ({ children }) => {
   if (!res.ok) {
     return {
       success: false,
-      error: data?.detail || data?.message || `Server error (${res.status})`,
+      error: data?.error || data?.detail || data?.message || `Server error (${res.status})`,
       requires_captcha: data?.requires_captcha || false,
     };
   }
@@ -402,7 +402,7 @@ export const AuthProvider = ({ children }) => {
       if (!res.ok) {
         return { 
           success: false, 
-          error: data?.detail || data?.message || `Server error (${res.status})`,
+          error: data?.error || data?.detail || data?.message || `Server error (${res.status})`,
           requires_captcha: data?.requires_captcha 
         };
       }
@@ -453,7 +453,7 @@ export const AuthProvider = ({ children }) => {
       }
 
       if (!res.ok) {
-        return { success: false, error: data?.detail || data?.message || `Server error (${res.status})` };
+        return { success: false, error: data?.error || data?.detail || data?.message || `Server error (${res.status})` };
       }
 
       return { success: true, message: data?.message };

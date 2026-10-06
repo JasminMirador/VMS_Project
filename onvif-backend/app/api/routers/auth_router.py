@@ -115,7 +115,7 @@ def validate_password_complexity(password: str, email: str = ""):
 from app.services.email_service import send_manual_email
 
 @router.post("/signup")
-@limiter.limit("5/minute")
+@limiter.limit("2/minute")
 def auth_signup(request: Request, req: SignupRequest):
     if users_col is None or signup_requests_col is None:
         raise HTTPException(status_code=500, detail="Database not connected")
@@ -187,7 +187,7 @@ def admin_approve_signup(req: AdminApproveSignupRequest, user=Depends(require_ad
     hashed_otp = hash_password(otp)
     
     # 2 mins expiration
-    expires_at = datetime.utcnow() + timedelta(minutes=2)
+    expires_at = datetime.utcnow() + timedelta(minutes=10)
     
     signup_requests_col.update_one(
         {"email": req.email},
@@ -222,7 +222,7 @@ def send_otp_email_template(email: str, otp: str):
     ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
     ist_time_str = ist_time.strftime("%B %d, %Y at %I:%M %p")
     
-    expires_time = ist_time + timedelta(minutes=2)
+    expires_time = ist_time + timedelta(minutes=10)
     expires_time_str = expires_time.strftime("%I:%M %p")
     
     body = f"""
@@ -262,7 +262,7 @@ def send_otp_email_template(email: str, otp: str):
                                 </div>
                                 
                                 <p style="margin: 0 0 10px 0; font-size: 13px; font-style: italic; color: #666666;">
-                                    This OTP will expire in 2 minutes (at {expires_time_str} IST).
+                                    This OTP will expire in 10 minutes (at {expires_time_str} IST).
                                 </p>
                                 <p style="margin: 0 0 20px 0; font-size: 13px; font-style: italic; color: #666666;">
                                     The request for this access was approved on {ist_time_str} (IST).
@@ -295,7 +295,7 @@ def send_otp_email_template(email: str, otp: str):
     send_manual_email([email], subject, body, attachments=attachments)
 
 @router.post("/signup/resend-otp")
-def resend_signup_otp(req: ForgotPasswordRequest):
+def resend_signup_otp(request: Request, req: ForgotPasswordRequest):
     if signup_requests_col is None:
         raise HTTPException(status_code=500, detail="Database not connected")
         
@@ -309,7 +309,7 @@ def resend_signup_otp(req: ForgotPasswordRequest):
     hashed_otp = hash_password(otp)
     
     # 2 mins expiration
-    expires_at = datetime.utcnow() + timedelta(minutes=2)
+    expires_at = datetime.utcnow() + timedelta(minutes=10)
     
     signup_requests_col.update_one(
         {"email": req.email},
@@ -324,7 +324,7 @@ def resend_signup_otp(req: ForgotPasswordRequest):
     return {"success": True, "message": "A new OTP has been sent to your email."}
 
 @router.post("/signup/finalize")
-def signup_finalize(req: SignupFinalizeRequest):
+def signup_finalize(request: Request, req: SignupFinalizeRequest):
     if users_col is None or signup_requests_col is None:
         raise HTTPException(status_code=500, detail="Database not connected")
         
@@ -363,7 +363,6 @@ def signup_finalize(req: SignupFinalizeRequest):
 
 
 @router.post("/login")
-@limiter.limit("5/minute")
 async def auth_login(request: Request, req: LoginRequest, background_tasks: BackgroundTasks):
     if users_col is None:
         raise HTTPException(status_code=500, detail="Database not connected")
@@ -709,7 +708,7 @@ def delete_supervisor_password(user=Depends(require_admin)):
 # ------------------------------------------------------------------
 
 @router.get("/users")
-async def list_users(background_tasks: BackgroundTasks, user=Depends(require_admin)):
+async def list_users(request: Request, background_tasks: BackgroundTasks, user=Depends(require_admin)):
     if users_col is None:
         raise HTTPException(status_code=500, detail="Database not connected")
     all_users = list(users_col.find({"is_deleted": {"$ne": True}}, {"_id": 0}))
@@ -727,7 +726,7 @@ async def list_users(background_tasks: BackgroundTasks, user=Depends(require_adm
     return {"success": True, "users": all_users}
 
 @router.post("/users")
-@limiter.limit("5/minute")
+@limiter.limit("2/minute")
 async def create_user(request: Request, req: AdminCreateUserRequest, background_tasks: BackgroundTasks, user=Depends(require_admin)):
     if users_col is None:
         raise HTTPException(status_code=500, detail="Database not connected")
@@ -807,7 +806,7 @@ async def create_user(request: Request, req: AdminCreateUserRequest, background_
     return {"success": True, "message": "User created successfully!"}
 
 @router.patch("/users/{email}")
-async def update_user(email: str, req: AdminUpdateUserRequest, background_tasks: BackgroundTasks, user=Depends(require_admin)):
+async def update_user(request: Request, email: str, req: AdminUpdateUserRequest, background_tasks: BackgroundTasks, user=Depends(require_admin)):
     if users_col is None:
         raise HTTPException(status_code=500, detail="Database not connected")
     existing = users_col.find_one({"email": email, "is_deleted": {"$ne": True}})
@@ -902,7 +901,7 @@ async def update_user(email: str, req: AdminUpdateUserRequest, background_tasks:
     return {"success": True, "message": "User updated successfully!"}
 
 @router.delete("/users/{email}")
-async def delete_user(email: str, background_tasks: BackgroundTasks, user=Depends(require_admin)):
+async def delete_user(request: Request, email: str, background_tasks: BackgroundTasks, user=Depends(require_admin)):
     if users_col is None:
         raise HTTPException(status_code=500, detail="Database not connected")
     
@@ -930,7 +929,7 @@ async def delete_user(email: str, background_tasks: BackgroundTasks, user=Depend
     return {"success": True, "message": "User deleted successfully!"}
 
 @router.delete("/users/{email}/hard")
-async def hard_delete_user(email: str, user=Depends(require_admin)):
+async def hard_delete_user(request: Request, email: str, user=Depends(require_admin)):
     """Permanently delete a user account for GDPR compliance"""
     if users_col is None:
         raise HTTPException(status_code=500, detail="Database not connected")
@@ -1166,3 +1165,4 @@ async def reset_password(req: ResetPasswordRequest):
         )
     
     return {"success": True, "message": "Password reset successfully. You can now log in."}
+

@@ -60,7 +60,7 @@ export default function AiAnalyticsPage() {
 
         let baseUrl = `http://${externalAiIp}/unsecure/vms-auto-login?redirect=true`;
         if (email) baseUrl += `&email=${email}`;
-        if (ssoAppName) baseUrl += `&appName=${encodeURIComponent(ssoAppName)}`;
+        if (ssoAppName) baseUrl += `?appName=${encodeURIComponent(ssoAppName)}`;
         if (ssoAccessToken) baseUrl += `&accessToken=${encodeURIComponent(ssoAccessToken)}`;
 
         // Direct GET request via iframe src
