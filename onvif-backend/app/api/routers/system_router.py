@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query
 from app.core.security import verify_token, require_admin
 from app.services.license_manager import license_manager
 import json
 import asyncio
 from urllib.parse import urlparse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from app.core.database import mongo_client, db as _db, cameras_col, users_col
 from app.managers.stream_manager import (
@@ -414,7 +414,7 @@ def save_snapshot_endpoint(req: SnapshotSaveRequest):
         return {"success": False, "error": str(e)}
 
 class OpenFolderRequest(BaseModel):
-    folder_path: str
+    folder_path: str = Field(..., min_length=1, max_length=1024)
 
 @router.post("/open-folder")
 def open_folder_endpoint(req: OpenFolderRequest):
@@ -441,7 +441,7 @@ def open_folder_endpoint(req: OpenFolderRequest):
         return {"success": False, "error": str(e)}
 
 @router.get("/browse-directories")
-def browse_directories(path: str = ""):
+def browse_directories(path: str = Query("", min_length=1, max_length=1024)):
     try:
         if not path:
             # Return drives on Windows
@@ -571,7 +571,14 @@ def pick_file_endpoint():
         return {"success": False, "error": str(e)}
 
 @router.get("/stream-audio")
-def stream_audio(path: str = Query(..., description="Absolute path to the audio file")):
+def stream_audio(
+    path: str = Query(
+        ...,
+        min_length=1,
+        max_length=1024,
+        description="Absolute path to the audio file"
+    )
+):
     if not os.path.exists(path):
         return {"success": False, "error": "File not found"}
     return FileResponse(path)

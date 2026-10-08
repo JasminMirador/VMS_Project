@@ -1,4 +1,4 @@
-from pydantic import BaseModel, model_validator, field_validator
+from pydantic import BaseModel, model_validator, field_validator, Field
 from typing import Optional, Any
 from datetime import datetime
 
@@ -28,49 +28,49 @@ def validate_safe_name(v: str) -> str:
 
 
 class CameraCredentials(BaseCameraRequest):
-    port:     int = 80
-    username: str = ""
-    password: str = ""
+    port: int = Field(default=80, ge=1, le=65535)
+    username: str = Field(default="", max_length=128)
+    password: str = Field(default="", max_length=1024)
 
 class ImagingSettingRequest(BaseCameraRequest):
-    port:     int   = 80
-    username: str   = ""
-    password: str   = ""
+    port: int = Field(default=80, ge=1, le=65535)
+    username: str = Field(default="", max_length=128)
+    password: str = Field(default="", max_length=1024)
     setting:  str
     value:    str | float | int
 
 class PTZPresetRequest(BaseCameraRequest):
-    port:         int = 80
-    username:     str = ""
-    password:     str = ""
+    port: int = Field(default=80, ge=1, le=65535)
+    username: str = Field(default="", max_length=128)
+    password: str = Field(default="", max_length=1024)
     preset_token: str
 
 class PTZSavePresetRequest(BaseCameraRequest):
-    port:         int = 80
-    username:     str = ""
-    password:     str = ""
+    port: int = Field(default=80, ge=1, le=65535)
+    username: str = Field(default="", max_length=128)
+    password: str = Field(default="", max_length=1024)
     preset_name:  str
     preset_token: Optional[str] = None
 
 class PTZMoveRequest(BaseCameraRequest):
-    port:     int   = 80
-    username: str   = ""
-    password: str   = ""
-    pan:      float = 0.0
-    tilt:     float = 0.0
-    zoom:     float = 0.0
+    port: int = Field(default=80, ge=1, le=65535)
+    username: str = Field(default="", max_length=128)
+    password: str = Field(default="", max_length=1024)
+    pan: float = Field(default=0.0, ge=-1.0, le=1.0)
+    tilt: float = Field(default=0.0, ge=-1.0, le=1.0)
+    zoom: float = Field(default=0.0, ge=0.0, le=1.0)
 
 class RelayRequest(BaseCameraRequest):
-    port:        int = 80
-    username:    str = ""
-    password:    str = ""
+    port: int = Field(default=80, ge=1, le=65535)
+    username: str = Field(default="", max_length=128)
+    password: str = Field(default="", max_length=1024)
     relay_token: str
     state:       str = "Active"
 
 class ProbeRequest(BaseCameraRequest):
-    port:        int = 80
-    username:    str = ""
-    password:    str = ""
+    port: int = Field(default=80, ge=1, le=65535)
+    username: str = Field(default="", max_length=128)
+    password: str = Field(default="", max_length=1024)
     channel:     int = 0
     group_id:    str = "default"
     device_name: str = ""
@@ -83,9 +83,9 @@ class ProbeRequest(BaseCameraRequest):
 
 class StreamRegisterRequest(BaseCameraRequest):
     rtsp_url:     str
-    port:         int = 80
-    username:     str = ""
-    password:     str = ""
+    port: int = Field(default=80, ge=1, le=65535)
+    username: str = Field(default="", max_length=128)
+    password: str = Field(default="", max_length=1024)
     manufacturer: str = "Unknown"
     model:        str = "Unknown"
     mac:          str = "—"
@@ -99,8 +99,8 @@ class StreamRegisterRequest(BaseCameraRequest):
         return validate_safe_name(v)
 
 class StreamAssignRequest(BaseCameraRequest):
-    port:              int = 80
-    username:          str = ""
+    port: int = Field(default=80, ge=1, le=65535)
+    username: str = Field(default="", max_length=128)
     manufacturer:      str = "Unknown"
     model:             str = "Unknown"
     mac:               str = "—"
@@ -121,9 +121,9 @@ class StreamAssignRequest(BaseCameraRequest):
         return validate_safe_name(v)
 
 class VideoEncoderSettingRequest(BaseCameraRequest):
-    port:              int = 80
-    username:          str = ""
-    password:          str = ""
+    port: int = Field(default=80, ge=1, le=65535)
+    username: str = Field(default="", max_length=128)
+    password: str = Field(default="", max_length=1024)
     profile_token:     str
     resolution:        Optional[str] = None
     encoding:          Optional[str] = None

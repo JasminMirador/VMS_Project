@@ -316,9 +316,18 @@ export const AuthProvider = ({ children }) => {
   }
 
   if (!res.ok) {
+    let errorMsg = `Server error (${res.status})`;
+    if (data?.error) {
+      errorMsg = typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
+    } else if (data?.detail) {
+      errorMsg = typeof data.detail === 'string' ? data.detail : (Array.isArray(data.detail) ? data.detail[0].msg : JSON.stringify(data.detail));
+    } else if (data?.message) {
+      errorMsg = typeof data.message === 'string' ? data.message : JSON.stringify(data.message);
+    }
+
     return {
       success: false,
-      error: data?.error || data?.detail || data?.message || `Server error (${res.status})`,
+      error: errorMsg,
       requires_captcha: data?.requires_captcha || false,
     };
   }

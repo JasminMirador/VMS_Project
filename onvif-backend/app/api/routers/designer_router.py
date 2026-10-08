@@ -1,9 +1,12 @@
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from app.core.database import mongo_client
 from datetime import datetime
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, field_validator
 from typing import List, Optional, Any, Dict
 from app.core.security import verify_token
+from app.api.routers.auth_router import limiter
+from fastapi import Request
+
 import os
 
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
@@ -17,7 +20,7 @@ router = APIRouter(prefix="/api/designer", tags=["designer"])
 # ── Pydantic models ───────────────────────────────────────────────
 
 class PlacedCamera(BaseModel):
-    id:        str
+    id: str = Field(..., max_length=255)
     x:         float
     y:         float
     direction: float
@@ -32,13 +35,13 @@ class ZonePoint(BaseModel):
 from app.core.validation import validate_name
 
 class Zone(BaseModel):
-    id:      str
-    name:    str
-    color:   str
+    id: str = Field(..., max_length=255)
+    name: str = Field(..., max_length=255)
+    color: str = Field(..., max_length=255)
     polygon: List[ZonePoint]
     
-    @validator("name", pre=True)
-    def val_name(cls, v):
+    @field_validator("name", mode="before")
+    @classmethod    def val_name(cls, v):
         return validate_name(v)
 
 
@@ -52,8 +55,8 @@ class DesignerSaveRequest(BaseModel):
     slides:      Optional[List[Any]]        = None
     active_slide_id: Optional[str]          = None
 
-    @validator('floor_plan')
-    def validate_floor_plan(cls, v):
+    @field_validator('floor_plan')
+    @classmethod    def validate_floor_plan(cls, v):
         if v is not None and not v.startswith('data:image/'):
             raise ValueError('Invalid image format. Must be a base64 data URL starting with data:image/')
         return v
@@ -64,8 +67,8 @@ class FloorPlanRequest(BaseModel):
     floor_id:   Optional[str] = "floor_1"
     floor_plan: str = Field(..., max_length=5_242_880)
 
-    @validator('floor_plan')
-    def validate_floor_plan(cls, v):
+    @field_validator('floor_plan')
+    @classmethod    def validate_floor_plan(cls, v):
         if v is not None and not v.startswith('data:image/'):
             raise ValueError('Invalid image format. Must be a base64 data URL starting with data:image/')
         return v
@@ -259,7 +262,8 @@ def save_placed_cameras(
 
 # ── POST /api/designer/zones ──────────────────────────────────────
 @router.post("/zones", dependencies=[Depends(verify_token)])
-def save_zones(
+@limiter.limit("1/minute")
+def save_zones(request: Request, 
     map_id:   str = "default",
     floor_id: str = "floor_1",
     zones:    List[Zone] = [],
@@ -284,8 +288,8 @@ def save_zones(
 
 # ── DELETE /api/designer/zones/{zone_id} ─────────────────────────
 @router.delete("/zones/{zone_id}", dependencies=[Depends(verify_token)])
-def delete_zone(zone_id: str, map_id: str = "default", floor_id: str = "floor_1"):
-    """Remove a single zone by ID from the designer document."""
+@limiter.limit("1/minute")
+def delete_zone(request: Request, zone_id: str, map_id: str = "default", floor_id: str = "floor_1"):    """Remove a single zone by ID from the designer document."""
     result = designer_col.update_one(
         {"map_id": map_id, "floor_id": floor_id, "is_deleted": {"$ne": True}},
         {"$pull": {"zones": {"id": zone_id}}}
@@ -314,8 +318,8 @@ def delete_placed_camera(camera_id: str, map_id: str = "default", floor_id: str 
 
 # ── POST /api/designer/floor-plan ────────────────────────────────
 @router.post("/floor-plan", dependencies=[Depends(verify_token)])
-def save_floor_plan(req: FloorPlanRequest):
-    """Saves only the floor plan image (base64 data URL) for a map + floor."""
+@limiter.limit("1/minute")
+def save_floor_plan(request: Request, req: FloorPlanRequest):    """Saves only the floor plan image (base64 data URL) for a map + floor."""
     if not req.floor_plan:
         raise HTTPException(status_code=400, detail="floor_plan is required")
 
@@ -338,8 +342,8 @@ def save_floor_plan(req: FloorPlanRequest):
 # FIX 2: New endpoint — removes only the floor plan image, preserving
 # cameras and zones. Called when user clicks ✕ on Floor 1 in sidebar.
 @router.delete("/floor-plan", dependencies=[Depends(verify_token)])
-def delete_floor_plan(map_id: str = "default", floor_id: str = "floor_1"):
-    """
+@limiter.limit("1/minute")
+def delete_floor_plan(request: Request, map_id: str = "default", floor_id: str = "floor_1"):    """
     Removes only the floor plan image for a map + floor.
     Placed cameras and zones are preserved.
     """
@@ -450,8 +454,8 @@ def detect_zones(req: ZoneDetectRequest):
 
 # ── POST /api/designer/upload-datasheet ──────────────────────────────
 @router.post("/upload-datasheet", dependencies=[Depends(verify_token)])
-async def upload_datasheet(file: UploadFile = File(...), overwrite: bool = Form(False)):
-    """
+@limiter.limit("1/minute")
+async def upload_datasheet(request: Request, file: UploadFile = File(...), overwrite: bool = Form(False)):    """
     Parses a camera datasheet PDF and extracts specs to insert a new camera_model.
     Skips if a camera with the same brand and model already exists.
     """
