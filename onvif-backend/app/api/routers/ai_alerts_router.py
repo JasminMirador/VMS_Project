@@ -3,7 +3,7 @@ ai_alerts_router.py
 Router to handle incoming alert notifications from the external AI Backend team.
 Endpoint: POST /api/v1/ai/alerts
 """
-from fastapi import APIRouter, HTTPException, Depends, Header, status, Request
+from fastapi import Path, APIRouter, HTTPException, Depends, Header, status, Request
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
@@ -374,7 +374,7 @@ from fastapi.responses import StreamingResponse
 import urllib.request
 
 @router.get("/media/{path:path}")
-def proxy_external_ai_media(path: str):
+def proxy_external_ai_media(path: str = Path(..., max_length=1024)):
     target_url = f"http://192.168.126.201:9000/{path}"
     try:
         # Fetch directly using standard urllib which is allowed on system level

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request
+from fastapi import Path, APIRouter, Request
 from .health import nodes_col, db, alerts_col
 from .scheduler import scheduler
 from .metrics import get_system_metrics
@@ -26,14 +26,14 @@ async def get_topology():
 # stream_fps, stream_resolution, codec, dropped_frames, rtsp_connected,
 # onvif_connected, recording, stream_status, stream_last_polled, etc.
 @router.get("/nodes/{node_id}")
-async def get_node(node_id: str):
+async def get_node(node_id: str = Path(..., max_length=255)):
     """Return full node document by id (e.g. 'node-192-168-126-236')."""
     node = nodes_col.find_one({"id": node_id}, {"_id": 0})
     if not node:
         # Try matching by IP in case node_id was passed as an IP string
         node = nodes_col.find_one({"ip": node_id}, {"_id": 0})
     if not node:
-        from fastapi import HTTPException
+        from fastapi import Path, HTTPException
         raise HTTPException(status_code=404, detail=f"Node '{node_id}' not found")
     # Serialize datetimes
     for key, val in node.items():
@@ -94,7 +94,7 @@ async def get_alerts(
 
 
 @router.post("/alerts/{node_id}/acknowledge")
-async def acknowledge_alert(node_id: str):
+async def acknowledge_alert(node_id: str = Path(..., max_length=255)):
     """Mark all alerts for a node as acknowledged."""
     result = alerts_col.update_many(
         {"node_id": node_id, "acknowledged": False},
@@ -121,7 +121,7 @@ async def get_bandwidth_history():
 
 
 @router.patch("/nodes/{node_id}")
-async def update_node(node_id: str, request: Request):
+async def update_node(node_id: str = Path(..., max_length=255), request: Request):
     data = await request.json()
     allowed_keys = ["position", "label", "manufacturer", "model"]
     filtered_data = {k: v for k, v in data.items() if k in allowed_keys}

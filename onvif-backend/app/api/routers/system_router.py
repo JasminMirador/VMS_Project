@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query
+from fastapi import Path, APIRouter, Depends, HTTPException, File, UploadFile, Query
 from app.core.security import verify_token, require_admin
 from app.services.license_manager import license_manager
 import json
@@ -378,9 +378,9 @@ import base64
 from datetime import datetime
 
 class SnapshotSaveRequest(BaseModel):
-    base64_data: str
+    base64_data: str = Field(..., max_length=1024)
     camera_name: str = "Unknown"
-    target_folder: str = ""
+    target_folder: str = Field(default="", max_length=1024)
 
 @router.post("/snapshot/save")
 def save_snapshot_endpoint(req: SnapshotSaveRequest):

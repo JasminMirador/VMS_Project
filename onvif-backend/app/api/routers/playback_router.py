@@ -90,7 +90,7 @@ def _find_local_fallback_file(rec_dir: str, ip_prefix: str, alert_local_date: st
     return best_file
 
 @router.get("/api/event-playback")
-def event_playback(ip: str, time: str, request: Request = None, stream: int = 0):
+def event_playback(ip: str = Path(..., max_length=255, pattern=r"^[a-zA-Z0-9.-]+$"), time: str = Path(..., max_length=255), request: Request = None, stream: int = 0):
     """
     stream=0 (default): returns JSON with clipUrl
     stream=1: returns video/mp4 bytes directly (used by <video src="...">)
@@ -527,7 +527,7 @@ async def event_playback_post(
 
 
 @router.get("/api/event-playback/snapshot")
-def event_snapshot(ip: str, time: str):
+def event_snapshot(ip: str = Path(..., max_length=255, pattern=r"^[a-zA-Z0-9.-]+$"), time: str = Path(..., max_length=255)):
     """
     Returns a single JPEG snapshot at the exact event time.
     """
@@ -824,7 +824,7 @@ async def event_snapshot_post(
 
 
 @router.get("/api/event-playback/hls/{ip}/{time_str}/{filename}")
-def event_playback_hls(ip: str, time_str: str, filename: str):
+def event_playback_hls(ip: str = Path(..., max_length=255, pattern=r"^[a-zA-Z0-9.-]+$"), time_str: str = Path(..., max_length=255), filename: str = Path(..., max_length=1024)):
     """
     Dynamically serves/generates cached HLS chunks (.m3u8 playlist or .ts segments)
     for the 20-second event clip.
@@ -1123,7 +1123,7 @@ def list_event_clips(ip: str = None, limit: int = 50):
 
 
 @router.get("/api/event-clip/play", dependencies=[Depends(verify_token)])
-def play_event_clip(ip: str, time: str):
+def play_event_clip(ip: str = Path(..., max_length=255, pattern=r"^[a-zA-Z0-9.-]+$"), time: str = Path(..., max_length=255)):
     """Decrypt and stream a saved event clip."""
     event_clips_col = _db["event_clips"]
 

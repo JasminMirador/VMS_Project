@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from app.core.security import verify_token
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 import asyncio, shutil, os, json
 import httpx
@@ -187,23 +187,23 @@ def append_log(event: str, status: str):
 # ── Pydantic models ───────────────────────────────────────────────────────────
 class NetworkConfig(BaseModel):
     protocol: str = "SMB"
-    ip:       str = ""
+    ip: str = Field(default="", max_length=1024)
     port:     int = 445
-    username: str = ""
-    password: str = ""
-    path:     str = ""
+    username: str = Field(default="", max_length=1024)
+    password: str = Field(default="", max_length=1024)
+    path: str = Field(default="", max_length=1024)
 
 class ManualBackupRequest(BaseModel):
     cameras:          list[str]
-    start_date:       str
-    end_date:         str
+    start_date: str = Field(..., max_length=1024)
+    end_date: str = Field(..., max_length=1024)
     start_time:       str = "00:00:00"
     end_time:         str = "23:59:59"
     format:           str = "ENC"
     destination_path: str = ""   # D:\, C:\, Z:\, custom path — empty = NETWORK_BASE_DIR
 
 class CameraRetentionItem(BaseModel):
-    ip: str
+    ip: str = Field(..., max_length=1024)
     days: int
 
 class RetentionRequest(BaseModel):
@@ -215,8 +215,8 @@ class RetentionRequest(BaseModel):
 
 class RestoreRequest(BaseModel):
     cameras:           list[str]
-    start_date:        str
-    end_date:          str
+    start_date: str = Field(..., max_length=1024)
+    end_date: str = Field(..., max_length=1024)
     use_smart_restore: bool = False
 
 class AutoConfigRequest(BaseModel):

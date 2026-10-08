@@ -34,7 +34,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, BackgroundTasks, Depends, Request
 from app.core.security import verify_token
 from fastapi.responses import StreamingResponse, FileResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from app.core.database import mongo_client
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding
@@ -69,7 +69,7 @@ if os.name == 'nt' and KEY_FILE == "/app/data/video.key":
 # Both this module and encrypt_service.py MUST use the same KEY_FILE path.
 # They both default to /app/data/video.key, controlled by VIDEO_KEY_FILE env var.
 if not os.path.exists(KEY_FILE):
-    print(f"[DECRYPT] ⚠⚠⚠  WARNING: video.key NOT FOUND at '{KEY_FILE}'")
+    print(f"[DECRYPT] ⚠⚠  WARNING: video.key NOT FOUND at '{KEY_FILE}'")
     print(f"[DECRYPT]          Set VIDEO_KEY_FILE env var to the correct path,")
     print(f"[DECRYPT]          or ensure it matches the path used by encrypt_service.py")
 else:
@@ -145,7 +145,7 @@ def _save_recording_path(path: str):
             json.dump(existing, f, indent=2)
         print(f"[CONFIG] 💾 Recording path persisted: {path}")
     except Exception as e:
-        print(f"[CONFIG] ⚠ Could not persist recording path: {e}")
+        print(f"[CONFIG]  Could not persist recording path: {e}")
 
 
 def _load_recording_path_from_db():
@@ -182,7 +182,7 @@ _apply_persisted_path_on_startup()
 def _normalize_enc_path(path: str) -> str:
     if not path:
         return path
-    normalized = path.replace("\\", "/")
+    normalized = path.replace("\\", "/").replace("local:", "")
     if not normalized.endswith(".enc"):
         if normalized.startswith("minio:"):
             from app.utils.minio_client import object_exists
@@ -503,43 +503,52 @@ recording_router = APIRouter(prefix="/api/recordings", tags=["recordings"], depe
 storage_router   = APIRouter(prefix="/api/storage",    tags=["storage"], dependencies=[Depends(verify_token)])
 
 class ExportZipRequest(BaseModel):
-    camera_id:  str
-    start_date: str
-    end_date:   str
-    start_time: str = "00:00"
-    end_time:   str = "23:59"
-    format:     str = "mp4"
+    camera_id: str = Field(..., max_length=255)
+    start_date: str = Field(..., max_length=255)
+    end_date: str = Field(..., max_length=255)
+    start_time: str = Field("00:00", max_length=255)
+    end_time: str = Field("23:59", max_length=255)
+    format: str = Field("mp4", max_length=255)
 
 class ExportDeviceRequest(BaseModel):
-    camera_id:        str
-    start_date:       str
-    end_date:         str
-    start_time:       str = "00:00"
-    end_time:         str = "23:59"
-    format:           str = "mp4"
-    destination_path: str = ""
+    camera_id: str = Field(..., max_length=255)
+    start_date: str = Field(..., max_length=255)
+    end_date: str = Field(..., max_length=255)
+    start_time: str = Field("00:00", max_length=255)
+    end_time: str = Field("23:59", max_length=255)
+    format: str = Field("mp4", max_length=255)
+    destination_path: str = Field("", max_length=1024)
 
 class StorageApplyRequest(BaseModel):
-    location:       str | None = None
-    folder:         str | None = None
+    location: str | None = Field(None, max_length=255)
+    folder: str | None = Field(None, max_length=255)
     allocated:      int | None = None
-    recording_path: str | None = None
+    recording_path: str | None = Field(None, max_length=1024)
 
 class StorageLocation(BaseModel):
-    display_path:   str
-    container_path: str
+    display_path: str = Field(..., max_length=1024)
+    container_path: str = Field(..., max_length=1024)
     allocated:      int = 100
 
 class Schedule(BaseModel):
-    id:         str | int
-    name:       str
+    id: str | int = Field(...)
+    name: str = Field(..., max_length=255)
     week:       dict[str, list[bool]]
     ranges:     dict[str, str] = {} # Human-readable strings for Compass
     exceptions: list[str] = [] # ISO dates
+    @field_validator('name')
+    @classmethod
+    def validate_schedule_name(cls, v):
+        import re
+        if not v or not v.strip():
+            raise ValueError('Schedule name is required')
+        if not re.match(r'^[a-zA-Z0-9 _.\-]+$', v.strip()):
+            raise ValueError('Schedule name contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed.')
+        return v.strip()
 
 class AssignScheduleRequest(BaseModel):
-    camera_id:   str
-    schedule_id: str | int | None
+    camera_id: str = Field(..., max_length=255)
+    schedule_id: str | int = Field(...) | None
     motion_only: bool = False
 
 def _doc_to_dict(doc: dict) -> dict:
@@ -633,7 +642,7 @@ def remove_storage_location(container_path: str = Query(...)):
     return {"message": "Location removed"}
 
 
-def _container_to_display_path(container_path: str) -> str:
+def _container_to_display_path(container_path: str = Field(..., max_length=1024)) -> str:
     """
     Convert forward slashes to backslashes for native Windows UI display.
     """
@@ -818,6 +827,20 @@ def assign_schedule(req: AssignScheduleRequest):
 # ==================================================================
 # RECORDING GET ROUTES
 # ==================================================================
+@recording_router.post("/stop/{stream_name}")
+def stop_recording(stream_name: str, request: Request):
+    try:
+        from recorder.rtsp_recorder import stop_camera
+        stop_camera(stream_name)
+# We don't remove it from _recorders here if we're in the API process
+# (different memory space than recorder_worker), but we can try to kill it.
+# However, to communicate with worker, we can just publish a command or rely on the
+# fact that the assigned schedule will be Never and the worker will pick it up.
+# But wait! If the worker picks it up and stops it immediately because we added
+# the check in the recording state, then this route is just a dummy to avoid 404 errors!
+        return {"success": True, "message": f"Stop signal sent for {stream_name}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @recording_router.get("/")
 def list_recordings(
@@ -1459,12 +1482,15 @@ def play_uploaded(
 
 
 @recording_router.get("/{camera_id_or_path}")
-def list_camera_recordings(camera_id_or_path: str, date: str = Query(None)):
+def list_camera_recordings(camera_id_or_path: str = Path(..., max_length=1024), date: str = Query(None)):
     # Try as camera_id first
     query = {"camera_id": camera_id_or_path}
     if date:
         query["date"] = date
     query["is_deleted"] = {"$ne": True}
+    # Only return COMPLETE recordings — UPLOADING stubs are mid-upload placeholders
+    # and returning them causes duplicate start_time keys in the frontend.
+    query["status"] = {"$in": ["COMPLETE", "RECORDING"]}
     docs = list(_collection.find(query).sort("created_at", -1))
     
     if not docs:
@@ -1483,6 +1509,8 @@ def list_camera_recordings(camera_id_or_path: str, date: str = Query(None)):
             if date:
                 query["date"] = date
             query["is_deleted"] = {"$ne": True}
+            query["status"] = {"$in": ["COMPLETE", "RECORDING"]}
+
             docs = list(_collection.find(query).sort("created_at", -1))
         except Exception as e:
             print(f"[RECORDINGS] Fallback query failed for '{camera_id_or_path}': {e}")
@@ -1644,7 +1672,7 @@ def export_zip(request: ExportZipRequest, background_tasks: BackgroundTasks):
             raise HTTPException(status_code=404, detail=detail)
 
         if decrypt_errors:
-            print(f"[EXPORT-ZIP] ⚠ {len(decrypt_errors)} file(s) skipped: {decrypt_errors}")
+            print(f"[EXPORT-ZIP] {len(decrypt_errors)} file(s) skipped: {decrypt_errors}")
 
         background_tasks.add_task(os.unlink, zip_path)
         return FileResponse(

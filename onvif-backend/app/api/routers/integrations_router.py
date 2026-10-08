@@ -4,7 +4,7 @@ import platform
 import time
 import uuid
 from bson.objectid import ObjectId
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import Path, APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from app.core.database import db
 from app.core.security import verify_token
@@ -119,7 +119,7 @@ async def create_integration(request: Request):
 
 
 @router.put("/{integration_id}", dependencies=[Depends(verify_token)])
-async def update_integration(integration_id: str, request: Request):
+async def update_integration(integration_id: str = Path(..., max_length=255), request: Request):
     if db is None:
         return JSONResponse({"error": "Database not connected"}, status_code=500)
         
@@ -168,7 +168,7 @@ async def update_integration(integration_id: str, request: Request):
 
 
 @router.delete("/{integration_id}", dependencies=[Depends(verify_token)])
-async def delete_integration(integration_id: str):
+async def delete_integration(integration_id: str = Path(..., max_length=255)):
     if db is None:
         return JSONResponse({"error": "Database not connected"}, status_code=500)
         
