@@ -6421,7 +6421,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                           });
                           if (!r.ok) {
                             const errData = await r.json();
-                            alert(`CV Zone detection failed: ${errData.detail || r.statusText}`);
+                            alert(`CV Zone detection failed: ${(typeof errData.detail === "string" ? errData.detail : (Array.isArray(errData.detail) ? errData.detail.map(d => d.msg || "Invalid input").join(", ") : (r.statusText)))}`);
                             return;
                           }
                           const data = await r.json();

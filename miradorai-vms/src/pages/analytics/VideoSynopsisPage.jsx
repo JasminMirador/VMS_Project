@@ -677,7 +677,7 @@ export default function VideoSynopsisPage() {
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        setToastMessage(errData.detail || "Failed to start Video Synopsis job");
+        setToastMessage((typeof errData.detail === "string" ? errData.detail : (Array.isArray(errData.detail) ? errData.detail.map(d => d.msg || "Invalid input").join(", ") : ("Failed to start Video Synopsis job"))));
         setLoading(false);
         setJobHistory(prev => prev.filter(j => j.job_id !== placeholderId));
         return;

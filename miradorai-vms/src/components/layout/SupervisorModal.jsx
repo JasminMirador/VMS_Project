@@ -44,7 +44,7 @@ export default function SupervisorModal({ pageName, onSuccess, onCancel }) {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.detail || "Incorrect supervisor password. Please try again.");
+        throw new Error((typeof data.detail === "string" ? data.detail : (Array.isArray(data.detail) ? data.detail.map(d => d.msg || "Invalid input").join(", ") : ("Incorrect supervisor password. Please try again."))));
       }
 
       setIsLoading(false);

@@ -76,8 +76,9 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
       setEditingGroupId(null);
       return;
     }
-    if (!/^[a-zA-Z0-9 _.\-]+$/.test(trimmed)) {
-      setUiError("Group Name can only contain letters, numbers, spaces, hyphens, underscores, and dots. Special characters are not allowed.");
+    if (!/^[a-zA-Z0-9 _-]+$/.test(trimmed)) {
+      setUiError("Group Name can only contain alphanumeric characters, spaces, dashes, and underscores.");
+
       return;
     }
     const updatedGroups = groups.map(g => 
@@ -202,7 +203,7 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
           let errMsg = "Failed to delete camera. Admin privileges required.";
           try {
             const errData = await res.json();
-            errMsg = errData.detail || errMsg;
+            errMsg = (typeof errData.detail === "string" ? errData.detail : (Array.isArray(errData.detail) ? errData.detail.map(d => d.msg || "Invalid input").join(", ") : (errMsg)));
           } catch(e) {}
           setUiError(errMsg);
           hasError = true;
@@ -344,8 +345,8 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
   const saveEdit = () => {
     if (editForm.name) {
       const trimmed = editForm.name.trim();
-      if (!/^[a-zA-Z0-9 _.\-]+$/.test(trimmed)) {
-        setUiError("Camera Name can only contain letters, numbers, spaces, hyphens, underscores, and dots. Special characters are not allowed.");
+      if (!/^[a-zA-Z0-9 _-]+$/.test(trimmed)) {
+        setUiError("Camera Name can only contain alphanumeric characters, spaces, dashes, and underscores.");
         return;
       }
     }
@@ -408,7 +409,7 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
           let errMsg = "Failed to delete camera. Admin privileges required.";
           try {
             const errData = await res.json();
-            errMsg = errData.detail || errMsg;
+            errMsg = (typeof errData.detail === "string" ? errData.detail : (Array.isArray(errData.detail) ? errData.detail.map(d => d.msg || "Invalid input").join(", ") : (errMsg)));
           } catch(e) {}
           setUiError(errMsg);
           hasError = true;
@@ -468,7 +469,7 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
   /* ── Inline masking page ── */
   if (activePage === "masking" && selectedCam) {
     return (
-      <div className="page-shell">
+      <div className="page-shell cameras-page">
         <div className="page-header">
           <div>
             <h1 className="page-title"><span>Masking</span></h1>
@@ -488,7 +489,7 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
   }
 
   return (
-    <div className="page-shell">
+    <div className="page-shell cameras-page">
       <div className="page-header">
         <div className="page-header__left">
           <h1 className="page-title">Manage <span>Camera Groups</span></h1>
@@ -647,28 +648,13 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
 
                       {/* View All button */}
                       <td>
-                        <SpecularButton
-                          size="sm"
-                          radius={8}
-                          tint="#10b981"
-                          tintOpacity={0.10}
-                          blur={4}
-                          textColor={theme === 'light' ? "#065f46" : "#f0fff8"}
-                          lineColor="#10b981"
-                          baseColor={theme === 'light' ? "#d1fae5" : "#0d3326"}
-                          intensity={1.2}
-                          shineSize={12}
-                          shineFade={38}
-                          thickness={1}
-                          speed={0.35}
-                          followMouse
-                          proximity={220}
-                          autoAnimate={false}
-                          className="ec-btn ec-btn--primary"
+                        <button
+                          type="button"
+                          className="group-view-btn"
                           onClick={() => openGroupPanel(group)}
                         >
-                          <span style={{ whiteSpace: "nowrap" }}>View All Cameras</span>
-                        </SpecularButton>
+                          View All Cameras
+                        </button>
                       </td>
                     </tr>
                   );

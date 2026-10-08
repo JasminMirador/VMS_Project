@@ -234,7 +234,7 @@ export default function StorageManagementPage() {
           fetchStorage();
         }
       } else {
-        setApplyMsg(`❌ ${json.detail || "Failed to apply settings."}`);
+        setApplyMsg(`❌ ${(typeof json.detail === "string" ? json.detail : (Array.isArray(json.detail) ? json.detail.map(d => d.msg || "Invalid input").join(", ") : ("Failed to apply settings.")))}`);
       }
     } catch {
       setApplyMsg("❌ Could not reach backend. Is the server running?");

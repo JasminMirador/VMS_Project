@@ -183,7 +183,7 @@ export default function ViewingStationsPage() {
         setPushStatus({ success: true, message: `Successfully pushed layout to ${selectedStation.name}!` });
         fetchStations();
       } else {
-        setPushStatus({ success: false, message: data.detail || "Failed to push layout." });
+        setPushStatus({ success: false, message: (typeof data.detail === "string" ? data.detail : (Array.isArray(data.detail) ? data.detail.map(d => d.msg || "Invalid input").join(", ") : ("Failed to push layout." )))});
       }
     } catch (e) {
       setPushStatus({ success: false, message: "Network error occurred." });

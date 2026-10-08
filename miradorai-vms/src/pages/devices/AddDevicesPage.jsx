@@ -12,6 +12,8 @@ import { useTheme } from "../../context/ThemeContext";
 import "./AddDevicesPage.css";
 import "./CamerasPage.css";
 import useActivityLogger from "../../hooks/useActivityLogger";
+import { isValidNameString } from "../../utils/validation";
+
 
 
 const STREAM_API = import.meta.env.VITE_API_URL;
@@ -559,6 +561,10 @@ export default function AddDevicesPage({ onNavigate }) {
   };
 
   const handleCreateGroupSubmit = async (name) => {
+      if (!isValidNameString(name)) {
+      setToast({ message: "Invalid group name. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed.", type: "error" });
+      return;
+    }
     try {
       const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/groups`, {
@@ -645,7 +651,7 @@ export default function AddDevicesPage({ onNavigate }) {
         let errMsg = "Failed to delete camera. Admin privileges required.";
         try {
           const errData = await res.json();
-          errMsg = errData.detail || errMsg;
+          errMsg = (typeof errData.detail === "string" ? errData.detail : (Array.isArray(errData.detail) ? errData.detail.map(d => d.msg || "Invalid input").join(", ") : (errMsg)));
         } catch(e) {}
         setUiError(errMsg);
         return; // Don't remove from UI
