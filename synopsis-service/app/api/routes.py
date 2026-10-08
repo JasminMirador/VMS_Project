@@ -32,14 +32,18 @@ async def create_synopsis_job(payload: SynopsisJobCreate, background_tasks: Back
     created_jobs = []
 
     for cam_id in camera_ids:
-        # Fetch stream_key from the main vms_db using the provided camera_id
+        # Fetch stream_key from the main vms DB using the provided camera_id
         stream_key = cam_id
         try:
             from bson import ObjectId
-            vms_db = db.client["vms_db"]
-            camera_doc = await vms_db.cameras.find_one({"_id": ObjectId(cam_id)})
-            if camera_doc and "stream_key" in camera_doc:
-                stream_key = camera_doc["stream_key"]
+            import os
+            # Use same DB name as the main backend (MONGO_DB_NAME env var)
+            main_db_name = os.environ.get("MONGO_DB_NAME", "vms_demo")
+            main_db = db.client[main_db_name]
+            camera_doc = await main_db.cameras.find_one({"_id": ObjectId(cam_id)})
+            if camera_doc:
+                stream_key = camera_doc.get("stream_key") or camera_doc.get("id") or cam_id
+                print(f"[SYNOPSIS-DEBUG] Resolved stream_key={stream_key} for cam_id={cam_id}")
         except Exception as e:
             print(f"Error fetching stream_key: {e}")
 
@@ -55,37 +59,67 @@ async def create_synopsis_job(payload: SynopsisJobCreate, background_tasks: Back
                 start_dt = datetime.fromisoformat(payload.range_start) - timedelta(minutes=5)
                 end_dt = datetime.fromisoformat(payload.range_end) + timedelta(minutes=5)
 
-                # Build list of date strings that fall within the range (e.g. ["2026-09-21", "2026-09-22"])
                 date_set = set()
                 cur = start_dt
                 while cur <= end_dt:
                     date_set.add(cur.strftime("%Y-%m-%d"))
                     cur += timedelta(days=1)
 
-                # Walk: root/ -> shard/ -> stream_key/ -> date/ -> HH-MM-SS.enc
-                # We jump directly to the date folders, skipping everything else
+                print(f"[SYNOPSIS-DEBUG] cam_id={cam_id} stream_key={stream_key}")
+                print(f"[SYNOPSIS-DEBUG] Searching dates: {date_set}")
+                print(f"[SYNOPSIS-DEBUG] Range: {start_dt} -> {end_dt}")
+
                 roots = reader.minio_client.list_objects(reader.bucket, recursive=False)
                 for r in roots:
-                    if not r.is_dir:
-                        continue
+                    print(f"[SYNOPSIS-DEBUG] Root: {r.object_name} is_dir={r.is_dir}")
+                    if not r.is_dir: continue
+                    # New architecture: root/stream_key/date_str/
+                    for date_str in date_set:
+                        date_prefix = f"{r.object_name}{stream_key}/{date_str}/"
+                        print(f"[SYNOPSIS-DEBUG] Checking new-arch prefix: {date_prefix}")
+                        day_objs = reader.minio_client.list_objects(reader.bucket, prefix=date_prefix, recursive=False)
+                        for obj in day_objs:
+                            print(f"[SYNOPSIS-DEBUG]   Found object: {obj.object_name}")
+                            if not obj.object_name.endswith(".enc"): continue
+                            fname_base = obj.object_name.split("/")[-1].replace(".enc", "")
+                            try:
+                                # New format: YYYY-MM-DD_HH-MM-SS
+                                file_dt = datetime.strptime(fname_base, "%Y-%m-%d_%H-%M-%S")
+                            except ValueError:
+                                try:
+                                    # Old format: HH-MM-SS combined with date folder
+                                    file_dt = datetime.strptime(f"{date_str}_{fname_base}", "%Y-%m-%d_%H-%M-%S")
+                                except ValueError:
+                                    print(f"[SYNOPSIS-DEBUG]   Could not parse datetime from: {fname_base}")
+                                    continue
+                            print(f"[SYNOPSIS-DEBUG]   Parsed file_dt={file_dt}, in_range={start_dt <= file_dt <= end_dt}")
+                            if start_dt <= file_dt <= end_dt:
+                                video_files.append(f"minio:{obj.object_name}")
+                    
+                    # Old architecture: root/shard/stream_key/date_str/
                     shards = reader.minio_client.list_objects(reader.bucket, prefix=r.object_name, recursive=False)
                     for s in shards:
-                        if not s.is_dir:
-                            continue
+                        if not s.is_dir: continue
                         for date_str in date_set:
                             date_prefix = f"{s.object_name}{stream_key}/{date_str}/"
+                            print(f"[SYNOPSIS-DEBUG] Checking old-arch prefix: {date_prefix}")
                             day_objs = reader.minio_client.list_objects(reader.bucket, prefix=date_prefix, recursive=False)
                             for obj in day_objs:
-                                if not obj.object_name.endswith(".enc"):
-                                    continue
-                                # Parse time from filename: HH-MM-SS.enc
-                                fname = obj.object_name.split("/")[-1].replace(".enc", "").replace("-", ":")
+                                print(f"[SYNOPSIS-DEBUG]   Found object: {obj.object_name}")
+                                if not obj.object_name.endswith(".enc"): continue
+                                fname_base = obj.object_name.split("/")[-1].replace(".enc", "")
                                 try:
-                                    file_dt = datetime.fromisoformat(f"{date_str}T{fname}")
-                                    if start_dt <= file_dt <= end_dt:
-                                        video_files.append(f"minio:{obj.object_name}")
+                                    file_dt = datetime.strptime(fname_base, "%Y-%m-%d_%H-%M-%S")
                                 except ValueError:
-                                    pass
+                                    try:
+                                        file_dt = datetime.strptime(f"{date_str}_{fname_base}", "%Y-%m-%d_%H-%M-%S")
+                                    except ValueError:
+                                        print(f"[SYNOPSIS-DEBUG]   Could not parse datetime from: {fname_base}")
+                                        continue
+                                if start_dt <= file_dt <= end_dt:
+                                    video_files.append(f"minio:{obj.object_name}")
+
+                print(f"[SYNOPSIS-DEBUG] Total video_files found: {len(video_files)}")
         except Exception as e:
             print(f"MinIO fetch error: {e}")
 
@@ -215,8 +249,6 @@ async def search_tubes(payload: SynopsisSearchRequest):
 async def get_raw_clip(camera_id: str, timestamp: str):
     from fastapi.responses import FileResponse
     from app.engine.minio_reader import MinioEncryptedReader
-    from datetime import datetime
-    import os
 
     reader = MinioEncryptedReader()
     if not reader.minio_client:
@@ -231,25 +263,34 @@ async def get_raw_clip(camera_id: str, timestamp: str):
         files = []
         roots = reader.minio_client.list_objects(reader.bucket, recursive=False)
         for r in roots:
-            if r.is_dir:
-                shards = reader.minio_client.list_objects(reader.bucket, prefix=r.object_name, recursive=False)
-                for s in shards:
-                    if s.is_dir:
-                        cam_prefix = f"{s.object_name}{stream_key}/"
-                        cam_objs = reader.minio_client.list_objects(reader.bucket, prefix=cam_prefix, recursive=True)
-                        for c in cam_objs:
-                            if c.object_name.endswith(".enc"):
-                                files.append(c.object_name)
+            if not r.is_dir: continue
+            # New architecture: root/stream_key/
+            cam_prefix_new = f"{r.object_name}{stream_key}/"
+            cam_objs_new = reader.minio_client.list_objects(reader.bucket, prefix=cam_prefix_new, recursive=True)
+            for c in cam_objs_new:
+                if c.object_name.endswith(".enc"):
+                    files.append(c.object_name)
+                    
+            # Old architecture: root/shard/stream_key/
+            shards = reader.minio_client.list_objects(reader.bucket, prefix=r.object_name, recursive=False)
+            for s in shards:
+                if s.is_dir:
+                    cam_prefix = f"{s.object_name}{stream_key}/"
+                    cam_objs = reader.minio_client.list_objects(reader.bucket, prefix=cam_prefix, recursive=True)
+                    for c in cam_objs:
+                        if c.object_name.endswith(".enc"):
+                            files.append(c.object_name)
         return files
 
     db = get_database()
     stream_key = camera_id
     try:
         from bson import ObjectId
-        vms_db = db.client["vms_db"]
-        camera_doc = await vms_db.cameras.find_one({"_id": ObjectId(camera_id)})
-        if camera_doc and "stream_key" in camera_doc:
-            stream_key = camera_doc["stream_key"]
+        import os
+        main_db_name = os.environ.get("MONGO_DB_NAME", "vms_demo")
+        camera_doc = await db.client[main_db_name].cameras.find_one({"_id": ObjectId(camera_id)})
+        if camera_doc:
+            stream_key = camera_doc.get("stream_key") or camera_doc.get("id") or camera_id
     except Exception as e:
         pass
 
@@ -263,16 +304,21 @@ async def get_raw_clip(camera_id: str, timestamp: str):
             continue
         parts = f.replace("\\", "/").split("/")
         if len(parts) >= 2:
+            fname_base = parts[-1].replace(".enc", "")
             date_str = parts[-2]
-            time_str = parts[-1].replace(".enc", "").replace("-", ":")
             try:
-                file_dt = datetime.fromisoformat(f"{date_str}T{time_str}")
-                if file_dt <= req_dt:
-                    if target_dt is None or file_dt > target_dt:
-                        target_dt = file_dt
-                        target_file = f
-            except Exception:
-                pass
+                # New format: YYYY-MM-DD_HH-MM-SS
+                file_dt = datetime.strptime(fname_base, "%Y-%m-%d_%H-%M-%S")
+            except ValueError:
+                try:
+                    # Old format: HH-MM-SS combined with date folder
+                    file_dt = datetime.strptime(f"{date_str}_{fname_base}", "%Y-%m-%d_%H-%M-%S")
+                except Exception:
+                    continue
+            if file_dt <= req_dt:
+                if target_dt is None or file_dt > target_dt:
+                    target_dt = file_dt
+                    target_file = f
 
     if not target_file:
         raise HTTPException(status_code=404, detail="No raw video found for this timestamp")
@@ -318,25 +364,34 @@ async def get_event_playback_video(camera_id: str, timestamp: str, background_ta
         files = []
         roots = reader.minio_client.list_objects(reader.bucket, recursive=False)
         for r in roots:
-            if r.is_dir:
-                shards = reader.minio_client.list_objects(reader.bucket, prefix=r.object_name, recursive=False)
-                for s in shards:
-                    if s.is_dir:
-                        cam_prefix = f"{s.object_name}{stream_key}/"
-                        cam_objs = reader.minio_client.list_objects(reader.bucket, prefix=cam_prefix, recursive=True)
-                        for c in cam_objs:
-                            if c.object_name.endswith(".enc"):
-                                files.append(c.object_name)
+            if not r.is_dir: continue
+            # New architecture: root/stream_key/
+            cam_prefix_new = f"{r.object_name}{stream_key}/"
+            cam_objs_new = reader.minio_client.list_objects(reader.bucket, prefix=cam_prefix_new, recursive=True)
+            for c in cam_objs_new:
+                if c.object_name.endswith(".enc"):
+                    files.append(c.object_name)
+                    
+            # Old architecture: root/shard/stream_key/
+            shards = reader.minio_client.list_objects(reader.bucket, prefix=r.object_name, recursive=False)
+            for s in shards:
+                if s.is_dir:
+                    cam_prefix = f"{s.object_name}{stream_key}/"
+                    cam_objs = reader.minio_client.list_objects(reader.bucket, prefix=cam_prefix, recursive=True)
+                    for c in cam_objs:
+                        if c.object_name.endswith(".enc"):
+                            files.append(c.object_name)
         return files
 
     db = get_database()
     stream_key = camera_id
     try:
         from bson import ObjectId
-        vms_db = db.client["vms_db"]
-        camera_doc = await vms_db.cameras.find_one({"_id": ObjectId(camera_id)})
-        if camera_doc and "stream_key" in camera_doc:
-            stream_key = camera_doc["stream_key"]
+        import os
+        main_db_name = os.environ.get("MONGO_DB_NAME", "vms_demo")
+        camera_doc = await db.client[main_db_name].cameras.find_one({"_id": ObjectId(camera_id)})
+        if camera_doc:
+            stream_key = camera_doc.get("stream_key") or camera_doc.get("id") or camera_id
     except Exception as e:
         pass
 
@@ -350,16 +405,21 @@ async def get_event_playback_video(camera_id: str, timestamp: str, background_ta
             continue
         parts = f.replace("\\", "/").split("/")
         if len(parts) >= 2:
+            fname_base = parts[-1].replace(".enc", "")
             date_str = parts[-2]
-            time_str = parts[-1].replace(".enc", "").replace("-", ":")
             try:
-                file_dt = datetime.fromisoformat(f"{date_str}T{time_str}")
-                if file_dt <= req_dt:
-                    if target_dt is None or file_dt > target_dt:
-                        target_dt = file_dt
-                        target_file = f
-            except Exception:
-                pass
+                # New format: YYYY-MM-DD_HH-MM-SS
+                file_dt = datetime.strptime(fname_base, "%Y-%m-%d_%H-%M-%S")
+            except ValueError:
+                try:
+                    # Old format: HH-MM-SS combined with date folder
+                    file_dt = datetime.strptime(f"{date_str}_{fname_base}", "%Y-%m-%d_%H-%M-%S")
+                except Exception:
+                    continue
+            if file_dt <= req_dt:
+                if target_dt is None or file_dt > target_dt:
+                    target_dt = file_dt
+                    target_file = f
 
     if not target_file:
         raise HTTPException(status_code=404, detail="No raw video found for this timestamp")
@@ -367,6 +427,7 @@ async def get_event_playback_video(camera_id: str, timestamp: str, background_ta
     try:
         import asyncio
         dec_path = await asyncio.to_thread(reader.decrypt_minio_file_to_temp, target_file)
+
         
         # Calculate offset for 4 seconds before and 4 seconds after
         offset_s = (req_dt - target_dt).total_seconds()
@@ -375,7 +436,7 @@ async def get_event_playback_video(camera_id: str, timestamp: str, background_ta
         
         output_path = tempfile.mktemp(suffix=".mp4")
         
-        ffmpeg_bin = os.getenv("FFMPEG_BIN", r"C:\Users\hp\Downloads\ffmpeg.exe")
+        ffmpeg_bin = os.getenv("FFMPEG_BIN", r"C:\Users\mirador\Downloads\ffmpeg.exe")
         ffmpeg_cmd = [
             ffmpeg_bin, "-y",
             "-ss", str(start_offset),
@@ -393,7 +454,6 @@ async def get_event_playback_video(camera_id: str, timestamp: str, background_ta
             stderr=subprocess.PIPE
         )
         stdout, stderr = await proc.communicate()
-        
         try:
             os.remove(dec_path)
         except:
@@ -434,11 +494,13 @@ async def create_face_job(payload: FaceJobCreate, background_tasks: BackgroundTa
     stream_keys = []
     try:
         from bson import ObjectId
-        vms_db = db.client["vms_db"]
+        import os
+        main_db_name = os.environ.get("MONGO_DB_NAME", "vms_demo")
         for cid in camera_ids:
-            camera_doc = await vms_db.cameras.find_one({"_id": ObjectId(cid)})
-            if camera_doc and "stream_key" in camera_doc:
-                stream_keys.append(camera_doc["stream_key"])
+            camera_doc = await db.client[main_db_name].cameras.find_one({"_id": ObjectId(cid)})
+            if camera_doc:
+                sk = camera_doc.get("stream_key") or camera_doc.get("id") or cid
+                stream_keys.append(sk)
             else:
                 stream_keys.append(cid)
     except Exception as e:
@@ -465,6 +527,22 @@ async def create_face_job(payload: FaceJobCreate, background_tasks: BackgroundTa
             roots = reader.minio_client.list_objects(reader.bucket, recursive=False)
             for r in roots:
                 if not r.is_dir: continue
+                # New architecture: root/stream_key/date_str/
+                for sk in stream_keys:
+                    for date_str in date_set:
+                        date_prefix = f"{r.object_name}{sk}/{date_str}/"
+                        day_objs = reader.minio_client.list_objects(reader.bucket, prefix=date_prefix, recursive=False)
+                        for obj in day_objs:
+                            if not obj.object_name.endswith(".enc"): continue
+                            fname = obj.object_name.split("/")[-1].replace(".enc", "").replace("-", ":")
+                            try:
+                                file_dt = datetime.fromisoformat(f"{date_str}T{fname}")
+                                if start_dt <= file_dt <= end_dt:
+                                    video_files.append(f"minio:{obj.object_name}")
+                            except ValueError:
+                                pass
+                
+                # Old architecture: root/shard/stream_key/date_str/
                 shards = reader.minio_client.list_objects(reader.bucket, prefix=r.object_name, recursive=False)
                 for s in shards:
                     if not s.is_dir: continue
@@ -612,7 +690,6 @@ async def get_face_thumbnail(camera_id: str, timestamp: str, fx: int, fy: int, f
     reader = MinioEncryptedReader()
     if not reader.minio_client:
         raise HTTPException(status_code=500, detail="MinIO client not initialized")
-
     try:
         req_dt = datetime.fromisoformat(timestamp.replace(" ", "T"))
     except Exception:
@@ -622,43 +699,66 @@ async def get_face_thumbnail(camera_id: str, timestamp: str, fx: int, fy: int, f
     stream_key = camera_id
     try:
         from bson import ObjectId
+        import os
         db = get_database()
-        vms_db = db.client["vms_db"]
-        camera_doc = await vms_db.cameras.find_one({"_id": ObjectId(camera_id)})
-        if camera_doc and "stream_key" in camera_doc:
-            stream_key = camera_doc["stream_key"]
+        main_db_name = os.environ.get("MONGO_DB_NAME", "vms_demo")
+        camera_doc = await db.client[main_db_name].cameras.find_one({"_id": ObjectId(camera_id)})
+        if camera_doc:
+            stream_key = camera_doc.get("stream_key") or camera_doc.get("id") or camera_id
     except Exception:
         pass
 
-    # Find the .enc file closest before req_dt
     def find_enc_file(reader, stream_key, req_dt):
         target_file = None
         target_dt = None
         roots = reader.minio_client.list_objects(reader.bucket, recursive=False)
         for r in roots:
-            if not r.is_dir:
-                continue
+            if not r.is_dir: continue
+            
+            # New architecture
+            cam_prefix_new = f"{r.object_name}{stream_key}/"
+            cam_objs_new = reader.minio_client.list_objects(reader.bucket, prefix=cam_prefix_new, recursive=True)
+            for c in cam_objs_new:
+                if not c.object_name.endswith(".enc"): continue
+                parts = c.object_name.replace("\\", "/").split("/")
+                if len(parts) >= 2:
+                    fname_base = parts[-1].replace(".enc", "")
+                    date_str = parts[-2]
+                    try:
+                        file_dt = datetime.strptime(fname_base, "%Y-%m-%d_%H-%M-%S")
+                    except ValueError:
+                        try:
+                            file_dt = datetime.strptime(f"{date_str}_{fname_base}", "%Y-%m-%d_%H-%M-%S")
+                        except Exception:
+                            continue
+                    if file_dt <= req_dt:
+                        if target_dt is None or file_dt > target_dt:
+                            target_dt = file_dt
+                            target_file = c.object_name
+                        
+            # Old architecture
             shards = reader.minio_client.list_objects(reader.bucket, prefix=r.object_name, recursive=False)
             for s in shards:
-                if not s.is_dir:
-                    continue
+                if not s.is_dir: continue
                 cam_prefix = f"{s.object_name}{stream_key}/"
                 cam_objs = reader.minio_client.list_objects(reader.bucket, prefix=cam_prefix, recursive=True)
                 for c in cam_objs:
-                    if not c.object_name.endswith(".enc"):
-                        continue
+                    if not c.object_name.endswith(".enc"): continue
                     parts = c.object_name.replace("\\", "/").split("/")
                     if len(parts) >= 2:
+                        fname_base = parts[-1].replace(".enc", "")
                         date_str = parts[-2]
-                        time_str = parts[-1].replace(".enc", "").replace("-", ":")
                         try:
-                            file_dt = datetime.fromisoformat(f"{date_str}T{time_str}")
-                            if file_dt <= req_dt:
-                                if target_dt is None or file_dt > target_dt:
-                                    target_dt = file_dt
-                                    target_file = c.object_name
-                        except Exception:
-                            pass
+                            file_dt = datetime.strptime(fname_base, "%Y-%m-%d_%H-%M-%S")
+                        except ValueError:
+                            try:
+                                file_dt = datetime.strptime(f"{date_str}_{fname_base}", "%Y-%m-%d_%H-%M-%S")
+                            except Exception:
+                                continue
+                        if file_dt <= req_dt:
+                            if target_dt is None or file_dt > target_dt:
+                                target_dt = file_dt
+                                target_file = c.object_name
         return target_file, target_dt
 
     target_file, target_dt = await asyncio.to_thread(find_enc_file, reader, stream_key, req_dt)

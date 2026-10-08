@@ -99,8 +99,14 @@ class MinioEncryptedReader:
                     logger.warning(f"PKCS7 unpadding failed, saving padded data. Error: {pad_err}")
                     decrypted_bytes = padded
 
-            # Create temporary TS file for synopsis engine since onvif-backend uses MPEG-TS
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".ts")
+            # Detect whether decrypted content is MPEG-TS (starts with 0x47 sync byte) or MP4
+            # Use the correct extension so OpenCV/FFmpeg reads it properly
+            if decrypted_bytes and decrypted_bytes[0] == 0x47:
+                suffix = ".ts"
+            else:
+                suffix = ".mp4"
+
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
             temp_file.write(decrypted_bytes)
             temp_file.close()
 
