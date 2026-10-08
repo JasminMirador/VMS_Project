@@ -2083,11 +2083,7 @@ export default function MapViewPage() {
     canvasApiRef.current?.drawAll();
   }
 
-  function renameZone(id, newName) {
-    const zone = zonesRef.current.find(z => z.id === id);
-    if (!zone) return;
-    const trimmed = newName.trim();
-    if (!trimmed) return;
+  function renameZone(id, newName) { const zone = zonesRef.current.find(z => z.id === id); if (!zone) return; const trimmed = newName.trim(); if (!trimmed) return; if (!/^[a-zA-Z0-9 _.\-]+$/.test(trimmed)) { alert("Zone name contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed."); return; }
     const exists = zonesRef.current.some(z => z.id !== id && z.name.toLowerCase() === trimmed.toLowerCase());
     if (exists) {
       alert("A zone with this name already exists.");
@@ -2388,8 +2384,7 @@ export default function MapViewPage() {
     loadFloor(floorIdx, updated);
   }
 
-  function renameVersion(floorIdx, vId, newName) {
-    if (!newName || !newName.trim()) return;
+  function renameVersion(floorIdx, vId, newName) { if (!newName || !newName.trim()) return; if (!/^[a-zA-Z0-9 _.\-]+$/.test(newName.trim())) { alert("Version name contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed."); return; }
     const updated = floors.map((f, i) => {
       if (i !== floorIdx || !f.versions) return f;
       return {

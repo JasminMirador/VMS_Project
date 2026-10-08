@@ -3520,8 +3520,7 @@ export default function DesignerView({ onBack }) {
     fitImage();
   }, [inspectorExpanded]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const renameSlide = useCallback((slideId, newName) => {
-    setSlides(prev => prev.map(s => s.id === slideId ? { ...s, name: newName } : s));
+  const renameSlide = useCallback((slideId, newName) => { if (!newName.trim()) return; if (!/^[a-zA-Z0-9 _.\-]+$/.test(newName.trim())) { alert("Slide name contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed."); return; } setSlides(prev => prev.map(s => s.id === slideId ? { ...s, name: newName } : s));
   }, []);
 
   const switchSlide = useCallback((slideId) => {
@@ -5044,8 +5043,7 @@ export default function DesignerView({ onBack }) {
     scheduleSave(restoredPlaced, zonesRef.current, ppmRef.current);
   }
 
-  function renameVersion(slideId, versionId, newName) {
-    if (!newName.trim()) return;
+  function renameVersion(slideId, versionId, newName) { if (!newName.trim()) return; if (!/^[a-zA-Z0-9 _.\-]+$/.test(newName.trim())) { alert("Version name contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed."); return; }
     const activeSlideIdx = slidesRef.current.findIndex(s => s.id === slideId);
     if (activeSlideIdx < 0) return;
     
@@ -5154,11 +5152,7 @@ export default function DesignerView({ onBack }) {
     apiDeleteZone(id);
   }
 
-  function handleRenameZone(id, newName) {
-    const zone = zonesRef.current.find(z => z.id === id);
-    if (!zone) return;
-    const trimmed = newName.trim();
-    if (!trimmed) return;
+  function handleRenameZone(id, newName) { const zone = zonesRef.current.find(z => z.id === id); if (!zone) return; const trimmed = newName.trim(); if (!trimmed) return; if (!/^[a-zA-Z0-9 _.\-]+$/.test(trimmed)) { alert("Zone name contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed."); return; }
     const exists = zonesRef.current.some(z => z.id !== id && z.name.toLowerCase() === trimmed.toLowerCase());
     if (exists) {
       alert("A zone with this name already exists.");
