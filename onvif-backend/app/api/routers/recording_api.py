@@ -31,7 +31,7 @@ import zipfile
 from app.utils.ffmpeg_utils import FFMPEG_BIN
 from datetime import datetime, timedelta
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, Query, UploadFile, File, BackgroundTasks, Depends, Request
+from fastapi import APIRouter, HTTPException, Query, UploadFile, File, BackgroundTasks, Depends, Request, Path as APIPath
 from app.core.security import verify_token
 from fastapi.responses import StreamingResponse, FileResponse, Response
 from pydantic import BaseModel, Field, field_validator
@@ -548,7 +548,7 @@ class Schedule(BaseModel):
 
 class AssignScheduleRequest(BaseModel):
     camera_id: str = Field(..., max_length=255)
-    schedule_id: str | int = Field(...) | None
+    schedule_id: str | int | None = Field(default=None)
     motion_only: bool = False
 
 def _doc_to_dict(doc: dict) -> dict:
@@ -1482,7 +1482,7 @@ def play_uploaded(
 
 
 @recording_router.get("/{camera_id_or_path}")
-def list_camera_recordings(camera_id_or_path: str = Path(..., max_length=1024), date: str = Query(None)):
+def list_camera_recordings(camera_id_or_path: str = APIPath(..., max_length=1024), date: str = Query(None)):
     # Try as camera_id first
     query = {"camera_id": camera_id_or_path}
     if date:

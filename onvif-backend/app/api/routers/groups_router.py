@@ -1,5 +1,6 @@
 from fastapi import Path, APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
+from app.api.routers.auth_router import limiter
 from app.core.database import db
 from app.core.security import verify_token
 import uuid
@@ -9,7 +10,8 @@ router = APIRouter(prefix="/api", tags=["groups"])
 
 @router.get("/groups", dependencies=[Depends(verify_token)])
 @limiter.limit("1/minute")
-async def get_groups(request: Request):    if db is None:
+async def get_groups(request: Request):
+    if db is None:
         return JSONResponse({"error": "Database not connected"}, status_code=500)
     
     groups_col = db["groups"]
@@ -58,7 +60,7 @@ async def create_group(request: Request):
 @router.put("/groups/{group_id}", dependencies=[Depends(verify_token)])
 @limiter.limit("1/minute")
 
-async def update_group(group_id: str = Path(..., max_length=255), request: Request):
+async def update_group(request: Request, group_id: str = Path(..., max_length=255)):
     if db is None:
         return JSONResponse({"error": "Database not connected"}, status_code=500)
         
@@ -92,8 +94,8 @@ async def update_group(group_id: str = Path(..., max_length=255), request: Reque
     return {"success": True, "id": group_id, "name": name}
 
 @router.delete("/groups/{group_id}", dependencies=[Depends(verify_token)])
-async def delete_group(group_id: str = Path(..., max_length=255), request: Request):
 @limiter.limit("1/minute")
+async def delete_group(request: Request, group_id: str = Path(..., max_length=255)):
 
     if db is None:
         return JSONResponse({"error": "Database not connected"}, status_code=500)

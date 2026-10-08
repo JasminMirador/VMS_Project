@@ -3,7 +3,7 @@ from typing import Optional, Any
 from datetime import datetime
 
 class BaseCameraRequest(BaseModel):
-    ip: str = Field(default=\"\", max_length=255)
+    ip: str = Field(default="", max_length=255)
     ip_address: Optional[str] = Field(None, pattern=r"^[a-zA-Z0-9.-]*$", max_length=255)
     is_deleted: bool = False
     deleted_at: Optional[datetime] = None
@@ -72,7 +72,7 @@ class ProbeRequest(BaseCameraRequest):
     password: str = Field(default="", max_length=1024)
     channel:     int = 0
     group_id: str = Field(default="default", max_length=255)
-    device_name: str = Field(default=\"\", max_length=255)
+    device_name: str = Field(default="", max_length=255)
     save_to_db:  bool = True
     
     @field_validator('group_id', 'device_name', mode='before')
@@ -88,7 +88,7 @@ class StreamRegisterRequest(BaseCameraRequest):
     manufacturer: str = Field(default="Unknown", max_length=255)
     model: str = Field(default="Unknown", max_length=255)
     mac:          str = "—"
-    device_name: str = Field(default=\"\", max_length=255)
+    device_name: str = Field(default="", max_length=255)
     group_id: str = Field(default="default", max_length=255)
     live_codec: Optional[str] = Field(default="H.264", max_length=255)
     
@@ -103,11 +103,11 @@ class StreamAssignRequest(BaseCameraRequest):
     manufacturer: str = Field(default="Unknown", max_length=255)
     model: str = Field(default="Unknown", max_length=255)
     mac:               str = "—"
-    device_name: str = Field(default=\"\", max_length=255)
+    device_name: str = Field(default="", max_length=255)
     live_rtsp: str = Field(..., max_length=1024)
     recording_rtsp: str = Field(..., max_length=1024)
-    live_profile: str = Field(default=\"\", max_length=255)
-    recording_profile: str = Field(default=\"\", max_length=255)
+    live_profile: str = Field(default="", max_length=255)
+    recording_profile: str = Field(default="", max_length=255)
     live_codec: Optional[str] = Field(default="H.264", max_length=255)
     fps:               Optional[int] = None
     resolution: Optional[str] = Field(None, max_length=1024)

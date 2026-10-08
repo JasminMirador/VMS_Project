@@ -41,7 +41,8 @@ class Zone(BaseModel):
     polygon: List[ZonePoint]
     
     @field_validator("name", mode="before")
-    @classmethod    def val_name(cls, v):
+    @classmethod
+    def val_name(cls, v):
         return validate_name(v)
 
 
@@ -56,7 +57,8 @@ class DesignerSaveRequest(BaseModel):
     active_slide_id: Optional[str]          = None
 
     @field_validator('floor_plan')
-    @classmethod    def validate_floor_plan(cls, v):
+    @classmethod
+    def validate_floor_plan(cls, v):
         if v is not None and not v.startswith('data:image/'):
             raise ValueError('Invalid image format. Must be a base64 data URL starting with data:image/')
         return v
@@ -68,7 +70,8 @@ class FloorPlanRequest(BaseModel):
     floor_plan: str = Field(..., max_length=5_242_880)
 
     @field_validator('floor_plan')
-    @classmethod    def validate_floor_plan(cls, v):
+    @classmethod
+    def validate_floor_plan(cls, v):
         if v is not None and not v.startswith('data:image/'):
             raise ValueError('Invalid image format. Must be a base64 data URL starting with data:image/')
         return v
@@ -289,7 +292,8 @@ def save_zones(request: Request,
 # ── DELETE /api/designer/zones/{zone_id} ─────────────────────────
 @router.delete("/zones/{zone_id}", dependencies=[Depends(verify_token)])
 @limiter.limit("1/minute")
-def delete_zone(request: Request, zone_id: str, map_id: str = "default", floor_id: str = "floor_1"):    """Remove a single zone by ID from the designer document."""
+def delete_zone(request: Request, zone_id: str, map_id: str = "default", floor_id: str = "floor_1"):
+    """Remove a single zone by ID from the designer document."""
     result = designer_col.update_one(
         {"map_id": map_id, "floor_id": floor_id, "is_deleted": {"$ne": True}},
         {"$pull": {"zones": {"id": zone_id}}}
@@ -319,7 +323,8 @@ def delete_placed_camera(camera_id: str, map_id: str = "default", floor_id: str 
 # ── POST /api/designer/floor-plan ────────────────────────────────
 @router.post("/floor-plan", dependencies=[Depends(verify_token)])
 @limiter.limit("1/minute")
-def save_floor_plan(request: Request, req: FloorPlanRequest):    """Saves only the floor plan image (base64 data URL) for a map + floor."""
+def save_floor_plan(request: Request, req: FloorPlanRequest):
+    """Saves only the floor plan image (base64 data URL) for a map + floor."""
     if not req.floor_plan:
         raise HTTPException(status_code=400, detail="floor_plan is required")
 
@@ -343,7 +348,8 @@ def save_floor_plan(request: Request, req: FloorPlanRequest):    """Saves only t
 # cameras and zones. Called when user clicks ✕ on Floor 1 in sidebar.
 @router.delete("/floor-plan", dependencies=[Depends(verify_token)])
 @limiter.limit("1/minute")
-def delete_floor_plan(request: Request, map_id: str = "default", floor_id: str = "floor_1"):    """
+def delete_floor_plan(request: Request, map_id: str = "default", floor_id: str = "floor_1"):
+    """
     Removes only the floor plan image for a map + floor.
     Placed cameras and zones are preserved.
     """
@@ -455,7 +461,8 @@ def detect_zones(req: ZoneDetectRequest):
 # ── POST /api/designer/upload-datasheet ──────────────────────────────
 @router.post("/upload-datasheet", dependencies=[Depends(verify_token)])
 @limiter.limit("1/minute")
-async def upload_datasheet(request: Request, file: UploadFile = File(...), overwrite: bool = Form(False)):    """
+async def upload_datasheet(request: Request, file: UploadFile = File(...), overwrite: bool = Form(False)):
+    """
     Parses a camera datasheet PDF and extracts specs to insert a new camera_model.
     Skips if a camera with the same brand and model already exists.
     """

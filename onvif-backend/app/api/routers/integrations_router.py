@@ -119,7 +119,7 @@ async def create_integration(request: Request):
 
 
 @router.put("/{integration_id}", dependencies=[Depends(verify_token)])
-async def update_integration(integration_id: str = Path(..., max_length=255), request: Request):
+async def update_integration(request: Request, integration_id: str = Path(..., max_length=255)):
     if db is None:
         return JSONResponse({"error": "Database not connected"}, status_code=500)
         

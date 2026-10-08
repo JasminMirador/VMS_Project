@@ -121,7 +121,7 @@ async def get_bandwidth_history():
 
 
 @router.patch("/nodes/{node_id}")
-async def update_node(node_id: str = Path(..., max_length=255), request: Request):
+async def update_node(request: Request, node_id: str = Path(..., max_length=255)):
     data = await request.json()
     allowed_keys = ["position", "label", "manufacturer", "model"]
     filtered_data = {k: v for k, v in data.items() if k in allowed_keys}

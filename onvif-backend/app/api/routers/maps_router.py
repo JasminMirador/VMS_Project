@@ -41,7 +41,8 @@ class Floor(BaseModel):
     markers:      List[Marker]  = []
 
     @field_validator('name')
-    @classmethod    def validate_floor_name(cls, v):
+    @classmethod
+    def validate_floor_name(cls, v):
         import re
         if not v or not v.strip():
             raise ValueError('Floor name is required')
@@ -50,13 +51,15 @@ class Floor(BaseModel):
         return v.strip()
 
     @field_validator('imageDataUrl')
-    @classmethod    def validate_image_data_url(cls, v):
+    @classmethod
+    def validate_image_data_url(cls, v):
         if v is not None and not v.startswith('data:image/'):
             raise ValueError('Invalid image format. Must be a base64 data URL starting with data:image/')
         return v
 
     @field_validator('modelDataUrl')
-    @classmethod    def validate_model_data_url(cls, v):
+    @classmethod
+    def validate_model_data_url(cls, v):
         if v is not None and not (
             v.startswith('data:model/')
             or v.startswith('data:application/octet-stream')
@@ -80,7 +83,8 @@ class MapSaveRequest(BaseModel):
     calibration: Optional[dict]        = None
 
     @field_validator('floor_plan')
-    @classmethod    def validate_floor_plan(cls, v):
+    @classmethod
+    def validate_floor_plan(cls, v):
         if v is not None and not v.startswith('data:image/'):
             raise ValueError('Invalid image format. Must be a base64 data URL starting with data:image/')
         return v
@@ -100,7 +104,8 @@ class Zone(BaseModel):
     floorIndex: Optional[int] = 0   # which floor this zone belongs to
 
     @field_validator('name')
-    @classmethod    def validate_zone_name(cls, v):
+    @classmethod
+    def validate_zone_name(cls, v):
         import re
         if not v or not v.strip():
             raise ValueError('Zone name is required')
@@ -277,7 +282,8 @@ def save_map(req: MapSaveRequest):
 # ── POST /api/maps/zones ──────────────────────────────────────────
 @router.post("/zones", dependencies=[Depends(verify_token)])
 @limiter.limit("1/minute")
-def save_zones(request: Request, req: ZoneSaveRequest):    """
+def save_zones(request: Request, req: ZoneSaveRequest):
+    """
     Saves all zone definitions for a map in a single dedicated document.
     Each zone has a floorIndex field so zones are floor-specific on the frontend.
     """
@@ -300,7 +306,8 @@ def save_zones(request: Request, req: ZoneSaveRequest):    """
 # ── DELETE /api/maps/zones/{zone_id} ─────────────────────────────
 @router.delete("/zones/{zone_id}", dependencies=[Depends(verify_token)])
 @limiter.limit("1/minute")
-def delete_zone(request: Request, zone_id: str, map_id: str = "default"):    """Remove a single zone by ID from the zones document."""
+def delete_zone(request: Request, zone_id: str, map_id: str = "default"):
+    """Remove a single zone by ID from the zones document."""
     result = maps_col.update_one(
         {"map_id": map_id, "doc_type": "zones", "zones.id": zone_id},
         {"$set": {"zones.$.is_deleted": True}}
@@ -351,7 +358,8 @@ def delete_map(map_id: str = "default"):
 # Legacy endpoint — updates imageDataUrl for a specific floor document
 @router.post("/floor-plan", dependencies=[Depends(verify_token)])
 @limiter.limit("1/minute")
-def save_floor_plan(request: Request, payload: dict):    map_id     = payload.get("map_id", "default")
+def save_floor_plan(request: Request, payload: dict):
+    map_id     = payload.get("map_id", "default")
     floor_plan = payload.get("floor_plan")
     floor_id   = payload.get("floor_id", "floor_1")
 
