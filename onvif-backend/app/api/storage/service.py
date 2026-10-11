@@ -12,6 +12,48 @@ class StorageService:
     def get_devices(self) -> list:
         return self.repo.get_devices()
 
+    def get_available_drive_letters(self) -> list:
+        import string
+        import shutil
+
+        drives = []
+        existing_letters = set()
+
+        # 1. Existing mounted drives with free space (e.g. D:, C:)
+        for letter in string.ascii_uppercase:
+            path = f"{letter}:\\"
+            if os.path.exists(path):
+                existing_letters.add(letter)
+                try:
+                    usage = shutil.disk_usage(path)
+                    free_gb = round(usage.free / (1024**3), 1)
+                    total_gb = round(usage.total / (1024**3), 1)
+                    drives.append({
+                        "letter": letter,
+                        "label": f"{letter}: Drive (Existing Volume · {free_gb} GB Free)",
+                        "is_existing": True,
+                        "free_gb": free_gb,
+                        "total_gb": total_gb,
+                    })
+                except Exception:
+                    pass
+
+        # Sort so non-C drives appear first (e.g., D: then C:)
+        drives.sort(key=lambda d: 1 if d["letter"] == "C" else 0)
+
+        # 2. Unassigned drive letters (D to Z) for new RAID pools
+        for letter in string.ascii_uppercase[3:]:
+            if letter not in existing_letters:
+                drives.append({
+                    "letter": letter,
+                    "label": f"{letter}: Drive (Unassigned / New RAID Array)",
+                    "is_existing": False,
+                    "free_gb": None,
+                    "total_gb": None,
+                })
+
+        return drives
+
     def get_status(self) -> dict:
         current_path = self.config.get_recording_path()
         drive_letter = current_path.split(":")[0] if ":" in current_path else "C"
@@ -24,16 +66,24 @@ class StorageService:
         }
 
     def provision_storage(self, target_drive: str, recordings_folder: str) -> dict:
-        # 1. Provision Storage (Infrastructure)
-        log_output = self.repo.provision_storage(target_drive, recordings_folder)
-        
-        # 2. Update Configuration
+        target_drive = target_drive.strip().rstrip(":").upper()
+        drive_root = f"{target_drive}:\\"
         final_path = f"{target_drive}:\\{recordings_folder}"
+
+        # If drive already exists as an active formatted volume, do not attempt destructive RAID formatting
+        if os.path.exists(drive_root):
+            os.makedirs(final_path, exist_ok=True)
+            log_output = f"[INFO] Target drive {target_drive}: is an active local volume. Initialized recording path at {final_path}."
+        else:
+            # Infrastructure provision for raw disks / HW RAID
+            log_output = self.repo.provision_storage(target_drive, recordings_folder)
+
+        # 2. Update Configuration
         self.config.set_recording_path(final_path)
-        
+
         # 3. Restart Dependent Services
         self.services.restart_all_vms_services()
-        
+
         return {
             "success": True,
             "path": final_path,

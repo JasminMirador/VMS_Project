@@ -8,6 +8,13 @@ class DeviceModel(BaseModel):
     capacity_tb: float
     device_id: Union[str, int]
 
+class DriveOptionModel(BaseModel):
+    letter: str
+    label: str
+    is_existing: bool
+    free_gb: Optional[float] = None
+    total_gb: Optional[float] = None
+
 class StatusModel(BaseModel):
     health: str
     capacity_tb: float

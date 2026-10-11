@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List
 from .service import StorageService
-from .models import DeviceModel, StatusModel, ConfigModel, ProvisionRequest, ProvisionResponse, PerformanceModel, ReplicationModel
+from .models import DeviceModel, DriveOptionModel, StatusModel, ConfigModel, ProvisionRequest, ProvisionResponse, PerformanceModel, ReplicationModel
 
 router = APIRouter(prefix="/api/storage", tags=["storage_management"])
 
@@ -13,6 +13,13 @@ def get_storage_service():
 def get_devices(service: StorageService = Depends(get_storage_service)):
     try:
         return service.get_devices()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/available-drives", response_model=List[DriveOptionModel])
+def get_available_drives(service: StorageService = Depends(get_storage_service)):
+    try:
+        return service.get_available_drive_letters()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -43,7 +43,10 @@ class StorageConfig:
         if "mediamtx" not in data:
             data["mediamtx"] = {}
         data["mediamtx"]["record_path"] = f"{new_path}\\MediaMTX"
-        
+
+        if "minio" in data:
+            data["minio"]["data_dir"] = new_path
+
         self._write_config(data)
         
         # 2. Sync to .env (legacy support)

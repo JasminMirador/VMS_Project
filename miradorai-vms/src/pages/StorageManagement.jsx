@@ -16,6 +16,8 @@ export default function StorageManagement() {
   const [logs, setLogs] = useState("");
   const [isRunningTest, setIsRunningTest] = useState(false);
   const [selectedDevice, setSelectedDevice] = useState(null);
+  const [availableDrives, setAvailableDrives] = useState([]);
+  const [targetDrive, setTargetDrive] = useState("D");
   const [folderName, setFolderName] = useState("Recordings");
   const [isProvisioning, setIsProvisioning] = useState(false);
   const [provisionMsg, setProvisionMsg] = useState("");
@@ -23,20 +25,31 @@ export default function StorageManagement() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [statusRes, configRes, devicesRes, perfRes, logsRes, replRes] = await Promise.all([
-        fetch(`${BACKEND}/api/storage/status`).then(r => r.json()),
-        fetch(`${BACKEND}/api/storage/config`).then(r => r.json()),
-        fetch(`${BACKEND}/api/storage/devices`).then(r => r.json()),
-        fetch(`${BACKEND}/api/storage/performance`).then(r => r.json()),
-        fetch(`${BACKEND}/api/storage/logs`).then(r => r.json()),
-        fetch(`${BACKEND}/api/storage/replication`).then(r => r.json()),
+      const [statusRes, configRes, devicesRes, perfRes, logsRes, replRes, drivesRes] = await Promise.all([
+        fetch(`${BACKEND}/api/storage/status`).then(r => r.json()).catch(() => null),
+        fetch(`${BACKEND}/api/storage/config`).then(r => r.json()).catch(() => null),
+        fetch(`${BACKEND}/api/storage/devices`).then(r => r.json()).catch(() => []),
+        fetch(`${BACKEND}/api/storage/performance`).then(r => r.json()).catch(() => null),
+        fetch(`${BACKEND}/api/storage/logs`).then(r => r.json()).catch(() => ({})),
+        fetch(`${BACKEND}/api/storage/replication`).then(r => r.json()).catch(() => null),
+        fetch(`${BACKEND}/api/storage/available-drives`).then(r => r.json()).catch(() => []),
       ]);
       setStatus(statusRes);
       setConfig(configRes);
       setDevices(Array.isArray(devicesRes) ? devicesRes : []);
       setPerformance(perfRes);
-      setLogs(logsRes.logs || "No active system logs found.");
+      setLogs(logsRes?.logs || "No active system logs found.");
       setReplication(replRes);
+
+      const drivesList = Array.isArray(drivesRes) ? drivesRes : [];
+      setAvailableDrives(drivesList);
+      if (drivesList.length > 0) {
+        const firstLetter = typeof drivesList[0] === "string" ? drivesList[0] : drivesList[0].letter;
+        setTargetDrive(prev => {
+          const exists = drivesList.some(d => (typeof d === "string" ? d : d.letter) === prev);
+          return exists ? prev : firstLetter;
+        });
+      }
     } catch (e) {
       console.error("Failed to load RAID data", e);
     }
@@ -45,21 +58,31 @@ export default function StorageManagement() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  const handleProvision = async () => { if (!selectedDevice) return; if (folderName && !/^[a-zA-Z0-9 _.\-]+$/.test(folderName.trim())) { setProvisionMsg("Folder name contains invalid characters."); return; }
+  const handleProvision = async () => {
+    if (!selectedDevice) return;
+    if (!targetDrive) {
+      setProvisionMsg("Please specify a target drive letter.");
+      return;
+    }
+    if (folderName && !/^[a-zA-Z0-9 _.\-]+$/.test(folderName.trim())) {
+      setProvisionMsg("Folder name contains invalid characters.");
+      return;
+    }
 
     setIsProvisioning(true);
-    setProvisionMsg("Provisioning storage array. This may take a few minutes...");
+    setProvisionMsg(`Provisioning storage array on drive ${targetDrive}:. This may take a few minutes...`);
     try {
       const res = await fetch(`${BACKEND}/api/storage/provision`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ targetDriveLetter: "E", recordingsFolder: folderName }),
+        body: JSON.stringify({ targetDriveLetter: targetDrive, recordingsFolder: folderName }),
       });
       if (res.ok) {
         setProvisionMsg("✅ Provisioning complete. Reloading...");
         setTimeout(() => { setProvisionMsg(""); fetchAll(); }, 2000);
       } else {
-        setProvisionMsg("❌ Provisioning failed. Check backend logs.");
+        const err = await res.json().catch(() => ({}));
+        setProvisionMsg(`❌ Provisioning failed: ${err.detail || "Check backend logs."}`);
       }
     } catch {
       setProvisionMsg("❌ Could not reach backend. Is the API running?");
@@ -84,6 +107,20 @@ export default function StorageManagement() {
   const usedPct = status ? Math.min(Math.round((status.used_tb / status.capacity_tb) * 100), 100) : 0;
   const usedColor = usedPct >= 90 ? "var(--red)" : usedPct >= 70 ? "var(--yellow)" : "var(--teal)";
 
+  const handleSelectDevice = (dev) => {
+    setSelectedDevice(dev);
+    if (dev.type?.includes("Active System Disk")) {
+      const match = dev.type.match(/\(([A-Z,\s]+)\)/);
+      if (match) {
+        const letters = match[1].split(",").map(l => l.trim().toUpperCase());
+        const preferred = letters.find(l => l !== "C") || letters[0];
+        if (preferred) {
+          setTargetDrive(preferred);
+        }
+      }
+    }
+  };
+
   // ── Wizard (no storage configured) ────────────────────────────────────────
   const renderWizard = () => (
     <div className="rm-wizard">
@@ -101,7 +138,7 @@ export default function StorageManagement() {
               <button
                 key={i}
                 className={`rm-device-item ${selectedDevice === dev ? "rm-device-item--selected" : ""}`}
-                onClick={() => setSelectedDevice(dev)}
+                onClick={() => handleSelectDevice(dev)}
               >
                 <div className="rm-device-left">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="22" height="22">
@@ -122,6 +159,45 @@ export default function StorageManagement() {
           </div>
         )}
 
+        <div className="rm-field-row" style={{ marginTop: 12 }}>
+          <label className="rm-label">Target Drive</label>
+          {availableDrives.length > 0 ? (
+            <select
+              className="sm-input"
+              value={targetDrive}
+              onChange={e => setTargetDrive(e.target.value)}
+              style={{
+                background: "var(--bg-base, #11141c)",
+                color: "var(--text-primary, #fff)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+                padding: "8px 12px",
+                fontSize: 15,
+                cursor: "pointer",
+              }}
+            >
+              {availableDrives.map(d => {
+                const letter = typeof d === "string" ? d : d.letter;
+                const label = typeof d === "string" ? `${d}: Drive` : d.label;
+                return (
+                  <option key={letter} value={letter}>
+                    {label}
+                  </option>
+                );
+              })}
+            </select>
+          ) : (
+            <input
+              className="sm-input"
+              style={{ textTransform: "uppercase" }}
+              maxLength={1}
+              value={targetDrive}
+              onChange={e => setTargetDrive(e.target.value.toUpperCase())}
+              placeholder="e.g. D"
+            />
+          )}
+        </div>
+
         <div className="rm-field-row" style={{ marginTop: 8 }}>
           <label className="rm-label">Recordings Folder</label>
           <input
@@ -132,7 +208,25 @@ export default function StorageManagement() {
           />
         </div>
 
-        {provisionMsg && <div className="sm-apply-msg">{provisionMsg}</div>}
+        <div style={{ fontSize: 13, color: "var(--text-secondary)", marginLeft: 150, marginTop: 2 }}>
+          Target storage path: <strong style={{ color: "var(--teal, #00d2b4)", fontFamily: "var(--font-mono, monospace)" }}>{targetDrive || "?"}:\{folderName}</strong>
+        </div>
+
+        {selectedDevice?.type?.includes("Active System Disk") && (
+          <div style={{
+            fontSize: 13,
+            color: "var(--text-secondary)",
+            background: "rgba(0, 210, 180, 0.08)",
+            border: "1px solid rgba(0, 210, 180, 0.25)",
+            padding: "8px 12px",
+            borderRadius: 6,
+            marginTop: 4
+          }}>
+            ℹ️ <strong>Active system disk selected:</strong> Recording path will be configured on this drive without reformatting. (Hardware RAID requires 2+ dedicated unpartitioned disks).
+          </div>
+        )}
+
+        {provisionMsg && <div className="sm-apply-msg" style={{ marginTop: 4 }}>{provisionMsg}</div>}
 
         <div className="rm-actions">
           <button
@@ -140,7 +234,11 @@ export default function StorageManagement() {
             disabled={!selectedDevice || isProvisioning}
             onClick={handleProvision}
           >
-            {isProvisioning ? "Provisioning…" : "Provision Storage Array"}
+            {isProvisioning
+              ? "Configuring…"
+              : selectedDevice?.type?.includes("Active System Disk")
+              ? "Assign Storage Path"
+              : "Provision Storage Array"}
           </button>
         </div>
       </div>
