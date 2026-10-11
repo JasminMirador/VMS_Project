@@ -34,7 +34,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, BackgroundTasks, Depends, Request, Path as APIPath
 from app.core.security import verify_token
 from fastapi.responses import StreamingResponse, FileResponse, Response
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, validator, Field, field_validator
 from app.core.database import mongo_client
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding
@@ -491,6 +491,7 @@ def _decrypt_bytes(encrypted_bytes: bytes) -> io.BytesIO:
 # Shared CORS headers
 # ------------------------------------------------------------------
 _CORS_HEADERS = {
+
     "Access-Control-Expose-Headers": "Content-Length, Content-Type, Accept-Ranges, Content-Disposition",
     "Vary":                          "Origin",
     "Cache-Control":                 "no-store",
@@ -520,14 +521,14 @@ class ExportDeviceRequest(BaseModel):
     destination_path: str = Field("", max_length=1024)
 
 class StorageApplyRequest(BaseModel):
-    location: str | None = Field(None, max_length=255)
-    folder: str | None = Field(None, max_length=255)
-    allocated:      int | None = None
-    recording_path: str | None = Field(None, max_length=1024)
-
-class StorageLocation(BaseModel):
     display_path: str = Field(..., max_length=1024)
     container_path: str = Field(..., max_length=1024)
+    allocated:      int | None = None
+    recording_path: str | None = None
+
+class StorageLocation(BaseModel):
+    display_path:   str
+    container_path: str
     allocated:      int = 100
 
 class Schedule(BaseModel):
@@ -536,6 +537,7 @@ class Schedule(BaseModel):
     week:       dict[str, list[bool]]
     ranges:     dict[str, str] = {} # Human-readable strings for Compass
     exceptions: list[str] = [] # ISO dates
+
     @field_validator('name')
     @classmethod
     def validate_schedule_name(cls, v):
@@ -809,8 +811,8 @@ def assign_schedule(req: AssignScheduleRequest):
     
     # Sync motion detector manager immediately
     try:
-        from app.services.ai import motion_detector
-        motion_detector.manager.trigger_sync()
+        pass # from app.services.ai import motion_detector
+        pass # motion_detector.manager.trigger_sync()
     except Exception as e:
         print(f"[API] Error triggering motion detector sync: {e}")
         
@@ -1510,7 +1512,6 @@ def list_camera_recordings(camera_id_or_path: str = APIPath(..., max_length=1024
                 query["date"] = date
             query["is_deleted"] = {"$ne": True}
             query["status"] = {"$in": ["COMPLETE", "RECORDING"]}
-
             docs = list(_collection.find(query).sort("created_at", -1))
         except Exception as e:
             print(f"[RECORDINGS] Fallback query failed for '{camera_id_or_path}': {e}")
@@ -1672,7 +1673,7 @@ def export_zip(request: ExportZipRequest, background_tasks: BackgroundTasks):
             raise HTTPException(status_code=404, detail=detail)
 
         if decrypt_errors:
-            print(f"[EXPORT-ZIP] {len(decrypt_errors)} file(s) skipped: {decrypt_errors}")
+            print(f"[EXPORT-ZIP]  {len(decrypt_errors)} file(s) skipped: {decrypt_errors}")
 
         background_tasks.add_task(os.unlink, zip_path)
         return FileResponse(
@@ -1801,6 +1802,3 @@ def export_device(request: ExportDeviceRequest, background_tasks: BackgroundTask
         "exported_files": exported_files,
         "errors": export_errors
     }
-
-
-

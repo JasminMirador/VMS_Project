@@ -136,7 +136,6 @@ function isAlertAllowed(alert) {
   });
 }
 
-// â”€â”€ Format Event Name â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export function formatEventName(name) {
   if (!name) return "Unknown";
   let formatted = name;
@@ -182,7 +181,6 @@ export function getAiAlertTitle(alert) {
   return formatEventName(base);
 }
 
-// â”€â”€ MaskOverlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function MaskOverlay({ ip }) {
   const [masks, setMasks] = useState([]);
 
@@ -344,7 +342,7 @@ export function AlertPopup({ ip, alerts, onClose }) {
         let errMsg = `Server error ${res.status}`;
         try {
           const e = await res.json();
-          errMsg = e.error || errMsg;
+          errMsg = e.error || e.detail || e.message || errMsg;
         } catch {}
         throw new Error(errMsg);
       }
@@ -948,11 +946,8 @@ function AlertsPanel({
     if (alert?.snapshot_url) return alert.snapshot_url;
     if (alert?.snapshotUrl) return alert.snapshotUrl;
     if (alert?.snapshot) return alert.snapshot;
-
-    const ip = normalizeIp(alert.ip || alert.serial || "");
-    const time = alert.time || alert.received_at || "";
-    if (!ip || !time) return null;
-    return `${API}/api/event-playback/snapshot?ip=${encodeURIComponent(ip)}&time=${encodeURIComponent(time)}`;
+    if (alert?.imageUrl) return alert.imageUrl;
+    return null;
   };
 
   const buildAlertThumbnailAltUrl = (alert) => {
@@ -1149,6 +1144,13 @@ function AlertsPanel({
       const perCamCounts = {};
       const finalAlerts = [];
       combinedAlerts.forEach((alert) => {
+        if (!alert.thumbnailUrl) {
+          alert.thumbnailUrl = buildAlertThumbnailUrl(alert) || alert.image;
+        }
+        if (!alert.thumbnailAltUrl) {
+          alert.thumbnailAltUrl = buildAlertThumbnailAltUrl(alert);
+        }
+        
         const ip = normalizeIp(alert.ip);
         if (ip) {
           perCamCounts[ip] = (perCamCounts[ip] || 0) + 1;
@@ -1245,47 +1247,19 @@ function AlertsPanel({
       return;
     }
 
-      // Skip alerts from disabled or deleted cameras
-      const wsIp = normalizeIp(payload.ip || payload.serial || "");
-      if (wsIp && allowedIps.size > 0 && !allowedIps.has(wsIp)) return;
-            // Apply per-camera preferences filter
-      if (Object.keys(cameraPreferences).length > 0) {
-        const prefs = cameraPreferences[wsIp];
-        if (prefs !== undefined) {
-          if (prefs.length === 0) return; // Unticked all for this camera
-          const type = (payload.type || "").toLowerCase();
-          const scenario = (payload.scenario || "").toLowerCase();
-          const allowed = prefs.some(p => {
-            const pLower = p.toLowerCase();
-            return type === pLower || scenario === pLower || type.includes(pLower) || scenario.includes(pLower);
-          });
-          if (!allowed) return;
-        }
-      }
-      const newAlert = {
-        ...payload,
-        thumbnailUrl: buildAlertThumbnailUrl(payload),
-        thumbnailAltUrl: buildAlertThumbnailAltUrl(payload),
-      };
+    const newAlert = {
+      ...payload,
+      thumbnailUrl: buildAlertThumbnailUrl(payload),
+      thumbnailAltUrl: buildAlertThumbnailAltUrl(payload),
+    };
 
-      // fetch live snapshot for real-time alert (non-blocking)
-      (async () => {
-        try {
-          if (!newAlert.isExternal) {
-            const ip = newAlert.ip || newAlert.serial || "";
-            const snap = await fetchLiveSnapshotForIp(ip);
-            if (snap) newAlert.liveSnapshot = snap;
-          }
-        } catch (e) {}
-        setAlerts((prev) => {
-          const exists = prev.some(
-            (a) =>
-              (a.alert_id || a._id) === (newAlert.alert_id || newAlert._id),
-          );
-          if (exists) return prev;
-          return [newAlert, ...prev].slice(0, 500);
-        });
-      })();
+    setAlerts((prev) => {
+      const exists = prev.some(
+        (a) => (a.alert_id || a._id) === (newAlert.alert_id || newAlert._id)
+      );
+      if (exists) return prev;
+      return [newAlert, ...prev].slice(0, 500);
+    });
   }, [eventsByTopic["vms/analytics/alerts"], eventsByTopic.alerts, alertSource, allowedIps, cameraPreferences]);
 
   useEffect(() => {
@@ -1295,10 +1269,8 @@ function AlertsPanel({
     // WebSocket provides real-time alerts, so no HTTP polling is needed.
     if (isWsConnected) return;
 
-    // Background refresh: existing alerts stay visible while the request runs.
-    const interval = setInterval(() => {
-      fetchAlerts(false);
-    }, 5000);
+    // Fallback: poll every 15 seconds when WebSocket is not connected.
+    const interval = setInterval(() => fetchAlerts(false), 15000);
 
     return () => clearInterval(interval);
   }, [fetchAlerts, isWsConnected]);
@@ -1907,23 +1879,18 @@ function AlertsPanel({
                       }}
                     >
                       <img
-                        src={thumbnailUrl}
-                        alt="Alert snapshot"
-                        className="lv-alert-card__thumbnail"
-                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                        onError={(e) => {
-                          console.log("Image load failed for URL:", thumbnailUrl);
-                          const altUrl = alert.thumbnailAltUrl;
-                          if (altUrl && altUrl !== e.currentTarget.src) {
-                            e.currentTarget.src = altUrl;
-                            return;
-                          }
-                          e.currentTarget.style.display = "none";
-                          if (e.currentTarget.parentElement) {
-                            e.currentTarget.parentElement.style.display = "none";
-                          }
-                        }}
-                      />
+  key={thumbnailUrl}
+  src={thumbnailUrl}
+  alt="Alert snapshot"
+  className="lv-alert-card__thumbnail"
+  style={{ width: "100%", height: "100%", objectFit: "cover", transition: "opacity 0.2s" }}
+  onLoad={(e) => {
+    e.currentTarget.style.opacity = "1";
+  }}
+  onError={(e) => {
+    e.currentTarget.style.opacity = "0";
+  }}
+/>
                     </div>
                   )}
                 </div>
@@ -2650,41 +2617,6 @@ export default function LiveViewPage({ onNavigate }) {
   const [isAiActive, setIsAiActive] = useState(false);
   const [externalAiIp, setExternalAiIp] = useState("192.168.126.35");
   const [analyticsConfig, setAnalyticsConfig] = useState([
-    {
-      "readerName": "EXIT",
-      "rtspUrl": "rtsp://192.168.126.235:554/MediaInput/h264",
-      "ipAddress": "192.168.126.235",
-      "analytics": [
-        { "sourceType": "face_recognition", "subType": "fr-blacklist" },
-        { "sourceType": "face_recognition", "subType": "fr-unknown" },
-        { "sourceType": "face_recognition", "subType": "fr-unauthorized" },
-        { "sourceType": "face_recognition", "subType": "fr-authorized" }
-      ]
-    },
-    {
-      "readerName": "ENTRY",
-      "rtspUrl": "rtsp://192.168.126.238:554/MediaInput/h264",
-      "ipAddress": "192.168.126.238",
-      "analytics": [
-        { "sourceType": "intrusion", "subType": "intrusion-person" },
-        { "sourceType": "face_recognition", "subType": "fr-blacklist" },
-        { "sourceType": "face_recognition", "subType": "fr-unknown" },
-        { "sourceType": "face_recognition", "subType": "fr-unauthorized" },
-        { "sourceType": "face_recognition", "subType": "fr-authorized" }
-      ]
-    },
-    {
-      "readerName": "Dahua Camera",
-      "rtspUrl": "rtsp://192.168.126.240:554/cam/realmonitor?channel=1&subtype=0",
-      "ipAddress": "192.168.126.240",
-      "analytics": [
-        { "sourceType": "intrusion", "subType": "intrusion-person" },
-        { "sourceType": "face_recognition", "subType": "fr-blacklist" },
-        { "sourceType": "face_recognition", "subType": "fr-unknown" },
-        { "sourceType": "face_recognition", "subType": "fr-unauthorized" },
-        { "sourceType": "face_recognition", "subType": "fr-authorized" }
-      ]
-    }
   ]);
 
   useEffect(() => {
@@ -2776,7 +2708,6 @@ export default function LiveViewPage({ onNavigate }) {
     checkBackendStartup();
   }, []);
 
-  // â”€â”€ Sync sub_stream_key from backend on mount â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // The backend is the authority for sub_stream_key/stream_key. localStorage
   // entries saved before sub-stream support was added will be missing these
   // fields. This one-time fetch merges them in without disrupting anything else.
