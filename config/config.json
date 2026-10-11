@@ -1,0 +1,20 @@
+{
+  "storage": {
+    "recording_path": "D:\\minio_data",
+    "filesystem": "NTFS",
+    "allocation_unit": 4096
+  },
+  "mediamtx": {
+    "record_path": "D:\\minio_data\\mediamtx"
+  },
+  "minio": {
+    "data_dir": "D:\\minio_data",
+    "bucket": "recordings",
+    "console_port": 9002
+  },
+  "services": {
+    "mediamtx": "MediaMTX",
+    "stream_manager": "mirador-failover-watchdog",
+    "minio": "MinIO"
+  }
+}
