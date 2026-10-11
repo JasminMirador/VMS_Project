@@ -186,6 +186,7 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
     alert.snapshot_url ||
     alert.snapshotUrl ||
     alert.snapshot ||
+    alert.imageUrl ||
     alert.face_url ||
     alert.image ||
     null;

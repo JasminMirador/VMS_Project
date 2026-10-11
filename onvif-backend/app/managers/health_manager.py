@@ -13,60 +13,31 @@ import os
 import subprocess
 import tempfile
 from app.utils import minio_client
-
+from app.utils.ffmpeg_utils import run_ffmpeg_async
 import time
 
-_snapshot_cache = {}
-
-def _capture_mediamtx_snapshot(ip: str, time_iso: str) -> str:
-    current_time = time.time()
-    
-    # 1. Check strict 1.0-second cache to prevent CPU spikes on millisecond gaps
-    if ip in _snapshot_cache:
-        cached_data = _snapshot_cache[ip]
-        if current_time - cached_data["timestamp"] <= 1.0:
-            print(f"[SNAPSHOT] Using cached image for {ip} (millisecond alert burst)")
-            return cached_data["url"]
-            
-    ip_prefix = ip.replace(".", "_")
-    stream_url = f"rtsp://127.0.0.1:8554/{ip_prefix}"
-    temp_jpg = tempfile.mktemp(suffix=".jpg")
-    
-    # 2. Base FFmpeg command (removed strict no-buffer flags to allow normal connection)
-    cmd = [
-        "ffmpeg", "-y",
-        "-rtsp_transport", "tcp",
-        "-i", stream_url,
-        "-vframes", "1",
-        "-q:v", "2",
-        temp_jpg
-    ]
-    try:
-        # 3. Increase timeout to 8.0 seconds for safety
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=8.0)
-        if os.path.exists(temp_jpg) and os.path.getsize(temp_jpg) > 0:
-            time_safe = time_iso.replace(":", "-")
-            minio_key = f"alert_snapshots/{ip_prefix}/{time_safe}.jpg"
-            minio_client.upload_file(minio_key, temp_jpg)
-            os.remove(temp_jpg)
-            
-            final_url = f"minio:{minio_key}"
-            
-            # Update cache on success
-            _snapshot_cache[ip] = {"url": final_url, "timestamp": current_time}
-            
-            return final_url
-    except Exception as e:
-        print(f"[SNAPSHOT] Live frame capture failed for {ip}: {e}")
-        
-    if os.path.exists(temp_jpg):
-        try:
-            os.remove(temp_jpg)
-        except Exception:
-            pass
-    return ""
-
 _previous_camera_statuses = {}
+_last_snapshot_time = {}
+
+async def async_capture_snapshot(alert, ip_slug):
+    if not ip_slug: return
+    current_time = time.time()
+    last_time = _last_snapshot_time.get(ip_slug, 0)
+    
+    if current_time - last_time > 3.0:
+        _last_snapshot_time[ip_slug] = current_time
+        mediamtx_host = os.environ.get("MEDIAMTX_HOST", "127.0.0.1:8554")
+        rtsp_url = f"rtsp://{mediamtx_host}/{ip_slug}"
+        cmd = ["ffmpeg", "-y", "-rtsp_transport", "tcp", "-i", rtsp_url, "-vframes", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-"]
+        success, img_bytes, err = await run_ffmpeg_async(cmd, timeout=5, capture_stdout=True)
+        if success and img_bytes:
+            clean_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+            minio_path = f"alerts/{ip_slug}_{clean_time}.jpg"
+            if minio_client.upload_bytes(minio_path, img_bytes):
+                minio_endpoint = os.environ.get("MINIO_ENDPOINT", "192.168.1.200:9000")
+                minio_bucket = os.environ.get("MINIO_BUCKET", "vms-rec")
+                alert["imageUrl"] = f"http://{minio_endpoint}/{minio_bucket}/{minio_path}"
+
 
 async def system_health_collector():
     while True:
@@ -346,10 +317,7 @@ async def analytics_poll_loop(ip: str, port: int, username: str, password: str, 
                                     alert["total"] = count_val
                                     alert["human"] = count_val
 
-                        # ── Instant MediaMTX Snapshot Capture ──
-                        snapshot_url = await asyncio.to_thread(_capture_mediamtx_snapshot, ip, now_iso)
-                        if snapshot_url:
-                            alert["snapshot_url"] = snapshot_url
+                        await async_capture_snapshot(alert, alert["serial"])
 
                         if analytics_col is not None:
                             res = analytics_col.insert_one(alert)

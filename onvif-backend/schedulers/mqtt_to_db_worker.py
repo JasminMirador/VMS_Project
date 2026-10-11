@@ -1,12 +1,15 @@
 import os
 import json
 import asyncio
+import time
 import paho.mqtt.client as mqtt
 from app.core.database import mongo_client
 from datetime import datetime, timezone, timedelta
+from app.utils.ffmpeg_utils import run_ffmpeg_sync
+from app.utils.minio_client import upload_bytes
 
 # ── Config ─────────────────────────────────────────────────────────
-MQTT_BROKER  = "192.168.126.2"
+MQTT_BROKER  = os.environ["MQTT_BROKER"]
 MQTT_PORT    = int(os.environ.get("MQTT_PORT", 1883))
 
 # Topics to subscribe:
@@ -20,8 +23,8 @@ MQTT_TOPICS  = [
     ("vms/analytics/alerts/#", 1),
 ]
 
-MONGO_URI    = os.environ.get("MONGO_URI", "mongodb://localhost:27017")
-MONGO_DB     = os.environ.get("MONGO_DB_NAME", "vms_demo")
+MONGO_URI    = os.environ.get("MONGO_URI")
+MONGO_DB     = os.environ.get("MONGO_DB_NAME")
 MONGO_COL    = "mqtt_logs"
 
 SKIP_TOPICS  = {"connection", "status", "birth", "lwt"}
@@ -64,6 +67,48 @@ def on_connect(client, userdata, flags, reason_code, properties):
     for topic, qos in MQTT_TOPICS:
         client.subscribe(topic, qos=qos)
         print(f"[MQTT] Subscribed: {topic}")
+
+_last_snapshot_time = {}
+
+def capture_and_append_snapshot(document, ip_slug):
+    if not ip_slug or document.get("imageUrl"):
+        return
+    
+    current_time = time.time()
+    last_time = _last_snapshot_time.get(ip_slug, 0)
+    
+    # 3-second cooldown per camera to protect CPU
+    if current_time - last_time > 3.0:
+        _last_snapshot_time[ip_slug] = current_time
+        
+        mediamtx_host = os.environ.get("MEDIAMTX_HOST", "127.0.0.1:8554")
+        stream_key = ip_slug
+        rtsp_url = f"rtsp://{mediamtx_host}/{stream_key}"
+        
+        cmd = [
+            "ffmpeg", "-y",
+            "-rtsp_transport", "tcp",
+            "-i", rtsp_url,
+            "-vframes", "1",
+            "-f", "image2pipe",
+            "-vcodec", "mjpeg",
+            "-"
+        ]
+        
+        print(f"[MQTT] Capturing snapshot for alert on {ip_slug}...")
+        success, img_bytes, err = run_ffmpeg_sync(cmd, timeout=5, capture_stdout=True)
+        
+        if success and img_bytes:
+            clean_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+            minio_path = f"alerts/{ip_slug}_{clean_time}.jpg"
+            
+            if upload_bytes(minio_path, img_bytes):
+                minio_endpoint = os.environ.get("MINIO_ENDPOINT", "192.168.1.2:9000")
+                minio_bucket = os.environ.get("MINIO_BUCKET", "vms-recordings")
+                document["imageUrl"] = f"http://{minio_endpoint}/{minio_bucket}/{minio_path}"
+                print(f"[MQTT] Snapshot successfully saved: {document['imageUrl']}")
+        else:
+            print(f"[MQTT] Snapshot capture failed for {ip_slug}")
 
 
 def on_message(client, userdata, msg):
@@ -111,7 +156,11 @@ def on_message(client, userdata, msg):
             "source":           brand,
             "raw":              payload.get("raw", {}),
             "message":          {"data": payload},
+            "imageUrl":         payload.get("imageUrl"),
         }
+
+        # Capture and append snapshot
+        capture_and_append_snapshot(document, ip_slug)
 
         try:
             result = collection.insert_one(document)
@@ -247,8 +296,11 @@ def on_message(client, userdata, msg):
             "source": payload.get("message", {}).get("source", {}),
             "key": payload.get("message", {}).get("key", {}),
             "data": data
-        }
+        },
     }
+
+    # Capture and append snapshot
+    capture_and_append_snapshot(document, topic_ip)
 
     try:
         result = collection.insert_one(document)

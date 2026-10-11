@@ -9,7 +9,6 @@ import os
 from datetime import datetime, timedelta
 from recorder import rtsp_recorder as recorder
 from recorder import encrypt_service
-from app.api.routers.playback_router import event_snapshot as playback_snapshot
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
@@ -191,6 +190,7 @@ def get_alerts(
                     "received_at": d.get("received_at"),
                     "topic":       d.get("topic", ""),
                     "source":      source,
+                    "imageUrl":    d.get("imageUrl"),
                 })
             elif source == "software_motion":
                 formatted.append({
@@ -231,6 +231,7 @@ def get_alerts(
                     "status":    "Active",
                     "received_at": d.get("received_at"),
                     "source":    d.get("source"),
+                    "imageUrl":  d.get("imageUrl"),
                 })
 
         for i, item in enumerate(formatted):
@@ -301,7 +302,7 @@ def get_alert_thumbnail(ip: str, time: str, crop: int = 1, request: Request = No
         except Exception as lookup_err:
             print(f"[ALERT THUMBNAIL] Snapshot lookup error: {lookup_err}")
 
-        return playback_snapshot(ip=ip, time=time)
+        return Response(content=b'{"error":"Snapshot not found"}', status_code=404)
     except Exception as e:
         print(f"[ALERT THUMBNAIL] Proxy failed: {e}")
         return Response(

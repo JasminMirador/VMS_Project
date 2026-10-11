@@ -24,18 +24,6 @@ function getAuthHeaders() {
   return token ? { "Authorization": "Bearer " + token } : {};
 }
 
-async function fetchLiveSnapshotForIp(ip) {
-  if (!ip) return null;
-  try {
-    const ipDot = (ip || "").replace(/_/g, ".");
-    const res = await fetch(`${API}/api/camera/brand/snapshot/${encodeURIComponent(ipDot)}`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data?.snapshot || null;
-  } catch (e) {
-    return null;
-  }
-}
 
 // ── Read enabled alert types from Action Rules ────────────────────
 function getEnabledAlertTypes() {
@@ -223,22 +211,6 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
             .slice(0, 500);
           setAlerts(filtered);
 
-                      // Non-blocking: fetch live snapshots for recent alerts and attach
-                      (async () => {
-                        try {
-                          const toFetch = filtered.slice(0, 20);
-                          await Promise.all(toFetch.map(async (a) => {
-                            if (a.isExternal) return;
-                            const ip = a.ip || a.serial || "";
-                            const snap = await fetchLiveSnapshotForIp(ip);
-                            if (snap) {
-                              setAlerts((prev) => prev.map((p) => (p === a ? { ...p, liveSnapshot: snap } : p)));
-                            }
-                          }));
-                        } catch (e) {
-                          // ignore
-                        }
-                      })();
         }
       }
     } catch (e) {
@@ -261,22 +233,12 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
       if (payloadIp !== cameraIp) return;
 
       const newAlert = { ...payload };
-
-      (async () => {
-        try {
-          if (!newAlert.isExternal) {
-            const ip = newAlert.ip || newAlert.serial || "";
-            const snap = await fetchLiveSnapshotForIp(ip);
-            if (snap) newAlert.liveSnapshot = snap;
-          }
-        } catch (e) {}
-        setAlerts((prev) => {
-          const newId = newAlert.alert_id || newAlert._id || newAlert.id;
-          const exists = newId ? prev.some((a) => (a.alert_id || a._id || a.id) === newId) : false;
-          if (exists) return prev;
-          return [newAlert, ...prev].slice(0, 500);
-        });
-      })();
+      setAlerts((prev) => {
+        const newId = newAlert.alert_id || newAlert._id || newAlert.id;
+        const exists = newId ? prev.some((a) => (a.alert_id || a._id || a.id) === newId) : false;
+        if (exists) return prev;
+        return [newAlert, ...prev].slice(0, 500);
+      });
     }
   }, [eventsByTopic.alerts, cameraIp, activeTab]);
 
@@ -595,7 +557,7 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
       const res = await fetch(url, { headers: getAuthHeaders() });
       if (!res.ok) {
         let errMsg = `Server error ${res.status}`;
-        try { const e = await res.json(); errMsg = e.error || errMsg; } catch {}
+        try { const e = await res.json(); errMsg = e.error || e.detail || e.message || errMsg; } catch {}
         throw new Error(errMsg);
       }
 
@@ -618,43 +580,6 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
   const skip = (secs) => {
     if (!videoRef.current) return;
     videoRef.current.currentTime = Math.max(0, Math.min(duration, currentTime + secs));
-  };
-
-  const handleSnapshot = async () => {
-    if (!videoRef.current) return;
-    const video = videoRef.current;
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
-    const ctx = canvas.getContext("2d");
-
-    try {
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const timestamp = fmt(currentTime).replace(/:/g, "-");
-      const camName = camera?.name || "camera";
-      const filename = `snapshot_${camName}_${timestamp}.png`;
-
-      const blob = await new Promise((resolve, reject) => {
-        canvas.toBlob((b) => {
-          if (b) resolve(b);
-          else reject(new Error("Canvas toBlob error"));
-        }, "image/png");
-      });
-
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 3000);
-
-      showToast("Snapshot saved!");
-    } catch (err) {
-      console.error("Snapshot error:", err);
-      showToast("Snapshot failed: " + err.message, "error");
-    }
   };
 
   const handleDownloadVideo = async () => {
@@ -997,13 +922,6 @@ function formatEventTimestamp(value) {
               </button>
             ))}
 
-            <button className="side-playback-btn" onClick={handleSnapshot} disabled={!videoUrl} title="Capture Frame">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="13" height="13">
-                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                <circle cx="12" cy="13" r="4" />
-              </svg>
-            </button>
-
             <button className="side-playback-btn side-playback-download-btn" onClick={handleDownloadVideo} disabled={!videoUrl || (!playingFile && !playingAlert)} title="Download Video" aria-label="Download video">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -1146,10 +1064,7 @@ function formatEventTimestamp(value) {
                   : "";
                 // Prefer persisted snapshot on the alert if available, else fallback to recorded extraction or external image
                 const alertIpRaw = (alert.ip || "").replace(/_/g, ".");
-                const persisted = alert.snapshot_url || alert.snapshotUrl || alert.snapshot || alert.face_url || alert.image || null;
-                const alertThumbnailUrl = persisted || (!alert.isExternal && alertIpRaw && rawTime
-                  ? `${API}/api/event-playback/snapshot?ip=${encodeURIComponent(alertIpRaw)}&time=${encodeURIComponent(rawTime)}`
-                  : null);
+                const persisted = alert.snapshot_url || alert.snapshotUrl || alert.snapshot || alert.imageUrl || alert.face_url || alert.image || null;                const alertThumbnailUrl = persisted || null;
                 
 
                 return (

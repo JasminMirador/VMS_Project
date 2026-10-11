@@ -33,7 +33,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # ── Config ───────────────────────────────────────────────────────────────────
-MQTT_BROKER = os.environ.get("MQTT_BROKER", "192.168.126.36")
+MQTT_BROKER = os.environ["MQTT_BROKER"]
 MQTT_PORT   = int(os.environ.get("MQTT_PORT", 1883))
 IST         = timezone(timedelta(hours=5, minutes=30))
 
@@ -111,6 +111,7 @@ class _MQTTPublisher:
             "human":       alert.get("human"),
             "total":       alert.get("total"),
             "raw":         alert.get("raw", {}),
+            "imageUrl":    alert.get("imageUrl"),
         }
 
         try:
