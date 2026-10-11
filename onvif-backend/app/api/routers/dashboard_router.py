@@ -238,7 +238,7 @@ def get_alerts(
             item["id"] = d.get("id")
             item["status"] = d.get("status", "Active")
             item["acknowledged_at"] = d.get("acknowledged_at")
-            item["acknowledge_note"] = d.get("acknowledge_note")
+            item["acknowlege_note"] = d.get("acknowlege_note")
             item["resolved_at"] = d.get("resolved_at")
             item["resolve_note"] = d.get("resolve_note")
 
@@ -672,14 +672,14 @@ def get_alert_thumbnail(ip: str, time: str, crop: int = 1, request: Request = No
         print(f"[ALERT THUMBNAIL] Error: {e}")
         return fallback_svg("Error")
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List
 
 class ReportScheduleSchema(BaseModel):
-    report_type: str
-    schedule_type: str
+    report_type: str = Field(..., max_length=255)
+    schedule_type: str = Field(..., max_length=255)
     recipients: List[str]
-    format: str
+    format: str = Field(..., max_length=255)
     send_time: str = "09:00"
     enabled: bool = True
 
@@ -881,11 +881,11 @@ def update_alert_status(alert_id: str, payload: dict):
     update_dict = {'status': status}
     
     if action == 'Acknowledged':
-        update_dict['acknowledged_at'] = now_str
-        update_dict['acknowledge_note'] = note
+        update_dict['acknowledge_at'] = now_str
+        update_dict['acknowlege_note'] = note
     elif action == 'Resolved':
         update_dict['resolved_at'] = now_str
-        update_dict['resolve_note'] = note
+        update_dict['notes'] = note
         
     try:
         res = _db['analytics_events'].update_one({'_id': ObjectId(alert_id)}, {'$set': update_dict})
@@ -901,6 +901,40 @@ def update_alert_status(alert_id: str, payload: dict):
             res = _db['mqtt_logs'].update_one({'id': alert_id}, {'$set': update_dict})
         if res.matched_count == 0:
             res = _db['external_ai_alerts'].update_one({'id': alert_id}, {'$set': update_dict})
+        # Send full payload to Redis for external AI alerts
+        try:
+            query = {'$or': [{'_id': ObjectId(alert_id)}, {'id': alert_id}]}
+            updated_doc = _db['external_ai_alerts'].find_one(query)
+            if not updated_doc:
+                updated_doc = _db['analytics_events'].find_one(query)
+            if not updated_doc:
+                updated_doc = _db['mqtt_logs'].find_one(query)
+
+            if updated_doc:
+                updated_doc['_id'] = str(updated_doc['_id'])
+                import redis
+                import json
+                import uuid
+                from datetime import datetime, timezone
+                r = redis.Redis(host='127.0.0.1', port=6379, decode_responses=True)
+                import os
+                stream_name = os.environ.get("REDIS_STREAM_OTHER_EVENTS", "vms:events:otherevent")
+                msg = {
+                    "version": "1.0",
+                    "event_id": str(uuid.uuid4()),
+                    "event_type": "alerts",
+                    "source": "vms",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "payload": json.dumps(updated_doc, default=str),
+                }
+                print(f"=== SENDING TO REDIS STREAM '{stream_name}' ===")
+                print(json.dumps(msg, indent=2))
+                print("===============================================")
+                r.xadd(stream_name, msg, maxlen=10000, approximate=True)
+                r.close()
+        except Exception as redis_err:
+            print(f"Failed to publish to redis: {redis_err}")
+            
             
         return {'success': True, 'status': status, 'action': action, 'note': note, 'updated_at': now_str}
     except Exception as e:

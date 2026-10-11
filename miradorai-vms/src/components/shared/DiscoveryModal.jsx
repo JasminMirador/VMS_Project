@@ -215,6 +215,24 @@ export default function DiscoveryModal({
   const handleEnroll = async () => {
     setShowCredModal(false);
     const toAdd = discoveredDevices.filter((d) => selectedDevices.has(d.id));
+    const newErrors = {};
+    let hasError = false;
+
+    toAdd.forEach((device) => {
+      const camInfo = cameraCreds[device.id] || {};
+      if (camInfo.name && !/^[a-zA-Z0-9 _-]+$/.test(camInfo.name.trim())) {
+        newErrors[device.id] = "Camera Name can only contain alphanumeric characters, spaces, dashes, and underscores.";
+        hasError = true;
+      }
+    });
+
+    if (hasError) {
+      setCredErrors(newErrors);
+      return;
+    }
+
+    setCredErrors({});
+    setShowCredModal(false);
     setIsRegistering(true);
 
     const initStatus = {};
@@ -273,7 +291,7 @@ export default function DiscoveryModal({
           data = await res.json();
 
           if (!res.ok) {
-            setAlertMsg(`${device.ip} → ${data.detail || "Camera limit exceeded"}`);
+            setAlertMsg(`${device.ip} → ${(typeof data.detail === "string" ? data.detail : (Array.isArray(data.detail) ? data.detail.map(d => d.msg || "Invalid input").join(", ") : ("Camera limit exceeded")))}`);
 
             setRegStatus((prev) => ({
               ...prev,
@@ -777,14 +795,7 @@ export default function DiscoveryModal({
                               <div key={device.id} className="dm-brand-cam-item">
                                 <div className="dm-brand-cam-ip">{device.ip}</div>
                                 
-                                <input
-                                  className="dm-cred-input dm-cam-name-input"
-                                  placeholder="Camera Name"
-                                  tabIndex={camTabBase}
-                                  value={camSetting.name}
-                                  onChange={(e) => updateCameraCred(device.id, "name", e.target.value)}
-                                  autoComplete="off"
-                                />
+                                 <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "2px" }}><input className={`dm-cred-input dm-cam-name-input ${credErrors[device.id] ? "error" : ""}`} placeholder="Camera Name" tabIndex={camTabBase} value={camSetting.name} onChange={(e) => { updateCameraCred(device.id, "name", e.target.value); setCredErrors(prev => ({ ...prev, [device.id]: "" })); }} autoComplete="off" style={{ width: "100%", maxWidth: "none" }} />{credErrors[device.id] && (<span className="dm-error-msg" style={{ lineHeight: "1.2", fontSize: "10.5px", whiteSpace: "normal" }}>?? {credErrors[device.id]}</span>)}</div>
 
                                 <div className="dm-custom-select" style={{ width: "120px" }}>
                                   <button

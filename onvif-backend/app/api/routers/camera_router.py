@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi.responses import JSONResponse
 from app.services.license_manager import license_manager
 import json
@@ -41,7 +41,7 @@ from app.schemas.camera import (
 import hashlib
 import time
 from app.services.camera.codec_detector import detect_codec_async
-from app.services.camera.rtsp_utils import infer_camera_info_from_rtsp
+# from app.services.camera.rtsp_utils import infer_camera_info_from_rtsp
 import asyncio
 import re
 import os
@@ -88,7 +88,7 @@ async def get_all_cameras():
     return cameras
 
 @router.post("/cameras/by-ip/{ip}/enable", dependencies=[Depends(require_admin)])
-async def enable_camera_by_ip(ip: str):
+async def enable_camera_by_ip(ip: str = Path(..., max_length=255, pattern=r"^[a-zA-Z0-9.-]+$")):
     global devices
     matched = get_devices_by_ip(ip)
     if not matched:
@@ -148,7 +148,7 @@ async def enable_camera_by_ip(ip: str):
 
 
 @router.post("/cameras/by-ip/{ip}/disable", dependencies=[Depends(require_admin)])
-async def disable_camera_by_ip(ip: str):
+async def disable_camera_by_ip(ip: str = Path(..., max_length=255, pattern=r"^[a-zA-Z0-9.-]+$")):
     global devices
     matched = get_devices_by_ip(ip)
     if not matched:
@@ -191,7 +191,7 @@ async def disable_camera_by_ip(ip: str):
 
 
 @router.delete("/cameras/by-ip/{ip}/delete", dependencies=[Depends(require_admin)])
-async def delete_camera_by_ip(ip: str):
+async def delete_camera_by_ip(ip: str = Path(..., max_length=255, pattern=r"^[a-zA-Z0-9.-]+$")):
     global devices
     matched = get_devices_by_ip(ip)
     stopped = []
@@ -309,7 +309,7 @@ async def delete_camera_by_rtsp(request: Request):
     ))
     return {"success": True, "rtsp_url": rtsp_url, "ip": ip, "streams_stopped": stopped}
 @router.delete("/cameras/{ip}/hard", dependencies=[Depends(require_admin)])
-async def hard_delete_camera(ip: str):
+async def hard_delete_camera(ip: str = Path(..., max_length=255, pattern=r"^[a-zA-Z0-9.-]+$")):
     """
     Permanently delete a cameras collection.
     """
@@ -333,7 +333,7 @@ async def get_trashed_cameras():
     return docs
 
 @router.put("/cameras/{ip}/restore", dependencies=[Depends(require_admin)])
-async def restore_camera(ip: str):
+async def restore_camera(ip: str = Path(..., max_length=255, pattern=r"^[a-zA-Z0-9.-]+$")):
     """
     Restore a soft-deleted camera and its children.
     """
@@ -1027,7 +1027,7 @@ async def assign_streams(req: StreamAssignRequest):
 # Camera lookup by IP
 # ------------------------------------------------------------------
 @router.get("/cameras/by-ip/{ip}", dependencies=[Depends(verify_token)])
-async def get_camera_by_ip(ip: str):
+async def get_camera_by_ip(ip: str = Path(..., max_length=255, pattern=r"^[a-zA-Z0-9.-]+$")):
     if cameras_col is not None:
         doc = cameras_col.find_one({"$or": [{"ip": ip}, {"ip_address": ip}], "is_deleted": {"$ne": True}}, {"_id": 0})
         if doc:
@@ -1233,7 +1233,7 @@ async def disable_analytics(req: CameraCredentials):
 
 
 @features_router.get("/analytics/status/{ip}")
-async def analytics_status(ip: str):
+async def analytics_status(ip: str = Path(..., max_length=255, pattern=r"^[a-zA-Z0-9.-]+$")):
     running = ip in _analytics_tasks and not _analytics_tasks[ip].done()
     return {"ip": ip, "running": running}
 

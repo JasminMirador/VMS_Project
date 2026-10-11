@@ -1,9 +1,13 @@
 from fastapi import APIRouter, HTTPException, Depends
 from app.core.database import mongo_client
 from datetime import datetime
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, field_validator
 from typing import List, Optional
 from app.core.security import verify_token
+from app.api.routers.auth_router import limiter
+from fastapi import Request
+
+
 import os
 
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
@@ -17,7 +21,7 @@ router = APIRouter(prefix="/api/maps", tags=["maps"])
 # ── Pydantic models ───────────────────────────────────────────────
 
 class Marker(BaseModel):
-    camId:     str
+    camId: str = Field(..., max_length=255)
     camName:   Optional[str] = ""
     camIp:     Optional[str] = ""
     x:         float
@@ -27,8 +31,8 @@ class Marker(BaseModel):
 
 
 class Floor(BaseModel):
-    id:           str
-    name:         str
+    id: str = Field(..., max_length=255)
+    name: str = Field(..., max_length=255)
     imageDataUrl: Optional[str] = Field(None, max_length=10_485_760)
     modelDataUrl: Optional[str] = Field(None, max_length=15_728_640)   # base64 .glb/.gltf, ~15MB cap
     ppm:          Optional[float] = None
@@ -36,7 +40,8 @@ class Floor(BaseModel):
     partsReport:  Optional[dict] = None
     markers:      List[Marker]  = []
 
-    @validator('name')
+    @field_validator('name')
+    @classmethod
     def validate_floor_name(cls, v):
         import re
         if not v or not v.strip():
@@ -45,13 +50,15 @@ class Floor(BaseModel):
             raise ValueError('Floor name contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed.')
         return v.strip()
 
-    @validator('imageDataUrl')
+    @field_validator('imageDataUrl')
+    @classmethod
     def validate_image_data_url(cls, v):
         if v is not None and not v.startswith('data:image/'):
             raise ValueError('Invalid image format. Must be a base64 data URL starting with data:image/')
         return v
 
-    @validator('modelDataUrl')
+    @field_validator('modelDataUrl')
+    @classmethod
     def validate_model_data_url(cls, v):
         if v is not None and not (
             v.startswith('data:model/')
@@ -75,7 +82,8 @@ class MapSaveRequest(BaseModel):
     ppm:        Optional[float]        = None
     calibration: Optional[dict]        = None
 
-    @validator('floor_plan')
+    @field_validator('floor_plan')
+    @classmethod
     def validate_floor_plan(cls, v):
         if v is not None and not v.startswith('data:image/'):
             raise ValueError('Invalid image format. Must be a base64 data URL starting with data:image/')
@@ -89,13 +97,14 @@ class ZonePoint(BaseModel):
 
 
 class Zone(BaseModel):
-    id:         str
-    name:       str
-    color:      str
+    id: str = Field(..., max_length=255)
+    name: str = Field(..., max_length=255)
+    color: str = Field(..., max_length=255)
     polygon:    List[ZonePoint]
     floorIndex: Optional[int] = 0   # which floor this zone belongs to
 
-    @validator('name')
+    @field_validator('name')
+    @classmethod
     def validate_zone_name(cls, v):
         import re
         if not v or not v.strip():
@@ -272,7 +281,8 @@ def save_map(req: MapSaveRequest):
 
 # ── POST /api/maps/zones ──────────────────────────────────────────
 @router.post("/zones", dependencies=[Depends(verify_token)])
-def save_zones(req: ZoneSaveRequest):
+@limiter.limit("1/minute")
+def save_zones(request: Request, req: ZoneSaveRequest):
     """
     Saves all zone definitions for a map in a single dedicated document.
     Each zone has a floorIndex field so zones are floor-specific on the frontend.
@@ -295,7 +305,8 @@ def save_zones(req: ZoneSaveRequest):
 
 # ── DELETE /api/maps/zones/{zone_id} ─────────────────────────────
 @router.delete("/zones/{zone_id}", dependencies=[Depends(verify_token)])
-def delete_zone(zone_id: str, map_id: str = "default"):
+@limiter.limit("1/minute")
+def delete_zone(request: Request, zone_id: str, map_id: str = "default"):
     """Remove a single zone by ID from the zones document."""
     result = maps_col.update_one(
         {"map_id": map_id, "doc_type": "zones", "zones.id": zone_id},
@@ -346,7 +357,8 @@ def delete_map(map_id: str = "default"):
 # ── POST /api/maps/floor-plan ─────────────────────────────────────
 # Legacy endpoint — updates imageDataUrl for a specific floor document
 @router.post("/floor-plan", dependencies=[Depends(verify_token)])
-def save_floor_plan(payload: dict):
+@limiter.limit("1/minute")
+def save_floor_plan(request: Request, payload: dict):
     map_id     = payload.get("map_id", "default")
     floor_plan = payload.get("floor_plan")
     floor_id   = payload.get("floor_id", "floor_1")

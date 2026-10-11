@@ -4,7 +4,7 @@ Persists viewing stations in MongoDB with JSON fallback.
 """
 
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 import os
 import json
@@ -88,15 +88,15 @@ def _get_all_stations() -> List[dict]:
     return list(data.values())
 
 # ── Pydantic Models ──────────────────────────────────────────────────
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 import re
 from fastapi import HTTPException
 
 NAME_REGEX = re.compile(r"^[a-zA-Z0-9 _.-]+$")
 class HeartbeatRequest(BaseModel):
-    station_id: str
-    name: str
-    grid: str
+    station_id: str = Field(..., max_length=255)
+    name: str = Field(..., max_length=255)
+    grid: str = Field(..., max_length=255)
     device_order: List[Optional[str]]
     applied_timestamp: Optional[float] = 0.0
     active_feeds_count: Optional[int] = 0
@@ -109,8 +109,8 @@ class HeartbeatRequest(BaseModel):
         return v
 
 class PushLayoutRequest(BaseModel):
-    station_id: str
-    grid: str
+    station_id: str = Field(..., max_length=255)
+    grid: str = Field(..., max_length=255)
     device_order: List[Optional[str]]
 
 # ── Routes ───────────────────────────────────────────────────────────

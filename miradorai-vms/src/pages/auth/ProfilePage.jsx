@@ -53,7 +53,7 @@ export default function ProfilePage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setPwdError(data.detail || data.message || "Failed to change password.");
+        setPwdError((typeof data.detail === "string" ? data.detail : (Array.isArray(data.detail) ? data.detail.map(d => d.msg || "Invalid input").join(", ") : (data.message || "Failed to change password."))));
       } else {
         setPwdSuccess("Password updated successfully.");
         setOldPassword("");
@@ -77,7 +77,7 @@ export default function ProfilePage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setMfaError(data.detail || "Failed to setup MFA.");
+        setMfaError((typeof data.detail === "string" ? data.detail : (Array.isArray(data.detail) ? data.detail.map(d => d.msg || "Invalid input").join(", ") : ("Failed to setup MFA."))));
       } else {
         setMfaSecret(data.secret);
         setMfaUri(data.uri);
@@ -104,7 +104,7 @@ export default function ProfilePage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setMfaError(data.detail || "Failed to verify MFA.");
+        setMfaError((typeof data.detail === "string" ? data.detail : (Array.isArray(data.detail) ? data.detail.map(d => d.msg || "Invalid input").join(", ") : ("Failed to verify MFA."))));
       } else {
         setMfaSuccess("Two-Factor Authentication is now enabled on your account.");
         setMfaSecret(null);

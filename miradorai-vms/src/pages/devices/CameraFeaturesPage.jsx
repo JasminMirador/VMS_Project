@@ -1202,7 +1202,7 @@ export default function CameraFeaturesPage({ onNavigate }) {
           }),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || "Probe failed");
+        if (!res.ok) throw new Error((typeof data.detail === "string" ? data.detail : (Array.isArray(data.detail) ? data.detail.map(d => d.msg || "Invalid input").join(", ") : ("Probe failed"))));
         setCaps(data);
       } catch (e) {
         setError(e.message);

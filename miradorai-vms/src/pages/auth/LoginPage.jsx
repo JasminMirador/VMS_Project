@@ -385,7 +385,7 @@ const LoginPage = () => {
       const data = await res.json();
 
       if (!res.ok) {
-        setSignInError(data.detail || data.message || "Failed to change password");
+        setSignInError((typeof data.detail === "string" ? data.detail : (Array.isArray(data.detail) ? data.detail.map(d => d.msg || "Invalid input").join(", ") : (data.message || "Failed to change password"))));
         setIsLoading(false);
         return;
       }
@@ -479,7 +479,7 @@ const LoginPage = () => {
       });
       const data = await res.json();
       if (!res.ok) {
-        setVerifyError(data.detail || "Failed to resend OTP");
+        setVerifyError((typeof data.detail === "string" ? data.detail : (Array.isArray(data.detail) ? data.detail.map(d => d.msg || "Invalid input").join(", ") : ("Failed to resend OTP"))));
       } else {
         setVerifySuccess(data.message || "OTP resent successfully");
       }

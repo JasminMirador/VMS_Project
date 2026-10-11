@@ -45,8 +45,8 @@ export default function StorageManagement() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  const handleProvision = async () => {
-    if (!selectedDevice) return;
+  const handleProvision = async () => { if (!selectedDevice) return; if (folderName && !/^[a-zA-Z0-9 _.\-]+$/.test(folderName.trim())) { setProvisionMsg("Folder name contains invalid characters."); return; }
+
     setIsProvisioning(true);
     setProvisionMsg("Provisioning storage array. This may take a few minutes...");
     try {

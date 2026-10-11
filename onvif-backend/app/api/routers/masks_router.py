@@ -8,7 +8,7 @@ Mount in main.py:
 """
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, Field, validator
 from typing import List, Optional
 import os, json
 
@@ -63,8 +63,8 @@ class MaskPoint(BaseModel):
 
 
 class MaskModel(BaseModel):
-    id:        str
-    name:      str
+    id: str = Field(..., max_length=255)
+    name: str = Field(..., max_length=255)
     points:    List[List[float]]   # [[x,y], ...]
     color_idx: int   = 0
     enabled:   bool  = True

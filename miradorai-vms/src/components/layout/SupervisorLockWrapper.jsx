@@ -44,7 +44,7 @@ export default function SupervisorLockWrapper({ pageName, children }) {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.detail || "Authentication failed");
+        throw new Error((typeof data.detail === "string" ? data.detail : (Array.isArray(data.detail) ? data.detail.map(d => d.msg || "Invalid input").join(", ") : ("Authentication failed"))));
       }
 
       // Success

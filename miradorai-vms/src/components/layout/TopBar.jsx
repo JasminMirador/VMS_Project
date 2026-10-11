@@ -207,7 +207,7 @@ function SupervisorDetailsModal({ onClose, onStatusChange }) {
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.detail || data.message || "Failed to save supervisor password.");
+        throw new Error((typeof data.detail === "string" ? data.detail : (Array.isArray(data.detail) ? data.detail.map(d => d.msg || "Invalid input").join(", ") : (data.message || "Failed to save supervisor password."))));
       }
       setSaved(true);
       setNewPass("");
@@ -235,7 +235,7 @@ function SupervisorDetailsModal({ onClose, onStatusChange }) {
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.detail || data.message || "Failed to reset supervisor password.");
+        throw new Error((typeof data.detail === "string" ? data.detail : (Array.isArray(data.detail) ? data.detail.map(d => d.msg || "Invalid input").join(", ") : (data.message || "Failed to reset supervisor password."))));
       }
       setStatus({ exists: false });
       if (onStatusChange) onStatusChange(false);

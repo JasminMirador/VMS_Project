@@ -57,6 +57,7 @@ export default function UserManagementPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
   
   const [showPassword, setShowPassword] = useState(false);
   const [showEditPassword, setShowEditPassword] = useState(false);
@@ -94,7 +95,7 @@ export default function UserManagementPage() {
         });
         setUsers(sortedUsers);
       } else {
-        setError(data.detail || "Failed to fetch users directory.");
+        setError(typeof data.detail === "string" ? data.detail : (Array.isArray(data.detail) ? data.detail.map(d => d.msg || "Invalid input").join(", ") : "Failed to fetch users directory."));
       }
     } catch (err) {
       setError("Cannot connect to VMS Central Management Server.");
@@ -144,7 +145,7 @@ export default function UserManagementPage() {
         setShowCreateModal(false);
         fetchUsers();
       } else {
-        setError(data.detail || "Failed to create user.");
+        setError(typeof data.detail === "string" ? data.detail : (Array.isArray(data.detail) ? data.detail.map(d => d.msg || "Invalid input").join(", ") : "Failed to create user."));
       }
     } catch (err) {
       setError("Network error: Could not complete registration.");
@@ -207,7 +208,7 @@ export default function UserManagementPage() {
         setSelectedUser(null);
         fetchUsers();
       } else {
-        setError(data.detail || "Failed to update user.");
+        setError(typeof data.detail === "string" ? data.detail : (Array.isArray(data.detail) ? data.detail.map(d => d.msg || "Invalid input").join(", ") : "Failed to update user."));
       }
     } catch (err) {
       setError("Network error: Could not save updates.");
@@ -228,7 +229,7 @@ export default function UserManagementPage() {
         setSuccess(`User ${user.email} successfully ${!user.is_blocked ? "blocked" : "unblocked"}.`);
         fetchUsers();
       } else {
-        setError(data.detail || "Failed to update user status.");
+        setError(typeof data.detail === "string" ? data.detail : (Array.isArray(data.detail) ? data.detail.map(d => d.msg || "Invalid input").join(", ") : "Failed to update user status."));
       }
     } catch (err) {
       setError("Network error: Could not update user status.");
@@ -252,7 +253,7 @@ export default function UserManagementPage() {
         setSuccess(`User ${user.email} successfully deleted.`);
         fetchUsers();
       } else {
-        setError(data.detail || "Failed to delete user.");
+        setError(typeof data.detail === "string" ? data.detail : (Array.isArray(data.detail) ? data.detail.map(d => d.msg || "Invalid input").join(", ") : "Failed to delete user."));
       }
     } catch (err) {
       setError("Network error: Could not delete user.");
@@ -289,13 +290,18 @@ export default function UserManagementPage() {
     }
   };
 
+  const filteredUsers = users.filter(u => 
+    u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    getRoleLabel(u.role).toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <div className="vs-page um-page">
       <div className="vs-header um-header">
         <div>
           <h1 className="vs-title um-title">User <span>Directory</span></h1>
         </div>
-        <button className="m-btn m-btn--primary" onClick={() => { setError(""); setSuccess(""); setShowCreateModal(true); }}>
+        <button className="m-btn m-btn--primary" onClick={() => { setError(""); setSuccess(""); setCreateForm({ email: "", password: "", role: "client", allowedCameras: [] }); setShowPassword(false); setShowCreateModal(true); }}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" width="15" height="15">
             <path d="M12 5v14M5 12h14"/>
           </svg>
@@ -322,14 +328,28 @@ export default function UserManagementPage() {
       )}
 
       <div className="vs-panel um-panel">
-        <div className="vs-panel-header um-panel-header">
-          <h2>Active Registered Users ({users.length})</h2>
+        <div className="vs-panel-header um-panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2>Active Registered Users ({filteredUsers.length})</h2>
+          <div style={{ position: 'relative' }}>
+            <input
+              type="text"
+              className="form-input"
+              placeholder="Search users..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{ width: '250px', paddingLeft: '32px' }}
+            />
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }}>
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+          </div>
         </div>
         <div className="vs-panel-body um-panel-body">
           {loading ? (
             <div className="vs-state-msg">Fetching users list...</div>
-          ) : users.length === 0 ? (
-            <div className="vs-state-msg">No users enrolled in database.</div>
+          ) : filteredUsers.length === 0 ? (
+            <div className="vs-state-msg">No users found.</div>
           ) : (
             <div className="um-table-container">
               <table className="um-table">
@@ -342,7 +362,7 @@ export default function UserManagementPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {users.map((u) => (
+                  {filteredUsers.map((u) => (
                     <tr key={u.email}>
                       <td className="td-email">
                         <div className="td-avatar">
@@ -394,11 +414,11 @@ export default function UserManagementPage() {
 
       {/* CREATE MODAL */}
       {showCreateModal && (
-        <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
+        <div className="modal-overlay" onClick={() => { setShowCreateModal(false); setError(""); setSuccess(""); }}>
           <div className="modal-box um-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 className="modal-title">Enlist New User</h2>
-              <button className="modal-close" onClick={() => setShowCreateModal(false)}>✕</button>
+              <button className="modal-close" onClick={() => { setShowCreateModal(false); setError(""); setSuccess(""); }}>✕</button>
             </div>
             <form onSubmit={handleCreateUser}>
               <div className="modal-body">
@@ -497,7 +517,7 @@ export default function UserManagementPage() {
                 )}
               </div>
               <div className="modal-footer">
-                <button type="button" className="m-btn m-btn--elevated" onClick={() => setShowCreateModal(false)}>Cancel</button>
+                <button type="button" className="m-btn m-btn--elevated" onClick={() => { setShowCreateModal(false); setError(""); setSuccess(""); }}>Cancel</button>
                 <button type="submit" className="m-btn m-btn--primary">Register User</button>
               </div>
             </form>
@@ -507,11 +527,11 @@ export default function UserManagementPage() {
 
       {/* EDIT MODAL */}
       {showEditModal && selectedUser && (
-        <div className="modal-overlay" onClick={() => { setShowEditModal(false); setSelectedUser(null); }}>
+        <div className="modal-overlay" onClick={() => { setShowEditModal(false); setSelectedUser(null); setError(""); setSuccess(""); }}>
           <div className="modal-box um-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 className="modal-title">Manage Account: {selectedUser.email}</h2>
-              <button className="modal-close" onClick={() => { setShowEditModal(false); setSelectedUser(null); }}>✕</button>
+              <button className="modal-close" onClick={() => { setShowEditModal(false); setSelectedUser(null); setError(""); setSuccess(""); }}>✕</button>
             </div>
             <form onSubmit={handleUpdateUser}>
               <div className="modal-body">
@@ -626,7 +646,7 @@ export default function UserManagementPage() {
                 </div>
               </div>
               <div className="modal-footer">
-                <button type="button" className="m-btn m-btn--elevated" onClick={() => { setShowEditModal(false); setSelectedUser(null); }}>Cancel</button>
+                <button type="button" className="m-btn m-btn--elevated" onClick={() => { setShowEditModal(false); setSelectedUser(null); setError(""); setSuccess(""); }}>Cancel</button>
                 <button type="submit" className="m-btn m-btn--primary">Save Changes</button>
               </div>
             </form>

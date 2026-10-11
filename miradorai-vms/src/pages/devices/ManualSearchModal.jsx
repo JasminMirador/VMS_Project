@@ -446,9 +446,9 @@ export default function ManualSearchModal({
 
       const json = await res.json();
       if (!res.ok) {
-        setAlertMsg(json.detail || "Camera limit exceeded");
+        setAlertMsg((typeof json.detail === "string" ? json.detail : (Array.isArray(json.detail) ? json.detail.map(d => d.msg || "Invalid input").join(", ") : ("Camera limit exceeded"))));
         setProbe("fail");
-        setErrors({ ip: json.detail || "Camera limit exceeded" });
+        setErrors({ ip: (typeof json.detail === "string" ? json.detail : (Array.isArray(json.detail) ? json.detail.map(d => d.msg || "Invalid input").join(", ") : ("Camera limit exceeded" )))});
         return;
       }
       if (json.success) {
