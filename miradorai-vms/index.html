@@ -4,12 +4,26 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MIRADOR VMS</title>
-    <link rel="icon" type="image/jpeg" href="/src/assets/logo.jpg" />
+    <!-- <link rel="icon" type="image/jpeg" href="/src/assets/logo.jpg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&family=Noto+Sans+Arabic:wght@300;400;500;600;700&display=swap" rel="stylesheet" /> -->
+    <style>
+      .gtranslate_wrapper { display: none !important; }
+      .skiptranslate iframe { display: none !important; }
+      body { top: 0 !important; }
+    </style>
   </head>
   <body>
+    <div class="gtranslate_wrapper"></div>
+    <script>
+      window.gtranslateSettings = {
+        "default_language": "en",
+        "languages": ["en", "ar"],
+        "wrapper_selector": ".gtranslate_wrapper"
+      };
+    </script>
+    <script src="https://cdn.gtranslate.net/widgets/latest/dropdown.js" defer></script>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

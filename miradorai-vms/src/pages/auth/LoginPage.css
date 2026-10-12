@@ -935,7 +935,7 @@
 @media (min-width: 1600px) {
   .login-shell {
     max-width: 1560px;
-    margin: 0 auto;
+    margin: 0 0 0 auto; /* right-align the block within the brand panel */
     box-shadow: 0 0 0 1px var(--auth-border-soft);
   }
 

@@ -73,6 +73,17 @@ const getInitialToDate = () => {
 };
 
 // ── CPU: Smooth area chart showing trend over time ──
+const SysRing = ({ pct, color }) => {
+  const r = 34, c = 2 * Math.PI * r, v = Math.max(0, Math.min(100, Number(pct) || 0));
+  return (
+    <svg className="sys-ring" viewBox="0 0 84 84" width="84" height="84">
+      <circle cx="42" cy="42" r={r} fill="none" stroke="var(--border-light)" strokeWidth="8" />
+      <circle cx="42" cy="42" r={r} fill="none" stroke={color} strokeWidth="8" strokeLinecap="round"
+        strokeDasharray={`${(v / 100) * c} ${c}`} transform="rotate(-90 42 42)" style={{ transition: "stroke-dasharray .6s ease" }} />
+      <text x="42" y="47" textAnchor="middle" className="sys-ring-txt">{Math.round(v)}%</text>
+    </svg>
+  );
+};
 const CpuAreaChart = ({ data, value }) => {
   const height = 64;
   const width = 220;
@@ -2092,6 +2103,24 @@ const DashboardPage = () => {
   const actionsDropdownRef = useRef(null);
   const widgetsScrollRef = useRef(null);
 
+  const [wEdge, setWEdge] = useState({ start: true, end: false });
+  const updateWEdge = () => {
+    const el = widgetsScrollRef.current;
+    if (!el) return;
+    const start = Math.abs(el.scrollLeft) < 4;
+    const end = Math.abs(el.scrollLeft) + el.clientWidth >= el.scrollWidth - 4;
+    setWEdge(prev => (prev.start === start && prev.end === end ? prev : { start, end }));
+  };
+  useEffect(() => {
+    updateWEdge();
+    window.addEventListener("resize", updateWEdge);
+    return () => window.removeEventListener("resize", updateWEdge);
+  });
+  const scrollWidgets = (dir) => {
+    const el = widgetsScrollRef.current;
+    if (el) el.scrollBy({ left: dir * el.clientWidth * 0.8, behavior: "smooth" });
+  };
+
   const [reportSuccessMsg, setReportSuccessMsg] = useState("");
   const [reportErrorMsg, setReportErrorMsg] = useState("");
   const [reportLiveOnly, setReportLiveOnly] = useState(false);
@@ -2850,101 +2879,107 @@ const DashboardPage = () => {
         </div>
       </div>
 
-      <div className="health-section">
+      <div className="sys-row">
+      <div className="health-section sys-health">
         <h3>System Health</h3>
-
-        <div className="health-grid">
-
-          {/* CPU — Area trend chart */}
-          <div className="health-box">
-            <div className="health-box-header">
-              <div className="health-box-label"><Cpu size={14} /> <p>CPU</p></div>
-              <h2>{summary.cpu}%</h2>
-            </div>
-            <CpuAreaChart data={summary.history.cpu} value={summary.cpu} />
-            <span className={summary.cpu > 85 ? "bad" : summary.cpu > 60 ? "warn" : "good"}>
-              {summary.cpu > 85 ? "Critical" : summary.cpu > 60 ? "High" : "Normal"}
-            </span>
-          </div>
-
-          {/* RAM — Bar chart */}
-          <div className="health-box">
-            <div className="health-box-header">
-              <div className="health-box-label"><MemoryStick size={14} /> <p>RAM</p></div>
-              <h2>{summary.ram}%</h2>
-            </div>
-            <RamUsageGauge value={summary.ram} />
-            <span className={summary.ram > 85 ? "bad" : summary.ram > 60 ? "warn" : "good"}>
-              {summary.ram > 85 ? "Critical" : summary.ram > 60 ? "High" : "Normal"}
-            </span>
-          </div>
-
-          {/* Disk — Sleek Progress Gauge */}
-          <div className="health-box">
-            <div className="health-box-header">
-              <div className="health-box-label"><HardDrive size={14} /><p>Disk</p></div>
-              <h2>{Math.round(storagePercent)}%</h2>
-            </div>
-            
-            {/* Sleek Segmented Disk Bar */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', margin: '4px 0' }}>
-              <div style={{
-                height: '16px',
-                width: '100%',
-                background: 'var(--bg-elevated)',
-                borderRadius: '6px',
-                border: '1px solid var(--border-light)',
-                position: 'relative',
-                overflow: 'hidden'
-              }}>
-                <div style={{
-                  position: 'absolute',
-                  left: 0,
-                  top: 0,
-                  height: '100%',
-                  width: `${storagePercent}%`,
-                  background: `linear-gradient(90deg, ${storagePercent > 90 ? '#ef4444' : storagePercent > 75 ? '#faad14' : '#52c41a'}cc, ${storagePercent > 90 ? '#ef4444' : storagePercent > 75 ? '#faad14' : '#52c41a'})`,
-                  borderRadius: '5px 0 0 5px',
-                  transition: 'width 0.6s ease'
-                }} />
-                {/* Horizontal segments to make it look premium */}
-                <div style={{
-                  position: 'absolute',
-                  inset: 0,
-                  backgroundImage: 'repeating-linear-gradient(90deg, transparent, transparent 15px, var(--border-dim, rgba(125, 125, 125, 0.2)) 15px, var(--border-dim, rgba(125, 125, 125, 0.2)) 17px)',
-                  pointerEvents: 'none'
-                }} />
+        <div className="health-grid sys-grid">
+          {[
+            { key: "cpu", label: "CPU", icon: <Cpu size={16} />, pct: summary.cpu, w: 60, c: 85, words: ["Normal", "High", "Critical"],
+              body: <CpuAreaChart data={summary.history.cpu} value={summary.cpu} /> },
+            { key: "ram", label: "RAM", icon: <MemoryStick size={16} />, pct: summary.ram, w: 60, c: 85, words: ["Normal", "High", "Critical"],
+              body: <RamUsageGauge value={summary.ram} /> },
+            { key: "disk", label: "Disk", icon: <HardDrive size={16} />, pct: Math.round(storagePercent), w: 75, c: 90, words: ["Healthy", "Filling", "Full"],
+              body: (
+                <div className="sys-disk">
+                  <div className="sys-disk-bar"><i style={{ width: `${Math.min(100, Math.max(0, storagePercent))}%` }} /></div>
+                  <div><span>Used</span><b>{storageDiagnostics.used_gb || storage.used} GB</b></div>
+                  <div><span>Free</span><b>{storageDiagnostics.free_gb || (storage.total - storage.used).toFixed(1)} GB</b></div>
+                </div>
+              ) },
+          ].map((m) => {
+            const st = m.pct > m.c ? "bad" : m.pct > m.w ? "warn" : "good";
+            const word = st === "bad" ? m.words[2] : st === "warn" ? m.words[1] : m.words[0];
+            const col = st === "bad" ? "#ef4444" : st === "warn" ? "#f59e0b" : "#22c55e";
+            return (
+              <div className={`health-box sys-tile sys-k-${m.key}`} key={m.key}>
+                <div className="sys-tile-head">
+                  <span className="sys-chip">{m.icon}</span>
+                  <p>{m.label}</p>
+                  <span className={`sys-pill ${st}`}>{word}</span>
+                </div>
+                <div className="sys-tile-main">
+                  <SysRing pct={m.pct} color={col} />
+                  <div className="sys-tile-body">{m.body}</div>
+                </div>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: 'var(--text-primary)', fontWeight: '600' }}>
-                <span>Used: {storageDiagnostics.used_gb || storage.used} GB</span>
-                <span>Free: {storageDiagnostics.free_gb || (storage.total - storage.used).toFixed(1)} GB</span>
-              </div>
-            </div>
-
-            <span className={storagePercent > 90 ? "bad" : storagePercent > 75 ? "warn" : "good"}>
-              {storagePercent > 90 ? "Full" : storagePercent > 75 ? "Filling" : "Healthy"}
-            </span>
-          </div>
-
+            );
+          })}
         </div>
+      </div>       
+
+      <div className="enhanced-card bandwidth-card sys-bw">
+              <div className="enhanced-card-header">
+                <span className="header-icon"><Camera size={18} /></span>
+                <h4>Bandwidth Consumers</h4>
+              </div>
+              <div className="widget-content-list">
+                {camerasBandwidth.top_cameras && camerasBandwidth.top_cameras.length > 0 ? (
+                  (() => {
+                    const list = camerasBandwidth.top_cameras;
+                    const bnum = (v) => Number(v) || 0;
+                    const mx = Math.max(...list.map((c) => bnum(c.bitrate)), 0.0001);
+                    const sumPct = list.reduce((a, c) => a + bnum(c.percentage), 0);
+                    const other = Math.max(0, 100 - sumPct);
+                    const total = list.reduce((a, c) => a + bnum(c.bitrate), 0);
+                    const colorOf = (i) => `var(--dc${[1, 2, 3, 4, 5, 6][i % 6]})`;
+                    return (
+                      <div className="bwc">
+                        <div className="bwc-total"><b>{total.toFixed(1)} Mbps</b><span>top {list.length} cameras</span></div>
+                        <div className="bwc-share">
+                          {list.map((c, i) => <i key={i} style={{ width: `${bnum(c.percentage)}%`, background: colorOf(i) }} />)}
+                          {other > 0 && <i style={{ width: `${other}%`, background: "var(--border-light)" }} />}
+                        </div>
+                        <ul className="bwc-list">
+                          {list.map((cam, idx) => {
+                            const match = cameras?.find(c =>
+                              c.ip === cam.ip || c.ip_address === cam.ip ||
+                              (cam.id && (c.id === cam.id || c._id === cam.id)));
+                            const nm = match?.name || match?.device_name || match?.camera_name || cam.name;
+                            return (
+                              <li key={cam.id ? `${cam.id}-${idx}` : idx} onClick={() => navigate("/cameras")} style={{ "--c": colorOf(idx) }}>
+                                <div className="bwc-row">
+                                  <span className="bwc-name"><i className="bwc-dot" /><span className="bwc-txt"><span className="bwc-nm">{nm || cam.ip || "Camera"}</span><span className="bwc-ip">{cam.ip}</span></span></span>
+                                  <span className="bwc-val"><b>{cam.bitrate} Mbps</b><small>{cam.percentage}%</small></span>
+                                </div>
+                                <div className="bwc-track"><i style={{ width: `${(bnum(cam.bitrate) / mx) * 100}%` }} /></div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    );
+                  })()
+                ) : (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--text-muted)", fontSize: "13.5px", minHeight: "120px" }}>
+                    No active camera bandwidth metrics
+                  </div>
+                )}
+              </div>
+            </div>
+
       </div>
 
       {/* ── Enhanced Diagnostics & Service Status Section ── */}
       <div className="enhanced-widgets-section">
         <div className="widgets-carousel-wrapper">
-          {/* Left Arrow */}
-          <button
-            className="carousel-arrow carousel-arrow-left"
-            onClick={() => widgetsScrollRef.current?.scrollBy({ left: -340, behavior: "smooth" })}
-            aria-label="Scroll left"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
-          </button>
+         {!wEdge.start && (
+            <button className="carousel-arrow carousel-arrow-left" onClick={() => scrollWidgets(-1)} aria-label="Previous widgets">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
+            </button>
+          )}
 
           {/* Scrollable track */}
-          <div className="widgets-scroll-track" ref={widgetsScrollRef}>
+          <div className="widgets-scroll-track" ref={widgetsScrollRef} onScroll={updateWEdge}>
 
             {/* Widget 1: Server Health */}
             <div className="enhanced-card">
@@ -3208,74 +3243,15 @@ const DashboardPage = () => {
             </div>
             */}
 
-            {/* Widget 7: Top Bandwidth Consumers */}
-            <div className="enhanced-card bandwidth-card">
-              <div className="enhanced-card-header">
-                <span className="header-icon"><Camera size={18} /></span>
-                <h4>Bandwidth Consumers</h4>
-              </div>
-              <div className="widget-content-list">
-                {camerasBandwidth.top_cameras && camerasBandwidth.top_cameras.length > 0 ? (
-                  <div className="bandwidth-list-container">
-                    {camerasBandwidth.top_cameras.map((cam, idx) => (
-                      <div
-                        key={cam.id ? `${cam.id}-${idx}` : idx}
-                        onClick={() => navigate("/cameras")}
-                        className="bandwidth-item-row"
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          padding: "8px 12px",
-                          background: "var(--bg-elevated)",
-                          border: "1px solid var(--border-light)",
-                          borderRadius: "6px",
-                          cursor: "pointer",
-                          transition: "border-color 0.2s ease"
-                        }}
-                        onMouseEnter={(e) => e.currentTarget.style.borderColor = "var(--teal)"}
-                        onMouseLeave={(e) => e.currentTarget.style.borderColor = "var(--border-light)"}
-                      >
-                        <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }}>
-                          <span style={{ fontSize: "13.5px", fontWeight: "600", color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {(() => {
-                              const match = cameras?.find(c => 
-                                c.ip === cam.ip || 
-                                c.ip_address === cam.ip || 
-                                (cam.id && (c.id === cam.id || c._id === cam.id))
-                              );
-                              return match?.name || match?.device_name || match?.camera_name || cam.name;
-                            })()}
-                          </span>
-                          <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>{cam.ip}</span>
-                        </div>
-                        <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                          <div style={{ fontSize: "13.5px", fontWeight: "700", color: "var(--text-primary)" }}>{cam.bitrate} Mbps</div>
-                          <div style={{ fontSize: "11px", color: "var(--teal)", fontWeight: "600" }}>{cam.percentage}% of total</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--text-muted)", fontSize: "13.5px", minHeight: "120px" }}>
-                    No active camera bandwidth metrics
-                  </div>
-                )}
-              </div>
-            </div>
+
 
           </div>{/* end widgets-scroll-track */}
 
-          {/* Right Arrow */}
-          <button
-            className="carousel-arrow carousel-arrow-right"
-            onClick={() => widgetsScrollRef.current?.scrollBy({ left: 340, behavior: "smooth" })}
-            aria-label="Scroll right"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 18l6-6-6-6" />
-            </svg>
-          </button>
+          {!wEdge.end && (
+            <button className="carousel-arrow carousel-arrow-right" onClick={() => scrollWidgets(1)} aria-label="Next widgets">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
+            </button>
+          )}
         </div>
       </div>
 

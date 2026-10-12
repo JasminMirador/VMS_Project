@@ -1,5 +1,5 @@
-/* ── Google Fonts fallback ── */
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+/* ── Fonts: self-hosted (see fonts.css) ── */
+@import './fonts.css';
 
 /* ── Design Tokens ────────────────────────────── */
 :root {
@@ -15,6 +15,17 @@
   --teal-dim:      #059669;
   --teal-glow:     rgba(16,185,129,0.18);
   --teal-subtle:   rgba(16,185,129,0.06);
+    /* ── Brand accent (same cyan as the login screen) ──
+     Single source of truth for the "Mirador cyan". Brightened on dark
+     surfaces for contrast; darker in the light theme (see below).
+     Used by the sidebar active state; reuse it anywhere that should
+     match the login page. ── */
+  --brand:              #22d3ee;
+  --brand-hover:        #67e8f9;
+  --brand-tint:         rgba(34, 211, 238, 0.12);
+  --brand-tint-border:  rgba(34, 211, 238, 0.32);
+  --brand-glow:         rgba(34, 211, 238, 0.18);
+  --brand-ring:         rgba(34, 211, 238, 0.55);
   
   /* ── Neutral / Borders ── */
   --border:        #1e2533;
@@ -335,6 +346,14 @@ input, select, button, textarea { font-family: var(--font-ui); }
   --teal-glow:     rgba(5, 150, 105, 0.15);
   --teal-subtle:   rgba(5, 150, 105, 0.05);
 
+    /* ── Brand accent (login cyan, light theme) ── */
+  --brand:              #0e7490;
+  --brand-hover:        #0b5b73;
+  --brand-tint:         #ecfeff;
+  --brand-tint-border:  #a5f3fc;
+  --brand-glow:         rgba(14, 116, 144, 0.14);
+  --brand-ring:         rgba(14, 116, 144, 0.5);
+
   /* ── Neutral / Borders ── */
   --border:        #e2e8f0;
   --border-light:  #cbd5e1;
@@ -518,4 +537,4 @@ input, select, button, textarea { font-family: var(--font-ui); }
     inset 0 1px 0 rgba(5, 150, 105, 0.15),
     0 0 0 3px rgba(5, 150, 105, 0.12),
     0 6px 20px rgba(5, 150, 105, 0.18);
-}
+}

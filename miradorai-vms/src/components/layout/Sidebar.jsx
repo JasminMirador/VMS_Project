@@ -1,11 +1,14 @@
 import { useUserSettings } from "../../context/UserSettingsContext";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { getNavConfig } from "../../data/navConfig";
+import { tNav } from "../../translation/sidebarNav";
 import { useAuth } from "../../context/AuthContext";
 import { useNotifications } from "../../context/NotificationContext";
 import logoImg from "../../assets/logo.jpg";
 import Dock from "../shared/Dock/Dock";
+import { createPortal } from "react-dom";
+
 import "./Sidebar.css";
 
 function SvgIcon({ html }) {
@@ -17,7 +20,9 @@ function SvgIcon({ html }) {
   );
 }
 
-export default function Sidebar({ userRole }) {
+export default function Sidebar({ userRole,language = 'en' }) {
+  // Display-only Arabic labels; keys/routes stay English.
+  const L = (text) => tNav(text, language);
   const { settings } = useUserSettings();
   const { user, logout } = useAuth();
   const {
@@ -196,6 +201,78 @@ export default function Sidebar({ userRole }) {
     setSearch,
   ] = useState("");
 
+    // Match the search text against the English key OR its Arabic label
+  const matchesNav = (text) =>
+    !search ||
+    text.toLowerCase().includes(search.toLowerCase()) ||
+    L(text).includes(search);
+
+  // ============================================================
+  // Collapsed rail: flyout panel with a group's sub-items
+  // (opens on hover/click of a group icon, closes on leave/Esc/outside)
+  // ============================================================
+
+  const dockWrapRef = useRef(null);
+  const flyoutRef = useRef(null);
+  const closeTimer = useRef(null);
+  const [flyout, setFlyout] = useState(null); // { idx, top, left | right }
+
+  const cancelClose = () => clearTimeout(closeTimer.current);
+  const scheduleClose = () => {
+    cancelClose();
+    closeTimer.current = setTimeout(() => setFlyout(null), 180);
+  };
+
+  const openFlyoutFor = (idx) => {
+    const entry = resolvedNavConfig[idx];
+    const node = dockWrapRef.current?.querySelectorAll(".dock-item")[idx];
+    const aside = node?.closest(".sidebar");
+    if (!entry?.items?.length || !node || !aside) {
+      setFlyout(null);
+      return;
+    }
+    cancelClose();
+    const r = node.getBoundingClientRect();
+    const a = aside.getBoundingClientRect();
+    const rtl = document.documentElement.dir === "rtl";
+    const estHeight = 52 + entry.items.length * 40 + 16;
+    const top = Math.max(8, Math.min(r.top, window.innerHeight - estHeight - 8));
+    setFlyout({
+      idx,
+      top,
+      ...(rtl
+        ? { right: window.innerWidth - a.left + 8 }
+        : { left: a.right + 8 }),
+    });
+  };
+
+  useEffect(() => {
+    setFlyout(null);
+  }, [location.pathname, isCollapsed]);
+
+  useEffect(() => {
+    if (!flyout) return undefined;
+    const onDown = (e) => {
+      if (
+        flyoutRef.current?.contains(e.target) ||
+        dockWrapRef.current?.contains(e.target)
+      ) {
+        return;
+      }
+      setFlyout(null);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") setFlyout(null);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [flyout]);
+
+  useEffect(() => () => clearTimeout(closeTimer.current), []);
   // ============================================================
   // Collapse sidebar
   // ============================================================
@@ -212,6 +289,21 @@ export default function Sidebar({ userRole }) {
       return next;
     });
   };
+    // ============================================================
+  // Toggle from the top bar (hamburger) + broadcast current state
+  // ============================================================
+
+  useEffect(() => {
+    const handleToggle = () => toggleCollapse();
+    window.addEventListener("toggle-sidebar", handleToggle);
+    return () => window.removeEventListener("toggle-sidebar", handleToggle);
+  }, []);
+
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent("sidebar-state", { detail: { collapsed: isCollapsed } })
+    );
+  }, [isCollapsed]);
 
   // ============================================================
   // Toggle group
@@ -262,7 +354,7 @@ export default function Sidebar({ userRole }) {
           ? "sidebar--collapsed"
           : ""
       }`}
-      aria-label="Main navigation"
+      aria-label={L("Main navigation")}
     >
       {/* ======================================================
           LOGO
@@ -274,8 +366,8 @@ export default function Sidebar({ userRole }) {
           onClick={toggleCollapse}
           title={
             isCollapsed
-              ? "Expand Sidebar"
-              : "Collapse Sidebar"
+              ? L("Expand Sidebar")
+              : L("Collapse Sidebar")
           }
         >
           <div className="sidebar__logo-mark">
@@ -290,7 +382,10 @@ export default function Sidebar({ userRole }) {
         {!isCollapsed && (
           <div className="sidebar__logo-text">
             <span className="sidebar__logo-name notranslate">
-              MIRADOR VMS
+              {language === "ar" ? "ميرادور في إم إس" : "MIRADOR VMS"}
+            </span>
+            <span className="sidebar__logo-tagline">
+              {L("Video Management System")}
             </span>
           </div>
         )}
@@ -326,8 +421,8 @@ export default function Sidebar({ userRole }) {
 
           <input
             className="sidebar__search"
-            placeholder="Search..."
-            aria-label="Search menu"
+            placeholder={L("Search...")}
+            aria-label={L("Search menu")}
             value={search}
             onChange={(e) =>
               setSearch(
@@ -344,6 +439,16 @@ export default function Sidebar({ userRole }) {
 
       {isCollapsed ? (
         <div
+          ref={dockWrapRef}
+          onMouseOver={(e) => {
+            const el = e.target.closest?.(".dock-item");
+            if (!el) return;
+            const nodes = [
+              ...dockWrapRef.current.querySelectorAll(".dock-item"),
+            ];
+            openFlyoutFor(nodes.indexOf(el));
+          }}
+          onMouseLeave={scheduleClose}
           style={{
             flex: 1,
             display: "flex",
@@ -365,7 +470,7 @@ export default function Sidebar({ userRole }) {
                 page,
                 icon,
                 items,
-              }) => {
+              }, idx) => {
                 const isActive =
                   activePath ===
                     toPath(page) ||
@@ -384,7 +489,7 @@ export default function Sidebar({ userRole }) {
                       style={{
                         color:
                           isActive
-                            ? "var(--teal)"
+                            ? "var(--brand)"
                             : "inherit",
                         display: "flex",
                         alignItems:
@@ -395,29 +500,37 @@ export default function Sidebar({ userRole }) {
                     />
                   ),
 
-                  // Keep original English text
-                  label: section,
+                  // Display label (English key stays the source)
+                  label: L(section),
 
                   onClick: () => {
-                    if (page) {
+                    if (items?.length) {
+                      // Groups open the flyout with their sub-items
+                      openFlyoutFor(idx);
+                    } else if (page) {
                       navigate(
                         toPath(page)
                       );
-                    } else if (
-                      items?.length
-                    ) {
-                      navigate(
-                        toPath(
-                          items[0].page
-                        )
-                      );
+                    // } else if (
+                    //   items?.length
+                    // ) {
+                    //   navigate(
+                    //     toPath(
+                    //       items[0].page
+                    //     )
+                    //   );
                     }
                   },
 
-                  className:
+                  className: `${
                     isActive
                       ? "sidebar__dock-item--active"
-                      : "",
+                      : ""
+                  } ${
+                    items?.length
+                      ? "sidebar__dock-item--group"
+                      : ""
+                  }`,
                 };
               }
             )}
@@ -427,7 +540,7 @@ export default function Sidebar({ userRole }) {
         <nav
           className="sidebar__nav"
           role="navigation"
-          aria-label="Application menu"
+          aria-label={L("Application menu")}
         >
           {resolvedNavConfig.map(
             ({
@@ -450,12 +563,8 @@ export default function Sidebar({ userRole }) {
                   toPath(page);
 
                 const matchesSearch =
-                  !search ||
-                  section
-                    .toLowerCase()
-                    .includes(
-                      search.toLowerCase()
-                    );
+                  matchesNav(section);
+
 
                 if (
                   !matchesSearch
@@ -483,7 +592,7 @@ export default function Sidebar({ userRole }) {
                     }
                     title={
                       isCollapsed
-                        ? section
+                        ? L(section)
                         : undefined
                     }
                   >
@@ -496,7 +605,7 @@ export default function Sidebar({ userRole }) {
                         className="sidebar__direct-item-label"
                         translate="yes"
                       >
-                        {section}
+                        {L(section)}
                       </span>
                     )}
 
@@ -514,12 +623,8 @@ export default function Sidebar({ userRole }) {
               const visible =
                 items?.filter(
                   (i) =>
-                    !search ||
-                    i.label
-                      .toLowerCase()
-                      .includes(
-                        search.toLowerCase()
-                      )
+                    matchesNav(i.label)
+
                 ) || [];
 
               if (
@@ -597,7 +702,7 @@ export default function Sidebar({ userRole }) {
                       .toLowerCase()}`}
                     title={
                       isCollapsed
-                        ? section
+                        ? L(section)
                         : undefined
                     }
                     translate="yes"
@@ -611,7 +716,7 @@ export default function Sidebar({ userRole }) {
                         className="sidebar__group-label"
                         translate="yes"
                       >
-                        {section}
+                        {L(section)}
                       </span>
                     )}
 
@@ -630,7 +735,7 @@ export default function Sidebar({ userRole }) {
                         strokeWidth="2"
                         aria-hidden="true"
                       >
-                        <path d="M9 18l6-6-6-6" />
+                        <path d="m6 9 6 6 6-6" />
                       </svg>
                     )}
                   </button>
@@ -659,7 +764,7 @@ export default function Sidebar({ userRole }) {
                         )
                         .toLowerCase()}`}
                       role="group"
-                      aria-label={`${section} submenu`}
+                      aria-label={`${L(section)}`}
                       translate="yes"
                       style={{
                         display:
@@ -716,9 +821,8 @@ export default function Sidebar({ userRole }) {
                               <span
                                 translate="yes"
                               >
-                                {
-                                  item.label
-                                }
+                                {L(item.label)}
+
                               </span>
 
                               {item.page ===
@@ -747,6 +851,82 @@ export default function Sidebar({ userRole }) {
           )}
         </nav>
       )}
+      {/* ======================================================
+          COLLAPSED RAIL FLYOUT (sub-items of the hovered group)
+      ====================================================== */}
+      {isCollapsed &&
+        flyout &&
+        resolvedNavConfig[flyout.idx] &&
+        createPortal(
+          (() => {
+            const sec = resolvedNavConfig[flyout.idx];
+            return (
+              <div
+                ref={flyoutRef}
+                className="sidebar-flyout"
+                role="menu"
+                aria-label={L(sec.section)}
+                style={{
+                  top: flyout.top,
+                  left: flyout.left,
+                  right: flyout.right,
+                }}
+                onMouseEnter={cancelClose}
+                onMouseLeave={scheduleClose}
+              >
+                {sec.page ? (
+                  <button
+                    type="button"
+                    className="sidebar-flyout__title sidebar-flyout__title--link"
+                    onClick={() => {
+                      navigate(toPath(sec.page));
+                      setFlyout(null);
+                    }}
+                  >
+                    {L(sec.section)}
+                  </button>
+                ) : (
+                  <div className="sidebar-flyout__title">
+                    {L(sec.section)}
+                  </div>
+                )}
+
+                <div className="sidebar-flyout__list">
+                  {sec.items.map((item) => {
+                    const isActive =
+                      activePath === toPath(item.page);
+
+                    return (
+                      <button
+                        key={item.page}
+                        type="button"
+                        role="menuitem"
+                        className={`sidebar__item ${
+                          isActive ? "sidebar__item--active" : ""
+                        }`}
+                        aria-current={isActive ? "page" : undefined}
+                        onClick={() => {
+                          navigate(toPath(item.page));
+                          setFlyout(null);
+                        }}
+                      >
+                        <span>{L(item.label)}</span>
+
+                        {item.page === "add-devices" &&
+                          firmwareUpdateCount > 0 && (
+                            <span className="sidebar__badge">
+                              {firmwareUpdateCount}
+                            </span>
+                          )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })(),
+          document.body
+        )}
     </aside>
   );
 }

@@ -6,6 +6,8 @@ import { useTheme } from "../../context/ThemeContext";
 import { useUserSettings } from "../../context/UserSettingsContext";
 import { useNotifications } from "../../context/NotificationContext";
 import logoImg from "../../assets/logo.jpg";
+import { useI18n } from "../../i18n";
+import { Icon, iconSvg } from "./topbarIcons";
 import Dock from "../shared/Dock/Dock";
 import "./TopBar.css";
 import "./SupervisorModal.css";
@@ -14,11 +16,56 @@ const API_BASE = (typeof import.meta !== "undefined" && import.meta.env?.VITE_AP
 
 // ---- Language Selector ----
 const LANGUAGES = [
-  { code: "en", label: "English", nativeLabel: "English", flag: "EN" },
-  { code: "ar", label: "Arabic", nativeLabel: "العربية", flag: "AR" },
+  { code: "en", label: "English", nativeLabel: "English", sub: "English · LTR", flag: "EN" },
+  { code: "ar", label: "Arabic", nativeLabel: "العربية", sub: "Arabic · RTL", flag: "AR" },
 ];
+// ---- Fullscreen toggle (icon button, same look as the language button) ----
+function FullscreenButton() {
+  const { t } = useI18n();  const [isFullscreen, setIsFullscreen] = useState(
+    () => !!document.fullscreenElement
+  );
+
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  // Hide where the Fullscreen API isn't available (e.g. iPhone Safari)
+  if (!document.documentElement.requestFullscreen) return null;
+
+  const toggle = () => {
+    try {
+      if (document.fullscreenElement) {
+        document.exitFullscreen?.()?.catch?.(() => {});
+      } else {
+        document.documentElement.requestFullscreen()?.catch?.(() => {});
+      }
+    } catch (e) {
+      // Browser refused (permissions policy / not a user gesture) — ignore
+    }
+  };
+
+  const label = t(isFullscreen ? "topbar.exitFullscreen" : "topbar.enterFullscreen");
+
+  return (
+    <button
+      type="button"
+      className="topbar__lang-btn topbar__fullscreen-btn"
+      onClick={toggle}
+      title={label}
+      aria-label={label}
+      aria-pressed={isFullscreen}
+    >
+      <Icon name={isFullscreen ? "fullscreenExit" : "fullscreen"} width="20" height="20" />
+
+    </button>
+  );
+}
 
 function LanguageSelector({ language, onLanguageChange }) {
+  const { t } = useI18n();
+
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
 
@@ -45,9 +92,7 @@ function LanguageSelector({ language, onLanguageChange }) {
     document.documentElement.dir = code === "ar" ? "rtl" : "ltr";
     document.documentElement.lang = code;
 
-    if (window.doGTranslate) {
-      window.doGTranslate('en|' + code);
-    }
+
 
     setOpen(false);
   };
@@ -60,79 +105,58 @@ function LanguageSelector({ language, onLanguageChange }) {
       ref={wrapRef}
     >
       <button
+        type="button"
         className={`topbar__lang-btn notranslate ${open ? "topbar__lang-btn--active" : ""}`}
         translate="no"
         dir="ltr"
         onClick={() => setOpen((p) => !p)}
-        title="Switch Language"
-        aria-haspopup="listbox"
+        title={t("topbar.switchLanguage")}
+        aria-label={t("topbar.switchLanguage")}
+        aria-haspopup="menu"
         aria-expanded={open}
       >
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          width="14"
-          height="14"
-        >
-          <circle cx="12" cy="12" r="10" />
-          <line x1="2" y1="12" x2="22" y2="12" />
-          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-        </svg>
+        {/* languages icon */}
+        <Icon name="language" width="20" height="20" />
 
-        <span className="notranslate" translate="no">
-          {currentLang.code === "ar" ? "AR" : "EN"}
-        </span>
-
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          width="10"
-          height="10"
-        >
-          <path d="M6 9l6 6 6-6" />
-        </svg>
       </button>
 
       {open && (
-        <div className="topbar__lang-dropdown" role="listbox">
-          {LANGUAGES.map((lang) => (
-            <button
-              key={lang.code}
-              className={`topbar__lang-option ${currentLang.code === lang.code
-                ? "topbar__lang-option--selected"
-                : ""
-                }`}
-              onClick={() => handleSelect(lang.code)}
-              role="option"
-              aria-selected={currentLang.code === lang.code}
-            >
-              <span className="topbar__lang-flag notranslate" translate="no">
-                {lang.flag}
-              </span>
+        <div className="topbar__lang-dropdown" role="menu">
+          {LANGUAGES.map((lang) => {
+            const selected = currentLang.code === lang.code;
+            return (
+              <button
+                key={lang.code}
+                type="button"
+                className={`topbar__lang-option ${selected ? "topbar__lang-option--selected" : ""}`}
+                onClick={() => handleSelect(lang.code)}
+                role="menuitemradio"
+                aria-checked={selected}
+              >
+                <span className="topbar__lang-text notranslate" translate="no">
+                  <span className="topbar__lang-name">{lang.nativeLabel}</span>
+                  <span className="topbar__lang-sub">{lang.sub}</span>
+                </span>
 
-              <span className="notranslate" translate="no">
-                {lang.nativeLabel}
-              </span>
-
-              {currentLang.code === lang.code && (
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  width="13"
-                  height="13"
-                  style={{ marginInlineStart: "auto" }}
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              )}
-            </button>
-          ))}
+                {selected && (
+                  <svg
+                    className="topbar__lang-check"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    width="16"
+                    height="16"
+                    aria-hidden="true"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                )}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -152,6 +176,7 @@ function loadAlarms() {
 
 // ---- Supervisor Details Modal ----
 function SupervisorDetailsModal({ onClose, onStatusChange }) {
+  const { t } = useI18n();
   const [newPass, setNewPass]   = useState("");
   const [confirm, setConfirm]   = useState("");
   const [showPass, setShowPass] = useState(false);
@@ -186,11 +211,11 @@ function SupervisorDetailsModal({ onClose, onStatusChange }) {
     e.preventDefault();
     setError("");
     if (newPass.length < 4) {
-      setError("Password must be at least 4 characters.");
+      setError(t("supervisor.minLength"));
       return;
     }
     if (newPass !== confirm) {
-      setError("Passwords do not match.");
+      setError(t("supervisor.mismatch"));
       return;
     }
 
@@ -207,7 +232,7 @@ function SupervisorDetailsModal({ onClose, onStatusChange }) {
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error((typeof data.detail === "string" ? data.detail : (Array.isArray(data.detail) ? data.detail.map(d => d.msg || "Invalid input").join(", ") : (data.message || "Failed to save supervisor password."))));
+        throw new Error(data.detail || data.message || t("supervisor.saveFailed"));
       }
       setSaved(true);
       setNewPass("");
@@ -217,14 +242,14 @@ function SupervisorDetailsModal({ onClose, onStatusChange }) {
       setTimeout(() => setSaved(false), 2500);
     } catch (err) {
       console.error("[AUTH] Supervisor save error:", err);
-      setError(err.message || "Failed to save supervisor password.");
+      setError(err.message || t("supervisor.saveFailed"));
     } finally {
       setLoading(false);
     }
   };
 
   const handleReset = async () => {
-    if (!window.confirm("Are you sure you want to reset the supervisor password? Clients will use the default fallback password until a new one is set.")) return;
+    if (!window.confirm(t("supervisor.resetConfirm"))) return;
     setError("");
     setLoading(true);
     try {
@@ -235,7 +260,7 @@ function SupervisorDetailsModal({ onClose, onStatusChange }) {
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error((typeof data.detail === "string" ? data.detail : (Array.isArray(data.detail) ? data.detail.map(d => d.msg || "Invalid input").join(", ") : (data.message || "Failed to reset supervisor password."))));
+        throw new Error(data.detail || data.message || t("supervisor.resetFailed"));
       }
       setStatus({ exists: false });
       if (onStatusChange) onStatusChange(false);
@@ -243,7 +268,7 @@ function SupervisorDetailsModal({ onClose, onStatusChange }) {
       setTimeout(() => setSaved(false), 2500);
     } catch (err) {
       console.error("[AUTH] Supervisor reset error:", err);
-      setError(err.message || "Failed to reset supervisor password.");
+      setError(err.message || t("supervisor.resetFailed"));
     } finally {
       setLoading(false);
     }
@@ -260,7 +285,7 @@ function SupervisorDetailsModal({ onClose, onStatusChange }) {
             <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
           </svg>
         </div>
-        <h2 className="sv-title">Supervisor Password</h2>
+        <h2 className="sv-title">{t("supervisor.title")}</h2>
 
         {/* Status Indicator */}
         {!statusLoading && (
@@ -279,20 +304,20 @@ function SupervisorDetailsModal({ onClose, onStatusChange }) {
                 <><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>
               )}
             </svg>
-            {status?.exists ? "Password Configured" : "Not Configured — Using Default"}
+            {status?.exists ? t("supervisor.configured") : t("supervisor.notConfiguredDefault")}
           </div>
         )}
 
         <form onSubmit={handleSave} className="sv-form">
           <div className="sv-field">
-            <label className="sv-label">{status?.exists ? "Update Password" : "New Password"}</label>
+            <label className="sv-label">{status?.exists ? t("supervisor.updatePassword") : t("supervisor.newPassword")}</label>
             <div className="sv-input-wrap">
               <input
                 type={showPass ? "text" : "password"}
                 className="sv-input"
                 value={newPass}
                 onChange={(e) => setNewPass(e.target.value)}
-                placeholder="Enter new password"
+                placeholder={t("supervisor.enterNewPassword")}
                 autoComplete="new-password"
               />
               <button
@@ -317,32 +342,32 @@ function SupervisorDetailsModal({ onClose, onStatusChange }) {
           </div>
 
           <div className="sv-field">
-            <label className="sv-label">Confirm Password</label>
+            <label className="sv-label">{t("supervisor.confirmPassword")}</label>
             <div className="sv-input-wrap">
               <input
                 type={showPass ? "text" : "password"}
                 className="sv-input"
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
-                placeholder="Confirm new password"
+                placeholder={t("supervisor.confirmNewPassword")}
                 autoComplete="new-password"
               />
             </div>
           </div>
 
           {error && <div className="sv-error">{error}</div>}
-          {saved && <div className="sv-success">{status?.exists === false ? "Supervisor password has been reset." : "Password saved successfully!"}</div>}
+          {saved && <div className="sv-success">{status?.exists === false ? t("supervisor.resetDone") : t("supervisor.saved")}</div>}
 
           <div className="sv-actions">
-            <button type="button" className="sv-btn-cancel" onClick={onClose}>Cancel</button>
+            <button type="button" className="sv-btn-cancel" onClick={onClose}>{t("common.cancel")}</button>
             {status?.exists && (
               <button type="button" className="sv-btn-cancel" onClick={handleReset} disabled={loading} style={{ color: "#f87171", borderColor: "rgba(239,68,68,0.2)" }}>
-                Reset
+                {t("common.reset")}
               </button>
             )}
             <button type="submit" className="sv-btn-verify" disabled={!newPass || !confirm || loading}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="15" height="15"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v14z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-              {status?.exists ? "Update Password" : "Save Password"}
+              {status?.exists ? t("supervisor.updatePassword") : t("supervisor.savePassword")}
             </button>
           </div>
         </form>
@@ -381,7 +406,19 @@ export default function TopBar({
   const [snapshotPreview, setSnapshotPreview] = useState(null);
   const navigate = useNavigate();
   const role = user?.role;
-  
+  const { t, tText } = useI18n();
+
+
+  // Sidebar open/closed state (owned by Sidebar.jsx, mirrored here for the toggle button)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem("sidebar-collapsed") === "true"
+  );
+  useEffect(() => {
+    const onState = (e) => setSidebarCollapsed(!!e.detail?.collapsed);
+    window.addEventListener("sidebar-state", onState);
+    return () => window.removeEventListener("sidebar-state", onState);
+  }, []);
+
   const userRef = useRef(null);
   const settingsRef = useRef(null);
 
@@ -502,11 +539,11 @@ const updateUserMenuPosition = () => {
 
       const { saveSnapshotToBackend } = await import("../../utils/snapshotUtils");
       saveSnapshotToBackend(base64Data, 'AppSnapshot_' + pageName, settings, (msg, type, persistent) => {
-         showToast({ title: '', body: 'Snapshot captured', variant: type || 'success', persistent });
+         showToast({ title: '', body: t("topbar.snapshotCaptured"), variant: type || 'success', persistent });
       });
     } catch (err) {
       console.error("[SNAPSHOT] App snapshot failed:", err);
-      showToast({ title: '', body: err.message || 'Snapshot failed', variant: 'error' });
+      showToast({ title: '', body: err.message || t("topbar.snapshotFailed"), variant: 'error' });
     } finally {
       setIsCapturing(false);
     }
@@ -597,11 +634,12 @@ const updateUserMenuPosition = () => {
   const ADMIN_SETTINGS_ITEMS = [
     // { label: "Add Device",      page: "add-devices",     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg>` },
     // { label: "Storage Management", page: "storage-mgmt", icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4.03 3-9 3S3 13.66 3 12"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/></svg>` },
-    { label: "User Settings",   page: "user-settings",   icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 10-16 0"/></svg>` },
-    { label: "User Management", page: "user-management", icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>` },
-    { label: "Email Schedules", page: "email-schedules", icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>` },
-    { label: "Logs",            page: "logs",            icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>` },
-    { label: "Recycle Bin",     page: "recycle-bin",     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>` },
+    { label: "User Settings",   page: "user-settings",   icon: iconSvg("userSettings") },
+    { label: "User Management", page: "user-management", icon: iconSvg("userManagement") },
+    { label: "Email Schedules", page: "email-schedules", icon: iconSvg("emailSchedules") },
+    { label: "Logs",            page: "logs",            icon: iconSvg("logs") },
+    { label: "Recycle Bin",     page: "recycle-bin",     icon: iconSvg("recycleBin") },
+
     
 
   ];
@@ -609,13 +647,13 @@ const updateUserMenuPosition = () => {
   const CLIENT_SETTINGS_ITEMS = [
     // { label: "Add Device",      page: "add-devices",     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg>` },
     // { label: "Storage Management", page: "storage-mgmt", icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4.03 3-9 3S3 13.66 3 12"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/></svg>` },
-    { label: "Client Settings", page: "client-settings", icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>` },
-    { label: "Email Schedules", page: "email-schedules", icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>` },
-    { label: "Logs",            page: "logs",            icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>` },
+    { label: "Client Settings", page: "client-settings", icon: iconSvg("clientSettings") },
+    { label: "Email Schedules", page: "email-schedules", icon: iconSvg("emailSchedules") },
+    { label: "Logs",            page: "logs",            icon: iconSvg("logs") },
   ];
 
   const OPERATOR_SETTINGS_ITEMS = [
-    { label: "Device Management",      page: "add-devices",     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg>` },
+    { label: "Device Management",      page: "add-devices",     icon: iconSvg("deviceManagement") },
   ];
 
   const settingsItems = role === "admin"
@@ -624,6 +662,15 @@ const updateUserMenuPosition = () => {
       ? OPERATOR_SETTINGS_ITEMS
       : CLIENT_SETTINGS_ITEMS;
 
+  // Close every open top-bar dropdown (user menu + settings mega-menu)
+  const closeMenus = () => {
+    setUserMenuOpen(false);
+    setSettingsDropdownOpen(false);
+  };
+
+  // Also close them whenever the route changes (e.g. sidebar item clicked)
+  useEffect(() => { closeMenus(); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePage]);
   const navigateTo = (page) => {
     navigate(`/${page}`);
     setUserMenuOpen(false);
@@ -634,6 +681,18 @@ const updateUserMenuPosition = () => {
     <header className="topbar">
       {/* ===== LEFT ===== */}
       <div className="topbar__left">
+        {/* Sidebar toggle (hamburger) */}
+        <button
+          type="button"
+          className="topbar__menu-btn"
+          onClick={() => window.dispatchEvent(new Event("toggle-sidebar"))}
+          aria-label={t("sidebar.toggle")}
+          aria-expanded={!sidebarCollapsed}
+          title={t("sidebar.toggle")}
+        >
+          <Icon name={sidebarCollapsed ? "panelOpen" : "panelClose"} width="20" height="20" />
+        </button>
+
         {/* AI Analytics pill */}
         {isAiActive && (
           <div className="topbar__ai-wrap">
@@ -646,7 +705,7 @@ const updateUserMenuPosition = () => {
               </div>
               <div className="topbar__ai-logo-text">
                 <span className="topbar__ai-logo-name">MIRADOR AI</span>
-                <span className="topbar__ai-logo-sub">Analytics</span>
+                <span className="topbar__ai-logo-sub">{t("topbar.analytics")}</span>
               </div>
             </button>
             <div className="topbar__ai-info">
@@ -656,8 +715,8 @@ const updateUserMenuPosition = () => {
                 <line x1="12" y1="8" x2="12.01" y2="8"></line>
               </svg>
               <div className="topbar__ai-tooltip">
-                <strong style={{ color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>AI Analytics Dashboard</strong>
-                Access advanced AI-driven insights, behavioral metrics, and data visualizations.
+                <strong style={{ color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>{t("topbar.aiAnalyticsTitle")}</strong>
+                {t("topbar.aiAnalyticsDesc")}
               </div>
             </div>
           </div>
@@ -693,64 +752,45 @@ const updateUserMenuPosition = () => {
             items={[
               {
                 icon: (
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-                    <circle cx="12" cy="13" r="4"/>
-                  </svg>
+                  <Icon name="snapshot" />
+
                 ),
-                label: isCapturing ? "Capturing..." : "Snapshot",
-                onClick: handleAppSnapshot
+                label: isCapturing ? t("topbar.capturing") : t("topbar.snapshot"),
+                onClick: () => { closeMenus(); handleAppSnapshot(); }
               },
               {
                 icon: theme === "dark" ? (
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="12" cy="12" r="5"/>
-                    <line x1="12" y1="1" x2="12" y2="3"/>
-                    <line x1="12" y1="21" x2="12" y2="23"/>
-                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-                    <line x1="1" y1="12" x2="3" y2="12"/>
-                    <line x1="21" y1="12" x2="23" y2="12"/>
-                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-                  </svg>
+                  <Icon name="sun" />
+
                 ) : (
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-                  </svg>
+                  <Icon name="moon" />
+
                 ),
-                label: `Theme`,
-                onClick: toggleTheme
+                label: t("common.theme"),
+                onClick: () => { closeMenus(); toggleTheme(); }
               },
               {
                 icon: (
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <polyline points="23 4 23 10 17 10"/>
-                    <polyline points="1 20 1 14 7 14"/>
-                    <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-                  </svg>
+                  <Icon name="refresh" />
+
                 ),
-                label: "Refresh",
-                onClick: () => window.dispatchEvent(new CustomEvent('appRefresh'))
+                label: t("common.refresh"),
+                onClick: () => { closeMenus(); window.dispatchEvent(new CustomEvent('appRefresh')); }
               },
               ...(role === "admin" ? [{
                 icon: (
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-                    <circle cx="12" cy="7" r="4"/>
-                  </svg>
+                  <Icon name="profile" />
+
                 ),
-                label: "Profile",
-                onClick: () => navigate("/profile")
+                label: t("nav.profile"),
+                onClick: () => { closeMenus(); navigate("/profile"); }
               }] : []),
               ...([{
                 icon: (
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="12" cy="12" r="3"/>
-                    <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
-                  </svg>
+                  <Icon name="settings" />
+
                 ),
-                label: "Settings",
+                label: t("nav.settings"),
                 onClick: () => {
                   // Client and Operator: go directly to client settings
                   if (role === "client" || role === "operator") {
@@ -772,7 +812,7 @@ const updateUserMenuPosition = () => {
                   onClick={() => navigateTo(si.page)}
                 >
                   <span dangerouslySetInnerHTML={{ __html: si.icon }} />
-                  <span>{si.label}</span>
+                  <span>{tText(si.label)}</span>
                 </button>
               ))}
             </div>
@@ -787,7 +827,8 @@ const updateUserMenuPosition = () => {
           language={language}
           onLanguageChange={onLanguageChange}
         />
-
+        {/* Fullscreen toggle */}
+        <FullscreenButton />
         <div className="topbar__divider" />
 
         {/* User menu */}
@@ -822,24 +863,23 @@ const updateUserMenuPosition = () => {
     userMenuPosition.right === "auto"
       ? "auto"
       : `${userMenuPosition.right}px`,
-  width: "315px",
+  width: "256px",
   maxWidth: "calc(100vw - 24px)",
   zIndex: 2147483647,
 }}
             >
               {/* Header */}
               <div className="topbar__user-dropdown-header">
-                <div className="topbar__user-dropdown-avatar">
-                  {user?.email?.charAt(0).toUpperCase() || "A"}
-                </div>
                 <div className="topbar__user-dropdown-info">
-                  <div className="topbar__user-dropdown-name">{user?.email?.split("@")[0] || "Administrator"}</div>
-                  <div className="topbar__user-dropdown-role-row">
-                    <span className={`topbar__user-badge ${user?.role || "admin"}`}>
-                      {user?.role?.toUpperCase() || "ADMIN"}
-                    </span>
-                  </div>
+                  <div className="topbar__user-dropdown-name">{user?.email?.split("@")[0] || t("topbar.administrator")}</div>
+                  {user?.email && (
+                    <div className="topbar__user-dropdown-email">{user.email}</div>
+                  )}
                 </div>
+                <span className={`topbar__user-badge ${user?.role || "admin"}`}>
+                  {tText(user?.role?.toUpperCase() || "ADMIN")}
+                </span>
+
               </div>
               
               <div className="topbar__user-dropdown-body">
@@ -848,25 +888,20 @@ const updateUserMenuPosition = () => {
                   className="topbar__user-dropdown-item"
                   onClick={() => navigateTo("about")}
                 >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="12" cy="12" r="10"/>
-                    <path d="M12 16v-4M12 8h.01"/>
-                  </svg>
-                  <span>About</span>
+                 <Icon name="about" />
+                 <span>{t("topbar.about")}</span>
                 </div>
 
                 {/* Admin Only Tools */}
                 {role === "admin" && (
                   <>
-                    <div className="topbar__settings-dropdown-divider" style={{ margin: "6px 4px" }} />
+                    <div className="topbar__settings-dropdown-divider" role="separator" />
                     <div
                       className="topbar__user-dropdown-item topbar__user-dropdown-item--supervisor"
                       onClick={() => navigateTo("approvals")}
                     >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M16 21v-2a4 4 0 0 0-4-4H5c-1.1 0-2 .9-2 2v2M8 7a4 4 0 1 0 8 0 4 4 0 0 0-8 0M20 8v6M23 11h-6"/>
-                      </svg>
-                      <span>Pending Approvals</span>
+                      <Icon name="approvals" />
+                      <span>{t("topbar.pendingApprovals")}</span>
                     </div>
 
                     <div
@@ -881,6 +916,8 @@ const updateUserMenuPosition = () => {
                         <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
                       </svg>
                       <span>Supervisor Details</span>
+                            <Icon name="supervisor" />
+                      <span>{t("topbar.supervisorDetails")}</span>
                       {/* Status dot */}
                       {supervisorConfigured !== null && (
                         <span style={{
@@ -888,36 +925,37 @@ const updateUserMenuPosition = () => {
                           background: supervisorConfigured ? "#34d399" : "#fbbf24",
                           boxShadow: supervisorConfigured ? "0 0 6px rgba(52,211,153,0.4)" : "0 0 6px rgba(251,191,36,0.4)",
                           marginLeft: 4,
-                        }} title={supervisorConfigured ? "Password configured" : "Not configured"} />
-                      )}
-                      <span className="topbar__supervisor-badge">ADMIN</span>
-                    </div>
+                        }} title={supervisorConfigured ? t("topbar.pwConfiguredTip") : t("topbar.pwNotConfiguredTip")} />
+
+)}
+                      <span className="topbar__supervisor-badge">{t("roles.admin")}</span>
+           </div>
                   </>
                 )}
 
                 {/* Divider if last login exists */}
                 {user?.loginDate && (
-                  <div className="topbar__settings-dropdown-divider" style={{ margin: "8px 4px" }} />
+                  <div className="topbar__settings-dropdown-divider" role="separator" />
                 )}
 
                 {/* Last login */}
                 {user?.loginDate && (
                   <div className="topbar__user-dropdown-meta">
-                    <div className="topbar__user-dropdown-meta-label">Last Login:</div>
-                    <div className="topbar__user-dropdown-meta-value">{user.loginDate}</div>
+                    <div className="topbar__user-dropdown-meta-label">{t("topbar.lastLogin")}</div>
+           <div className="topbar__user-dropdown-meta-value">{user.loginDate}</div>
                   </div>
                 )}
               </div>
 
               <div className="topbar__user-dropdown-footer">
-                <button 
-                  className="topbar__logout-btn"
+                <div className="topbar__settings-dropdown-divider" role="separator" />
+                <button
+                  type="button"
+                  className="topbar__user-dropdown-item topbar__user-dropdown-item--danger"
                   onClick={() => setShowLogoutConfirm(true)}
                 >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
-                  </svg>
-                  <span>LOGOUT</span>
+                  <Icon name="logout" />
+                  <span>{t("topbar.logout")}</span>
                 </button>
               </div>
             </div>
@@ -930,17 +968,17 @@ const updateUserMenuPosition = () => {
         <div className="logout-modal-overlay">
           <div className="logout-modal">
             <div className="logout-modal__header">
-              <h2>Confirm Logout</h2>
+              <h2>{t("topbar.confirmLogout")}</h2>
             </div>
             <div className="logout-modal__body">
-              <p>Are you sure you want to logout?</p>
+              <p>{t("topbar.confirmLogoutMsg")}</p>
             </div>
             <div className="logout-modal__footer">
               <button
                 className="logout-modal__btn logout-modal__btn--cancel"
                 onClick={() => setShowLogoutConfirm(false)}
               >
-                Cancel
+                {t("common.cancel")}
               </button>
               <button
                 className="logout-modal__btn logout-modal__btn--confirm"
@@ -949,7 +987,7 @@ const updateUserMenuPosition = () => {
                   logout();
                 }}
               >
-                Logout
+                {t("topbar.logout")}
               </button>
             </div>
           </div>
@@ -968,13 +1006,13 @@ const updateUserMenuPosition = () => {
       {snapshotPreview && (
         <div className="snapshot-flash-overlay">
           <div className="snapshot-flash-card">
-            <img src={snapshotPreview} alt="Snapshot Preview" className="snapshot-flash-img" />
+            <img src={snapshotPreview} alt={t("topbar.snapshotPreview")} className="snapshot-flash-img" />
             <div className="snapshot-flash-badge">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
                 <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
                 <circle cx="12" cy="13" r="4" />
               </svg>
-              <span>Snapshot Captured</span>
+              <span>{t("topbar.snapshotCapturedBadge")}</span>
             </div>
           </div>
         </div>

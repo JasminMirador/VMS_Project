@@ -97,7 +97,9 @@ export default function SplashScreen({
             phase !== "idle"
               ? "splash__logo-wrap--in"
               : ""
-          }`}
+          
+          }`} style={{ backgroundColor: "#002a43" }}
+
         >
           <img
             src={logoImg}

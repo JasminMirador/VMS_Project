@@ -2,7 +2,8 @@
 import { useState, useEffect } from "react";
 import { BrowserRouter, useLocation } from "react-router-dom";
 import NumberTranslator from "./translation/NumberTranslator";
- 
+ import { useI18n } from "./i18n";
+
 import { AuthProvider, useAuth } from "./context/AuthContext";
  
 import Sidebar from "./components/layout/Sidebar";
@@ -40,32 +41,12 @@ function AppContent() {
   // ==============================
   // LANGUAGE STATE — TRANSLATION
   // ==============================
-  const [language, setLanguage] = useState(
-    localStorage.getItem("mirador_language") || "en"
-  );
- 
-  const isArabic = language === "ar";
- 
-  const handleLanguageChange = (newLanguage) => {
-    setLanguage(newLanguage);
- 
-    localStorage.setItem(
-      "mirador_language",
-      newLanguage
-    );
-  };
- 
-  // ==============================
-  // RTL / LTR — TRANSLATION
-  // ==============================
-  useEffect(() => {
-    document.documentElement.lang = isArabic ? "ar" : "en";
-    document.documentElement.dir = isArabic ? "rtl" : "ltr";
-  }, [isArabic]);
+  const { language, setLanguage: handleLanguageChange } = useI18n();
+
  
   const handleSplashDone = () => {
     setShowSplash(false);
- 
+  
     setTimeout(() => setAppVisible(true), 50);
   };
  
@@ -94,7 +75,7 @@ function AppContent() {
           transition: "opacity 0.5s ease"
         }}
       >
-        <Sidebar userRole={userRole} />
+        <Sidebar userRole={userRole} language={language} />
  
         <div className="app-main-area">
           <TopBar
