@@ -18,35 +18,44 @@ import { computeVisibilityPolygon } from "./CctvCalculators";
 const S              = 0.62;
 const ORIGIN_OFFSET  = 1.5 * S;   // 0.93 — matches MapCanvas and fixed drawPlacedCamera
 
-/** Returns true if (px, py) is inside a camera's FOV cone */
-export function insideCone(px, py, marker) {
+/** Core cone test — returns whether (px, py) is inside the cone AND how far
+ *  along the cone's range it sits (0 = at the camera, 1 = at max range).
+ *  The distance fraction drives the glow-fade look instead of a flat fill. */
+function coneCheck(px, py, marker) {
   const fovAngle  = marker.fovAngle  || 60;
   const direction = marker.direction || 0;
   const isNadirMount = marker.mounting === "ceiling";
-  
-  // Use real physical range in meters scaled by map PPM if available, else fallback to standard formula
+
   const fovLen = (marker.rangeDay && marker.ppm)
     ? (marker.rangeDay * marker.ppm)
     : (fovAngle * 2.2 + 40);
 
-  const angle     = direction * (Math.PI / 180);
+  const angle = direction * (Math.PI / 180);
 
-  // ★ Same origin as MapCanvas AND fixed drawPlacedCamera
   const ox = isNadirMount ? marker.x : marker.x + Math.cos(angle) * ORIGIN_OFFSET;
   const oy = isNadirMount ? marker.y : marker.y + Math.sin(angle) * ORIGIN_OFFSET;
 
   const dx   = px - ox;
   const dy   = py - oy;
   const dist = Math.sqrt(dx * dx + dy * dy);
-  if (dist > fovLen) return false;
+  if (dist > fovLen) return { inside: false, distFrac: 1 };
 
-  if (isNadirMount) return true;
+  if (isNadirMount) return { inside: true, distFrac: dist / fovLen };
 
   let diff = Math.atan2(dy, dx) - angle;
   while (diff >  Math.PI) diff -= 2 * Math.PI;
   while (diff < -Math.PI) diff += 2 * Math.PI;
 
-  return Math.abs(diff) <= (fovAngle / 2) * (Math.PI / 180);
+  const halfFov = (fovAngle / 2) * (Math.PI / 180);
+  if (Math.abs(diff) > halfFov) return { inside: false, distFrac: 1 };
+
+  return { inside: true, distFrac: dist / fovLen };
+}
+
+/** Returns true if (px, py) is inside a camera's FOV cone (kept for
+ *  backward compatibility with any other callers). */
+export function insideCone(px, py, marker) {
+  return coneCheck(px, py, marker).inside;
 }
 
 /** Point-in-polygon (ray-casting) */
@@ -78,6 +87,7 @@ export function drawHeatmapToContext(
     floorImg   = null,
     step       = 3,
     clear      = true,
+    walls      = [],
   }
 ) {
   if (clear) ctx.clearRect(0, 0, W, H);
@@ -105,9 +115,11 @@ export function drawHeatmapToContext(
   const sh = Math.ceil(sampleMaxY - sampleMinY);
   if (sw <= 0 || sh <= 0) return new Set();
 
-  const imageData   = ctx.createImageData(sw, sh);
-  const data        = imageData.data;
-  const foundLevels = new Set();
+  const cols          = Math.max(1, Math.ceil(sw / step));
+  const rows          = Math.max(1, Math.ceil(sh / step));
+  const gridImageData = ctx.createImageData(cols, rows);
+  const data          = gridImageData.data;
+  const foundLevels   = new Set();
 
   // Helper for polygon area (Shoelace formula)
   function getPolygonArea(polygon) {
@@ -122,30 +134,58 @@ export function drawHeatmapToContext(
     return Math.abs(area) / 2;
   }
 
-  // Pre-cache the containing zone for each marker to maximize performance
-  const markerZones = new Map();
+  // Pre-cache the containing zone (if any) and a wall-occluded visibility
+  // polygon for each marker. This runs REGARDLESS of whether zones exist —
+  // otherwise camera cones bleed straight through walls on any floor that
+  // has no drawn zones, which floods the whole map green.
+  const markerZones    = new Map();
   const markerVisPolys = new Map();
-  if (allZones.length > 0) {
-    for (const marker of markers) {
-      const containedZones = allZones.filter(z => z.polygon?.length >= 3 && pointInPolygon(marker.x, marker.y, z.polygon));
-      if (containedZones.length > 0) {
-        containedZones.sort((a, b) => getPolygonArea(a.polygon) - getPolygonArea(b.polygon));
-        const mZone = containedZones[0];
-        markerZones.set(marker, mZone);
 
-        const isNadirMount = marker.mounting === "ceiling";
-        const angle = (marker.direction || 0) * (Math.PI / 180);
-        const ox = isNadirMount ? marker.x : marker.x + Math.cos(angle) * ORIGIN_OFFSET;
-        const oy = isNadirMount ? marker.y : marker.y + Math.sin(angle) * ORIGIN_OFFSET;
-        try {
-          const obstaclesPolys = allZones.filter(z => z.isBoomBarrier).map(z => z.polygon);
-          const visPoly = computeVisibilityPolygon({ x: ox, y: oy }, mZone.polygon, obstaclesPolys);
-          if (visPoly && visPoly.length >= 3) {
-            markerVisPolys.set(marker, visPoly);
-          }
-        } catch (e) {
-          console.error("Heatmap vis poly error", e);
+  const obstaclesPolys = allZones.filter(z =>
+    z.isBoomBarrier ||
+    z.isBarrier ||
+    /barrier|wall|partition|obstacle|fence/i.test(z.name || z.type || "")
+  ).map(z => z.polygon);
+
+  // Fallback boundary = the whole floor image, used when a camera isn't
+  // inside any drawn zone, so walls still occlude its cone.
+  const floorBoundary = [
+    { x: 0, y: 0 },
+    { x: imgW / scale, y: 0 },
+    { x: imgW / scale, y: imgH / scale },
+    { x: 0, y: imgH / scale },
+  ];
+
+  const hasOcclusionInputs = walls.length > 0 || obstaclesPolys.length > 0;
+
+  if (allZones.length > 0 || hasOcclusionInputs) {
+    for (const marker of markers) {
+      let boundaryPoly = floorBoundary;
+
+      if (allZones.length > 0) {
+        const containedZones = allZones.filter(z => z.polygon?.length >= 3 && pointInPolygon(marker.x, marker.y, z.polygon));
+        if (containedZones.length > 0) {
+          containedZones.sort((a, b) => getPolygonArea(a.polygon) - getPolygonArea(b.polygon));
+          const mZone = containedZones[0];
+          markerZones.set(marker, mZone);
+          boundaryPoly = mZone.polygon;
         }
+      }
+
+      if (!hasOcclusionInputs) continue; // nothing to occlude against
+
+      const isNadirMount = marker.mounting === "ceiling";
+      const angle = (marker.direction || 0) * (Math.PI / 180);
+      const ox = isNadirMount ? marker.x : marker.x + Math.cos(angle) * ORIGIN_OFFSET;
+      const oy = isNadirMount ? marker.y : marker.y + Math.sin(angle) * ORIGIN_OFFSET;
+
+      try {
+        const visPoly = computeVisibilityPolygon({ x: ox, y: oy }, boundaryPoly, obstaclesPolys, walls);
+        if (visPoly && visPoly.length >= 3) {
+          markerVisPolys.set(marker, visPoly);
+        }
+      } catch (e) {
+        console.error("Heatmap vis poly error", e);
       }
     }
   }
@@ -166,21 +206,29 @@ export function drawHeatmapToContext(
 
       let onlineCoverage = 0;
       let insideOfflineCam = false;
+      let maxIntensity = 0; // 0 = at cone edge, 1 = right at the camera
       for (const marker of markers) {
-        if (!insideCone(imgX, imgY, marker)) continue;
+        const { inside, distFrac } = coneCheck(imgX, imgY, marker);
+        if (!inside) continue;
 
-        // Only count coverage if the pixel is in the same zone where the camera is placed
-        const mZone = markerZones.get(marker);
-        if (mZone) {
-          const visPoly = markerVisPolys.get(marker);
-          const polyToCheck = visPoly || mZone.polygon;
-          if (!pointInPolygon(imgX, imgY, polyToCheck)) continue;
+        // Wall/obstacle-occluded visibility, if we computed one for this
+        // marker (works with or without zones now).
+        const visPoly = markerVisPolys.get(marker);
+        if (visPoly) {
+          if (!pointInPolygon(imgX, imgY, visPoly)) continue;
+        } else {
+          // Fallback: still respect the containing zone boundary if there
+          // was no occlusion data available for it.
+          const mZone = markerZones.get(marker);
+          if (mZone && !pointInPolygon(imgX, imgY, mZone.polygon)) continue;
         }
 
         const cam = cameras.find(c => c.id === marker.camId || c.ip === marker.camIp || c.name === marker.camName);
         const isOnline = cam ? cam.status === "online" : true;
         if (isOnline) {
           onlineCoverage++;
+          const intensity = 1 - Math.min(1, distFrac) * 0.65;
+          if (intensity > maxIntensity) maxIntensity = intensity;
         } else {
           insideOfflineCam = true;
         }
@@ -193,26 +241,47 @@ export function drawHeatmapToContext(
 
       let r, g, b, a;
       if (onlineCoverage === 0) {
-        r=15;  g=23;  b=42;  a=120; // Blind spot / Blueprint dark
+        // Blind spot: a faint, translucent wash — the floor plan stays
+        // fully legible underneath instead of being blotted out.
+        r=51;  g=65;  b=85;  a=42;
       } else {
-        r=16;  g=185; b=129; a=145; // Clean emerald green coverage
+        // Coverage: soft glow that's vivid near the camera and gently
+        // fades toward the edge of its range — teal at the rim, emerald
+        // at the core, rather than one flat block of color.
+        const t = Math.min(1, maxIntensity + (onlineCoverage > 1 ? 0.12 : 0));
+        r = Math.round(45  + (16  - 45)  * t);
+        g = Math.round(212 + (185 - 212) * t);
+        b = Math.round(191 + (129 - 191) * t);
+        a = Math.round(65  + 110 * t);
       }
-      /* Commented out yellow and red colors as requested:
-      else if (onlineCoverage === 1) { r=34;  g=197; b=94;  a=150; }
-      else if (onlineCoverage === 2) { r=234; g=179; b=8;   a=170; }
-      else                           { r=220; g=38;  b=38;  a=190; }
-      */
 
-      for (let dy = 0; dy < step && sy + dy < sh; dy++) {
-        for (let dx = 0; dx < step && sx + dx < sw; dx++) {
-          const idx = ((sy + dy) * sw + (sx + dx)) * 4;
-          data[idx]=r; data[idx+1]=g; data[idx+2]=b; data[idx+3]=a;
-        }
-      }
+      const gcol = Math.min(cols - 1, Math.floor(sx / step));
+      const grow = Math.min(rows - 1, Math.floor(sy / step));
+      const idx  = (grow * cols + gcol) * 4;
+      data[idx] = r; data[idx + 1] = g; data[idx + 2] = b; data[idx + 3] = a;
     }
   }
 
-  ctx.putImageData(imageData, Math.round(sampleMinX), Math.round(sampleMinY));
+  // Render the low-res sample grid into an offscreen buffer, then upscale it
+  // with smoothing + a soft blur so coverage reads as a gradient, not blocks.
+  const offCanvas = document.createElement("canvas");
+  offCanvas.width  = cols;
+  offCanvas.height = rows;
+  const offCtx = offCanvas.getContext("2d");
+  offCtx.putImageData(gridImageData, 0, 0);
+
+  const blurPx = Math.max(2, step * 0.6);
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.filter = `blur(${blurPx}px)`;
+  ctx.drawImage(
+    offCanvas,
+    0, 0, cols, rows,
+    Math.round(sampleMinX), Math.round(sampleMinY), sw, sh
+  );
+  ctx.filter = "none";
+  ctx.restore();
 
   if (isClippedToZones) {
     ctx.save();
@@ -236,11 +305,11 @@ export function drawHeatmapToContext(
 /** Draws a heatmap legend */
 export function drawHeatmapLegendToCanvas(
   ctx, canvasW, canvasH,
-  { foundLevels, compact = false, scaleFactor = 1 } = {}
+  { foundLevels, compact = false, scaleFactor = 1, x = null, y = null } = {}
 ) {
   const entries = [];
-  if (!foundLevels || foundLevels.has(0)) entries.push({ color: "rgba(30,41,59,0.88)",  label: "Blind Spot (No Coverage)" });
-  if (!foundLevels || foundLevels.has(1)) entries.push({ color: "rgba(34,197,94,0.88)", label: "Camera Coverage" });
+  if (!foundLevels || foundLevels.has(0)) entries.push({ color: "rgba(100,116,139,0.35)",  label: "Uncovered (Blind Spot)" });
+  if (!foundLevels || foundLevels.has(1)) entries.push({ color: "rgba(16,185,129,0.85)", label: "Camera Coverage" });
   /* Commented out yellow and red legends as requested:
   if (!foundLevels || foundLevels.has(2)) entries.push({ color: "rgba(234,179,8,0.90)", label: "2-Camera Overlap" });
   if (!foundLevels || foundLevels.has(3)) entries.push({ color: "rgba(220,38,38,0.92)", label: "High Density (3+ Overlap)" });
@@ -256,8 +325,8 @@ export function drawHeatmapLegendToCanvas(
   const maxLW = Math.max(...entries.map(e => ctx.measureText(e.label).width));
   const boxW  = padX * 2 + swatchW + 12 + maxLW;
   const boxH  = padY * 2 + entries.length * rowGap - (rowGap - swatchH);
-  const bx    = canvasW - boxW - margin;
-  const by    = canvasH - boxH - margin;
+  const bx    = (x !== null && x !== undefined) ? x : (canvasW - boxW - margin);
+  const by    = (y !== null && y !== undefined) ? y : (canvasH - boxH - margin);
 
   ctx.fillStyle = compact ? "rgba(10,10,20,0.78)" : "rgba(255,255,255,0.94)";
   if (!compact) { ctx.shadowColor = "rgba(0,0,0,0.18)"; ctx.shadowBlur = 14; ctx.shadowOffsetY = 3; }
@@ -392,9 +461,9 @@ function drawCameraIcon(ctx, x, y, size, type, color) {
  */
 export function drawDoriLegendToCanvas(ctx, canvasW, canvasH) {
   const entries = [
-    { color: "#a855f7", label: "Identification (250+ px/m)" },
-    { color: "#ef4444", label: "Recognition (125+ px/m)" },
-    { color: "#eab308", label: "Observation (62+ px/m)" },
+    { color: "#ef4444", label: "Identification (250+ px/m)" },
+    { color: "#f59e0b", label: "Recognition (125+ px/m)" },
+    { color: "#10b981", label: "Observation (62+ px/m)" },
     { color: "#3b82f6", label: "Detection (25+ px/m)" },
   ];
 
