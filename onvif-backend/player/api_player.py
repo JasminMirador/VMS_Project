@@ -3,13 +3,14 @@ from flask_cors import CORS
 from io import BytesIO
 import tempfile
 import os
+from dotenv import load_dotenv
+load_dotenv()
 
 from decrypt_segment import decrypt_to_bytes
 
 app = Flask(__name__)
 # Restrict allowed origins instead of using a wildcard
-CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000", "http://127.0.0.1:8889", "http://localhost:8000","http://192.168.126.200:5173","http://14.99.8.170:5173","http://14.99.8.170","http://127.0.0.1"])
-
+CORS(app, origins=[o.strip() for o in os.environ["CORS_ALLOWED_ORIGINS"].split(",") if o.strip()])
 @app.route("/play", methods=["POST"])
 def play_video():
     try:
@@ -60,4 +61,8 @@ def play_video():
 
 # ── Run server ───────────────────────────────────
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8000, debug=True)
+    app.run(
+    host=os.environ.get("PLAYER_HOST", "127.0.0.1"),
+    port=int(os.environ["PLAYER_PORT"]),
+    debug=os.environ.get("FLASK_DEBUG", "false").lower() == "true",
+)

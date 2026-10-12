@@ -378,7 +378,7 @@ import base64
 from datetime import datetime
 
 class SnapshotSaveRequest(BaseModel):
-    base64_data: str = Field(..., max_length=1024)
+    base64_data: str = Field(...)
     camera_name: str = "Unknown"
     target_folder: str = Field(default="", max_length=1024)
 

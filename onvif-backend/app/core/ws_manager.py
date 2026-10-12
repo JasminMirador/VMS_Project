@@ -14,7 +14,7 @@ class ConnectionManager:
     Supports topic-based subscription, standardized event envelopes, heartbeats,
     and automatic cleanup of disconnected clients.
     """
-    DEFAULT_TOPICS = {"alerts", "camera_status", "system_metrics"}
+    DEFAULT_TOPICS = {"alerts", "camera_status", "system_metrics", "maps", "designer"}
 
     def __init__(self):
         # Maps active WebSocket connection to set of subscribed topic strings
