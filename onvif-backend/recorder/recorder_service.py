@@ -53,7 +53,14 @@ minio_client = Minio(
 
 # Connect to Dedicated VMS Redis Server
 try:
-    redis_client = redis.Redis(host='127.0.0.1', port=6380, db=1)
+    redis_client = redis.Redis(
+        host='127.0.0.1',
+        port=6380,
+        db=1,
+        socket_timeout=15,
+        socket_connect_timeout=5,
+        health_check_interval=30
+    )
 except Exception as e:
     print(f"[ERROR] Could not connect to Redis: {e}")
 
@@ -207,7 +214,15 @@ def upload_worker_thread(worker_id):
     """Pulls from upload_queue, encrypts, uploads, updates DB, deletes."""
     print(f"[WORKER-{worker_id}] Upload worker started.")
     while True:
-        queue_item = redis_client.blpop("vms_upload_queue", timeout=5)
+        try:
+            queue_item = redis_client.blpop("vms_upload_queue", timeout=5)
+        except (redis.exceptions.TimeoutError, redis.exceptions.ConnectionError):
+            continue
+        except Exception as e:
+            print(f"[WORKER-{worker_id}] Redis error: {e}")
+            time.sleep(2)
+            continue
+
         if not queue_item:
             continue
         file_path = queue_item[1].decode('utf-8')

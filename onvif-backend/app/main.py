@@ -17,7 +17,6 @@ import sys
 
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.middleware import SlowAPIMiddleware
 from app.api.routers.auth_router import limiter
 
 if sys.platform == "win32":
@@ -43,7 +42,7 @@ from app.api.routers.dashboard_diagnostics_router import router as dashboard_dia
 # Existing routers from other files that were already separate
 from app.api.routers.recording_api import recording_router, storage_router
 from app.api.routers.masks_router import router as masks_router
-from recorder.segment_receiver import full_rec_router
+from recorder.segment_receiver import segment_router, recover_on_startup
 from recorder.backup_service import backup_router
 from app.api.routers.logs_router import router as logs_router
 from app.api.routers.brand_control import brand_router
@@ -140,7 +139,6 @@ sys.stdout = LoggerWrapper()
 
 app = FastAPI(title="MIRADOR ONVIF Backend", lifespan=lifespan)
 app.state.limiter = limiter
-app.add_middleware(SlowAPIMiddleware)
 from app.core.logger import log_security_event
 
 async def custom_rate_limit_handler(request: Request, exc: RateLimitExceeded):
@@ -156,55 +154,7 @@ async def custom_rate_limit_handler(request: Request, exc: RateLimitExceeded):
             client_ip = "127.0.0.1"
 
     log_security_event("CRITICAL", "RATE_LIMIT_EXCEEDED", f"Rate limit exceeded on {request.url.path}", client_ip)
-    
-    # Notify client about rate limit
-    def notify_rate_limit():
-        try:
-            client_email = None
-            auth_header = request.headers.get("Authorization")
-            if auth_header and auth_header.startswith("Bearer "):
-                token = auth_header.split(" ")[1]
-                try:
-                    from app.core.security import PRIVATE_KEY
-                    from jose import jwt, jwe
-                    try:
-                        decrypted_bytes = jwe.decrypt(token, PRIVATE_KEY)
-                        token = decrypted_bytes.decode("utf-8")
-                    except Exception:
-                        pass
-                    payload = jwt.get_unverified_claims(token)
-                    client_email = payload.get("email")
-                    if not client_email and "sub" in payload:
-                        from app.core.database import users_col
-                        from bson import ObjectId
-                        user_id = payload["sub"]
-                        try:
-                            user_doc = users_col.find_one({"_id": ObjectId(user_id)})
-                            if user_doc:
-                                client_email = user_doc.get("email")
-                        except Exception:
-                            pass
-                    print(f"[RATE_LIMIT_EMAIL] Extracted email: {client_email}")
-                except Exception as ex:
-                    print(f"[RATE_LIMIT_EMAIL] Token decode error: {ex}")
-            
-            target = client_email if client_email else os.environ.get("ALERT_EMAIL_FROM", "admin@vms.local")
-            print(f"[RATE_LIMIT_EMAIL] Sending alert email to target: {target}")
-            from app.services.email_service import send_manual_email
-            subject = "Mirador VMS: Rate Limit Exceeded Alert"
-            body = f"<p>Hello,</p><p>You have exceeded your API rate limit quota on path <b>{request.url.path}</b> from IP <b>{client_ip}</b>. Please wait for your quota to reset before making more requests.</p>"
-            success, msg = send_manual_email([target], subject, body)
-            print(f"[RATE_LIMIT_EMAIL] Email send result - Success: {success}, Message: {msg}")
-        except Exception as e:
-            print(f"[RATE_LIMIT_EMAIL] Error sending rate limit notification: {e}")
-
-    try:
-        import asyncio
-        loop = asyncio.get_running_loop()
-        loop.run_in_executor(None, notify_rate_limit)
-    except Exception as e:
-        print(f"Error scheduling rate limit notification: {e}")
-
+    # return await _rate_limit_exceeded_handler(request, exc)
     return _rate_limit_exceeded_handler(request, exc)
 
 app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)
@@ -217,16 +167,11 @@ async def unhandled_exception_handler(request, exc):
     return JSONResponse(status_code=500, content={"detail": str(exc)})
 
 
-@app.middleware("http")
-async def add_security_headers(request: Request, call_next):
-    response = await call_next(request)
-    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    response.headers["Content-Security-Policy"] = "default-src 'self'"
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    return response
-
 import re as _re
+from starlette.datastructures import Headers, MutableHeaders
+from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Scope, Receive, Send
+from urllib.parse import parse_qs
 
 _INJECTION_PATTERNS = [
     # XSS patterns
@@ -259,7 +204,8 @@ def _get_client_ip(request: Request) -> str:
     return ip or "Unknown"
 
 def _scan_for_injections(value: str, source: str, path: str, ip: str):
-    print(f"[SECURITY DEBUG] Checking {source}: {value[:200]}")
+    if not value or not isinstance(value, str):
+        return
     for pattern, attack_type in _INJECTION_PATTERNS:
         if pattern.search(value):
             log_security_event(
@@ -270,61 +216,125 @@ def _scan_for_injections(value: str, source: str, path: str, ip: str):
             )
             break  # one alert per field is enough
 
-@app.middleware("http")
-async def detect_injection_attacks(request: Request, call_next):
-    ip = _get_client_ip(request)
-    path = request.url.path
-    print(f"[SECURITY] Scanning request: {request.method} {path}")
+class SecurityAndUploadLimitMiddleware:
+    """
+    High-performance pure ASGI middleware handling:
+    1. Upload payload size limits (5MB for JSON, 2GB for multipart/form-data)
+    2. SQLi / XSS / Path Traversal Injection Detection (without breaking downstream body streams)
+    3. Essential Security Headers (HSTS, X-Frame-Options) without interfering with browser caching
+    """
+    def __init__(self, app: ASGIApp):
+        self.app = app
 
-    # Scan query parameters
-    for key, value in request.query_params.items():
-        _scan_for_injections(value, f"query_param[{key}]", path, ip)
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
 
-    # Scan request body (only for JSON endpoints, skip streaming like video/ws)
-    content_type = request.headers.get("content-type", "")
-    if "application/json" in content_type:
-        try:
-            body_bytes = await request.body()
-            if body_bytes:
-                body_str = body_bytes.decode("utf-8", errors="ignore")
-                _scan_for_injections(body_str, "request_body", path, ip)
-             # Rebuild the receive channel so downstream handlers can read the body
-            async def _replay_receive():
-                return {"type": "http.request", "body": body_bytes, "more_body": False}
+        headers = Headers(scope=scope)
+        content_length_str = headers.get("content-length")
+        content_type = headers.get("content-type", "")
 
-            request._receive = _replay_receive
-            # Also cache on _body for any code that calls request.body() directly
-            request._body = body_bytes
-        except Exception:
-            pass
+        # 1. Enforce payload upload limits
+        if content_length_str:
+            try:
+                length = int(content_length_str)
+                if "application/json" in content_type:
+                    if length > 104_857_600:  # 100MB (accommodates 70MB raw file + base64 overhead)
+                        response = JSONResponse(
+                            status_code=413,
+                            content={"detail": "Payload Too Large: JSON requests exceed 100MB limit"}
+                        )
+                        await response(scope, receive, send)
+                        return
+                elif "multipart/form-data" in content_type:
+                    if length > 2_147_483_648:  # 2GB
+                        response = JSONResponse(
+                            status_code=413,
+                            content={"detail": "Payload Too Large: File upload exceeds 2GB limit"}
+                        )
+                        await response(scope, receive, send)
+                        return
+                else:
+                    if length > 104_857_600:  # 100MB
+                        response = JSONResponse(
+                            status_code=413,
+                            content={"detail": "Payload Too Large: Request exceeds 100MB limit"}
+                        )
+                        await response(scope, receive, send)
+                        return
+            except ValueError:
+                pass
 
-    response = await call_next(request)
-    return response
-
-@app.middleware("http")
-async def limit_upload_size(request: Request, call_next):
-    # Enforce maximum request size dynamically based on content type
-    # - application/json: Strictly limited to 5MB (Fixes the Designer View Map Upload vulnerability)
-    # - multipart/form-data: Allowed up to 2GB to support 150MB+ encrypted video playback/decryption uploads
-    content_length = request.headers.get("content-length")
-    if content_length:
-        length = int(content_length)
-        content_type = request.headers.get("content-type", "")
-        
-        if "application/json" in content_type:
-            if length > 5_242_880:  # 5MB
-                from fastapi.responses import JSONResponse
-                return JSONResponse(status_code=413, content={"detail": "Payload Too Large: JSON requests exceed 5MB limit"})
-        elif "multipart/form-data" in content_type or "application/octet-stream" in content_type or "/_rec_full" in request.url.path:
-            if length > 2_147_483_648:  # 2GB limit for binary/recording uploads
-                from fastapi.responses import JSONResponse
-                return JSONResponse(status_code=413, content={"detail": "Payload Too Large: File upload exceeds 2GB limit"})
+        # 2. Extract Client IP & Path
+        ip = headers.get("x-forwarded-for")
+        if ip:
+            ip = ip.split(",")[0].strip()
         else:
-            if length > 52_428_800:  # 50MB for other types
-                from fastapi.responses import JSONResponse
-                return JSONResponse(status_code=413, content={"detail": "Payload Too Large"})
+            client = scope.get("client")
+            ip = headers.get("x-real-ip") or (client[0] if client else "Unknown")
+        if ip:
+            if ip.startswith("::ffff:"):
+                ip = ip.replace("::ffff:", "")
+            elif ip == "::1":
+                ip = "127.0.0.1"
+        ip = ip or "Unknown"
+        path = scope.get("path", "")
 
-    return await call_next(request)
+        # 3. Scan query parameters
+        query_string = scope.get("query_string", b"").decode("utf-8", errors="ignore")
+        if query_string:
+            try:
+                query_params = parse_qs(query_string, keep_blank_values=True)
+                for key, values in query_params.items():
+                    for value in values:
+                        _scan_for_injections(value, f"query_param[{key}]", path, ip)
+            except Exception:
+                pass
+
+        # 4. Scan JSON request bodies & safely replay ASGI stream for downstream handlers
+        new_receive = receive
+        method = scope.get("method", "")
+        if "application/json" in content_type and method in ("POST", "PUT", "PATCH", "DELETE"):
+            try:
+                body = bytearray()
+                more_body = True
+                while more_body:
+                    message = await receive()
+                    if message["type"] == "http.request":
+                        body.extend(message.get("body", b""))
+                        more_body = message.get("more_body", False)
+                    elif message["type"] == "http.disconnect":
+                        return
+
+                body_bytes = bytes(body)
+                if body_bytes:
+                    body_str = body_bytes.decode("utf-8", errors="ignore")
+                    _scan_for_injections(body_str, "request_body", path, ip)
+
+                has_sent = False
+                async def replay_receive():
+                    nonlocal has_sent
+                    if not has_sent:
+                        has_sent = True
+                        return {"type": "http.request", "body": body_bytes, "more_body": False}
+                    return {"type": "http.disconnect"}
+
+                new_receive = replay_receive
+            except Exception:
+                pass
+
+        # 5. Security headers
+        async def send_with_security_headers(message):
+            if message["type"] == "http.response.start":
+                resp_headers = MutableHeaders(scope=message)
+                resp_headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+                resp_headers["X-Frame-Options"] = "DENY"
+            await send(message)
+
+        await self.app(scope, new_receive, send_with_security_headers)
+
+app.add_middleware(SecurityAndUploadLimitMiddleware)
 
 import asyncio
 import concurrent.futures
@@ -335,10 +345,11 @@ async def _startup_segment_recovery():
     loop = asyncio.get_running_loop()
     loop.set_default_executor(concurrent.futures.ThreadPoolExecutor(max_workers=100))
     print("[STARTUP] Set default ThreadPoolExecutor max_workers to 100")
+    await recover_on_startup()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+|14\.99\.8\.170)(:\d+)?$",
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -369,7 +380,7 @@ app.include_router(dashboard_diagnostics_router)
 app.include_router(groups_router)
 app.include_router(integrations_router)
 
-app.include_router(full_rec_router)  # NEW: continuous 5-min recording endpoint
+app.include_router(segment_router)
 app.include_router(recording_router)
 app.include_router(storage_router)
 app.include_router(masks_router)

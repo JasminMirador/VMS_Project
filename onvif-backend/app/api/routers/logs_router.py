@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 from app.core.security import verify_token
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
 from app.core.database import mongo_client
@@ -22,21 +22,21 @@ except Exception as e:
 router = APIRouter(prefix="/api/logs", tags=["logs"], dependencies=[Depends(verify_token)])
 
 class UILogEntry(BaseModel):
-    user_email: str
-    user_role: str
-    action: str
-    category: str
+    user_email: str = Field(pattern=r"^([\w\.-]+@[\w\.-]+\.\w+|Unknown|System|unknown)$", max_length=150)
+    user_role: str = Field(pattern=r"^[A-Za-z0-9_ -]*$", max_length=50)
+    action: str = Field(max_length=500)
+    category: str = Field(max_length=100)
     details: Optional[Dict[str, Any]] = {}
     session_id: Optional[str] = None
     timestamp: Optional[str] = None
 
 class TerminalLogEntry(BaseModel):
-    user_email: str
-    user_role: str
-    command: str
-    project_folder: str
+    user_email: str = Field(pattern=r"^([\w\.-]+@[\w\.-]+\.\w+|Unknown|System|unknown)$", max_length=150)
+    user_role: str = Field(pattern=r"^[A-Za-z0-9_ -]*$", max_length=50)
+    command: str = Field(max_length=2000)
+    project_folder: str = Field(max_length=500)
     exit_code: int = 0
-    output_snippet: str = ""
+    output_snippet: str = Field(default="", max_length=5000)
     session_id: Optional[str] = None
     timestamp: Optional[str] = None
 

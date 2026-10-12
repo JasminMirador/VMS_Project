@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from "react";
-import { computeVisibilityPolygon, getDoriDistances } from "./CctvCalculators";
+import { computeVisibilityPolygon, computeFovVisibility, drawWallDimensions, getDoriDistances } from "./CctvCalculators";
 import { getLocalPpm } from "./LayoutCalibrationEngine";
 
 
@@ -40,6 +40,9 @@ const MapCanvas = forwardRef(function MapCanvas(
     selectedIdx = null,
     ppm = null,
     calibration = null,
+    walls = [],
+    showWallMetrics = true,
+    showCameraNames = true,
   },
   ref
 ) {
@@ -175,15 +178,49 @@ const MapCanvas = forwardRef(function MapCanvas(
       ctx.drawImage(img, 0, 0);
       ctx.restore();
 
+      // ── 1.5 Wall metric dimensions (printed in meters on layout walls) ──
+      if (showWallMetrics) {
+        const activePpm = calibration?.enabled ? (calibration.ppm || ppm) : (ppm || 25.0);
+        if (activePpm) {
+          const allWalls = [...(walls || [])];
+          if (zones && zones.length > 0) {
+            zones.forEach(z => {
+              if (z.polygon && z.polygon.length >= 2) {
+                for (let i = 0; i < z.polygon.length; i++) {
+                  const p1 = z.polygon[i];
+                  const p2 = z.polygon[(i + 1) % z.polygon.length];
+                  allWalls.push([p1, p2]);
+                }
+              }
+            });
+          }
+          if (allWalls.length === 0 && img && img.width > 0 && img.height > 0) {
+            allWalls.push(
+              [{ x: 0, y: 0 }, { x: img.width, y: 0 }],
+              [{ x: img.width, y: 0 }, { x: img.width, y: img.height }],
+              [{ x: img.width, y: img.height }, { x: 0, y: img.height }],
+              [{ x: 0, y: img.height }, { x: 0, y: 0 }]
+            );
+          }
+          if (allWalls.length > 0) {
+            ctx.save();
+            ctx.translate(ox, oy);
+            ctx.scale(scale, scale);
+            drawWallDimensions(ctx, allWalls, activePpm);
+            ctx.restore();
+          }
+        }
+      }
+
       // ── 2. FOV Beams and Heatmap Coverage Layer (Inside transformed space) ──
       ctx.save();
       ctx.translate(ox, oy);
       ctx.scale(scale, scale);
       if (markers.length > 0) {
-        // If showHeatmap is active on 2D layout, draw deep blueprint blindspot coverage over the floor plan
+        // Soft blueprint slate blindspot tint to clearly distinguish uncovered areas while keeping layout sharp
         if (showHeatmap) {
           ctx.save();
-          ctx.fillStyle = "rgba(15, 23, 42, 0.65)"; // Deep blueprint blindspot tint
+          ctx.fillStyle = "rgba(15, 23, 42, 0.25)";
           ctx.fillRect(0, 0, img.width, img.height);
           ctx.restore();
         }
@@ -196,8 +233,9 @@ const MapCanvas = forwardRef(function MapCanvas(
           const fovAngle = m.fovAngle || 60;
           const direction = m.direction || 0;
           const localPpm = calibration?.enabled ? getLocalPpm(calibration, m.x, m.y) : (ppm || null);
-          const defaultLen = Math.min(img.width * 0.35, Math.max(60, (img.width / 40) * (cam?.specs?.rangeDay || 20)));
-          const fovLen = localPpm && cam?.specs?.rangeDay ? cam.specs.rangeDay * localPpm : defaultLen;
+          const rangeMeters = cam?.specs?.rangeDay || cam?.rangeDay || m.rangeMeters || m.rangeDay || 25;
+          const defaultLen = Math.min(img.width * 0.35, Math.max(60, (img.width / 40) * rangeMeters));
+          const fovLen = localPpm ? Math.max(20, rangeMeters * localPpm) : defaultLen;
           const halfRad = (fovAngle / 2) * (Math.PI / 180);
           const angle = direction * (Math.PI / 180);
           const S = 0.62;
@@ -208,29 +246,85 @@ const MapCanvas = forwardRef(function MapCanvas(
           const zone = getMarkerZone(m);
 
           ctx.save();
-          const boomBarriers = (zones || []).filter(z => z.isBoomBarrier);
-          if ((zone && zone.polygon?.length >= 3) || boomBarriers.length > 0) {
-            ctx.beginPath();
-            let basePoly = zone?.polygon;
-            if (!basePoly) {
-              basePoly = [];
-              const R = fovLen + 10;
-              for (let i = 0; i <= 16; i++) {
-                const a = angle - halfRad + (2 * halfRad * (i / 16));
-                basePoly.push({ x: originX + Math.cos(a) * R, y: originY + Math.sin(a) * R });
-              }
-              basePoly.push({ x: originX, y: originY });
-            }
-            let polyToClip = basePoly;
+          const barrierZones = (zones || []).filter(z =>
+            z.isBoomBarrier ||
+            z.isBarrier ||
+            /barrier|wall|partition|obstacle|fence/i.test(z.name || z.type || "")
+          );
+          const barrierPolys = barrierZones.filter(z => z.polygon && z.polygon.length >= 3).map(z => z.polygon);
+
+          // Spatial index bounding box check for CAD walls near this camera FOV
+          const camMinX = originX - fovLen - 20;
+          const camMaxX = originX + fovLen + 20;
+          const camMinY = originY - fovLen - 20;
+          const camMaxY = originY + fovLen + 20;
+
+          const nearbyWalls = (walls || []).filter(seg => {
+            if (!seg || seg.length < 2) return false;
+            const p1 = Array.isArray(seg[0]) ? { x: seg[0][0], y: seg[0][1] } : seg[0];
+            const p2 = Array.isArray(seg[1]) ? { x: seg[1][0], y: seg[1][1] } : seg[1];
+            const minX = Math.min(p1.x, p2.x);
+            const maxX = Math.max(p1.x, p2.x);
+            const minY = Math.min(p1.y, p2.y);
+            const maxY = Math.max(p1.y, p2.y);
+            return maxX >= camMinX && minX <= camMaxX && maxY >= camMinY && minY <= camMaxY;
+          });
+
+          const storedVisPoly = m.visPoly || cam?.visPoly;
+          const hasObstacles = barrierPolys.length > 0 || nearbyWalls.length > 0;
+          let polyToClip = null;
+
+          if (zone && zone.polygon?.length >= 3) {
             try {
-              const obstaclesPolys = boomBarriers.map(z => z.polygon);
-              const visPoly = computeVisibilityPolygon({ x: originX, y: originY }, basePoly, obstaclesPolys);
-              if (visPoly && visPoly.length >= 3) {
-                polyToClip = visPoly;
-              }
+              const visPoly = computeFovVisibility(
+                { x: originX, y: originY },
+                angle,
+                halfRad,
+                fovLen,
+                barrierPolys,
+                nearbyWalls,
+                zone.polygon
+              );
+              polyToClip = (visPoly && visPoly.length >= 3) ? visPoly : zone.polygon;
             } catch (e) {
-              console.error("Visibility clip error:", e);
+              polyToClip = zone.polygon;
             }
+          } else {
+            if (storedVisPoly && storedVisPoly.length >= 3) {
+              let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+              for (const pt of storedVisPoly) {
+                if (pt.x < minX) minX = pt.x;
+                if (pt.x > maxX) maxX = pt.x;
+                if (pt.y < minY) minY = pt.y;
+                if (pt.y > maxY) maxY = pt.y;
+              }
+              if ((maxX - minX) * (maxY - minY) >= 20) {
+                polyToClip = storedVisPoly;
+              }
+            }
+
+            if (!polyToClip && hasObstacles) {
+              try {
+                const visPoly = computeFovVisibility(
+                  { x: originX, y: originY },
+                  angle,
+                  halfRad,
+                  fovLen,
+                  barrierPolys,
+                  nearbyWalls,
+                  null
+                );
+                if (visPoly && visPoly.length >= 3) {
+                  polyToClip = visPoly;
+                }
+              } catch (e) {
+                console.error("Visibility clip error:", e);
+              }
+            }
+          }
+
+          if (polyToClip && polyToClip.length >= 3) {
+            ctx.beginPath();
             polyToClip.forEach((pt, i) => {
               if (i === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
             });
@@ -254,15 +348,15 @@ const MapCanvas = forwardRef(function MapCanvas(
 
           if (showHeatmap) {
             if (!online) {
-              grad.addColorStop(0, "rgba(100, 116, 139, 0.55)");
-              grad.addColorStop(0.65, "rgba(100, 116, 139, 0.32)");
-              grad.addColorStop(1, "rgba(100, 116, 139, 0.08)");
+              grad.addColorStop(0, "rgba(100, 116, 139, 0.45)");
+              grad.addColorStop(0.65, "rgba(100, 116, 139, 0.25)");
+              grad.addColorStop(1, "rgba(100, 116, 139, 0.05)");
             } else {
-              // Vivid emerald green coverage highlight on heatmap
-              grad.addColorStop(0, "rgba(16, 185, 129, 0.90)");
-              grad.addColorStop(0.35, "rgba(16, 185, 129, 0.75)");
-              grad.addColorStop(0.75, "rgba(16, 185, 129, 0.52)");
-              grad.addColorStop(1, "rgba(16, 185, 129, 0.20)");
+              // Intense emerald green coverage highlight on heatmap
+              grad.addColorStop(0, "rgba(16, 185, 129, 0.65)");
+              grad.addColorStop(0.35, "rgba(16, 185, 129, 0.48)");
+              grad.addColorStop(0.75, "rgba(16, 185, 129, 0.30)");
+              grad.addColorStop(1, "rgba(16, 185, 129, 0.10)");
             }
           } else {
             if (!online) {
@@ -352,6 +446,7 @@ const MapCanvas = forwardRef(function MapCanvas(
       const col = hasAlert ? "#E24B4A" : (online ? (isHighlit ? "#5aabf0" : "#1D9E75") : "#555");
       const R = 8;   // glow / hit radius
       const hov = i === hoveredIdxRef.current;
+      const isLight = document.documentElement.getAttribute("data-theme") === "light";
 
       // ── Glow ring ──
       ctx.beginPath();
@@ -667,65 +762,61 @@ const MapCanvas = forwardRef(function MapCanvas(
       ctx.restore();
 
       // ── Draggable Camera Name Label Badge with optional dotted leader line ──
-      const displayLabel = m.camName || cam.name || cam.model || `Camera ${i + 1}`;
-      ctx.font = "10.5px Inter, sans-serif";
-      const tw = ctx.measureText(displayLabel).width;
+      if (showCameraNames) {
+        const displayLabel = m.camName || cam.name || cam.model || `Camera ${i + 1}`;
+        ctx.font = "10.5px Inter, sans-serif";
+        const tw = ctx.measureText(displayLabel).width;
 
-      // Apply label offset if present
-      const lo = m.labelOffset || { dx: 0, dy: 0 };
-      const labelCenterX = m.x + lo.dx;
-      const labelTopY = m.y - 24 + lo.dy;
-      const bx = labelCenterX - tw / 2 - 7;
-      const by = labelTopY;
-      const labelW = tw + 14;
-      const labelH = 18;
+        // Apply label offset if present
+        const lo = m.labelOffset || { dx: 0, dy: 0 };
+        const labelCenterX = m.x + lo.dx;
+        const labelTopY = m.y - 24 + lo.dy;
+        const bx = labelCenterX - tw / 2 - 7;
+        const by = labelTopY;
+        const labelW = tw + 14;
+        const labelH = 18;
 
-      // Draw dotted leader line if label has been moved
-      if (lo.dx !== 0 || lo.dy !== 0) {
+        // Draw dotted leader line if label has been moved
+        if (lo.dx !== 0 || lo.dy !== 0) {
+          ctx.save();
+          ctx.setLineDash([4, 3]);
+          ctx.strokeStyle = (online ? (isHighlit ? "#5aabf0" : "#a855f7") : "#888888") + "bb";
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.moveTo(m.x, m.y);
+          ctx.lineTo(labelCenterX, by + labelH / 2);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.restore();
+        }
+
         ctx.save();
-        ctx.setLineDash([4, 3]);
-        ctx.strokeStyle = (online ? (isHighlit ? "#5aabf0" : "#a855f7") : "#888888") + "bb";
-        ctx.lineWidth = 1.2;
+        ctx.fillStyle = isLight ? "rgba(255, 255, 255, 0.95)" : "#0d1117ee";
         ctx.beginPath();
-        ctx.moveTo(m.x, m.y);
-        ctx.lineTo(labelCenterX, by + labelH / 2);
-        ctx.stroke();
-        ctx.setLineDash([]);
+        if (ctx.roundRect) ctx.roundRect(bx, by, labelW, labelH, 4);
+        else ctx.rect(bx, by, labelW, labelH);
+        ctx.fill();
+
+        // Border styling
+        if (isHighlit || i === selectedIdx) {
+          ctx.strokeStyle = isLight ? "#2563eb" : "#5aabf0";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        } else if (lo.dx !== 0 || lo.dy !== 0) {
+          ctx.strokeStyle = isLight ? "#7c3aed" : "#a855f7";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        } else {
+          ctx.strokeStyle = isLight ? "#cbd5e1" : "rgba(255, 255, 255, 0.15)";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+
+        ctx.fillStyle = isLight ? "#1e293b" : "#e8edf5";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(displayLabel, labelCenterX, by + 9);
         ctx.restore();
-      }
-
-      ctx.save();
-      const isLight = document.documentElement.getAttribute("data-theme") === "light";
-      ctx.fillStyle = isLight ? "rgba(255, 255, 255, 0.95)" : "#0d1117ee";
-      ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(bx, by, labelW, labelH, 4);
-      else ctx.rect(bx, by, labelW, labelH);
-      ctx.fill();
-
-      // Border styling
-      if (isHighlit || i === selectedIdx) {
-        ctx.strokeStyle = isLight ? "#2563eb" : "#5aabf0";
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-      } else if (lo.dx !== 0 || lo.dy !== 0) {
-        ctx.strokeStyle = isLight ? "#7c3aed" : "#a855f7";
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      } else {
-        ctx.strokeStyle = isLight ? "#cbd5e1" : "rgba(255, 255, 255, 0.15)";
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      }
-
-      ctx.fillStyle = isLight ? "#1e293b" : "#e8edf5";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(displayLabel, labelCenterX, by + 9);
-      ctx.restore();
-
-      // ── Hover tooltip (shows extra details if hovering directly over camera icon) ──
-      if (hov && (lo.dx === 0 && lo.dy === 0)) {
-        // Only show if label is in default position and user hovers over the camera body
       }
 
       // ── Direction Minimalist Accent Grip Dot Rotation Handle ──
@@ -769,7 +860,7 @@ const MapCanvas = forwardRef(function MapCanvas(
       ctx.restore();
     }
     onDraw?.();
-  }, [cameras, markers, zones, floorImgRef, scaleRef, offsetRef, hoveredIdxRef, highlightedCamId, onDraw, ppm, calibration]);
+  }, [cameras, markers, zones, floorImgRef, scaleRef, offsetRef, hoveredIdxRef, highlightedCamId, onDraw, ppm, calibration, iconScale, selectedIdx, alertCounts, showHeatmap, showPpm, showWallMetrics, showCameraNames, walls]);
 
   useImperativeHandle(ref, () => ({ drawAll }), [drawAll]);
 

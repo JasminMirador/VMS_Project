@@ -6,7 +6,7 @@ from typing import List, Optional, Any, Dict
 from app.core.security import verify_token
 from app.api.routers.auth_router import limiter
 from fastapi import Request
-
+from app.core.ws_manager import ws_manager
 import os
 
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
@@ -26,10 +26,16 @@ class PlacedCamera(BaseModel):
     direction: float
     camera:    Dict[str, Any]
 
+    class Config:
+        extra = "allow"
+
 
 class ZonePoint(BaseModel):
     x: float
     y: float
+
+    class Config:
+        extra = "allow"
 
 
 from app.core.validation import validate_name
@@ -38,8 +44,13 @@ class Zone(BaseModel):
     id: str = Field(..., max_length=255)
     name: str = Field(..., max_length=255)
     color: str = Field(..., max_length=255)
-    polygon: List[ZonePoint]
-    
+    polygon:       List[ZonePoint]
+    isShape:       Optional[bool] = False
+    isBoomBarrier: Optional[bool] = False
+
+    class Config:
+        extra = "allow"
+
     @field_validator("name", mode="before")
     @classmethod
     def val_name(cls, v):
@@ -51,29 +62,47 @@ class DesignerSaveRequest(BaseModel):
     floor_id:    Optional[str]              = "floor_1"
     placed:      Optional[List[PlacedCamera]] = []
     zones:       Optional[List[Zone]]         = []
-    floor_plan:  Optional[str]              = Field(None, max_length=5_242_880)
+    floor_plan:  Optional[str]              = Field(None, max_length=100_000_000)
     ppm:         Optional[float]            = 22.0
     slides:      Optional[List[Any]]        = None
     active_slide_id: Optional[str]          = None
 
+    class Config:
+        extra = "allow"
+
     @field_validator('floor_plan')
     @classmethod
     def validate_floor_plan(cls, v):
-        if v is not None and not v.startswith('data:image/'):
-            raise ValueError('Invalid image format. Must be a base64 data URL starting with data:image/')
+        if v is not None and not (
+            v.startswith('data:image/')
+            or v.startswith('http://')
+            or v.startswith('https://')
+            or v.startswith('/')
+            or v.startswith('blob:')
+        ):
+            raise ValueError('Invalid image format.')
         return v
 
 
 class FloorPlanRequest(BaseModel):
     map_id:     Optional[str] = "default"
     floor_id:   Optional[str] = "floor_1"
-    floor_plan: str = Field(..., max_length=5_242_880)
+    floor_plan: str = Field(..., max_length=100_000_000)
+
+    class Config:
+        extra = "allow"
 
     @field_validator('floor_plan')
     @classmethod
     def validate_floor_plan(cls, v):
-        if v is not None and not v.startswith('data:image/'):
-            raise ValueError('Invalid image format. Must be a base64 data URL starting with data:image/')
+        if v is not None and not (
+            v.startswith('data:image/')
+            or v.startswith('http://')
+            or v.startswith('https://')
+            or v.startswith('/')
+            or v.startswith('blob:')
+        ):
+            raise ValueError('Invalid image format.')
         return v
 
 
@@ -81,7 +110,7 @@ class ZoneDetectRequest(BaseModel):
     map_id:     Optional[str] = "default"
     floor_id:   Optional[str] = "floor_1"
     source:     Optional[str] = "designer"
-    floor_plan: Optional[str] = Field(None, max_length=5_242_880)
+    floor_plan: Optional[str] = Field(None, max_length=100_000_000)
 
 
 
@@ -211,7 +240,7 @@ def save_designer_layout(req: DesignerSaveRequest):
         "ppm":        req.ppm,
         "updated_at": datetime.utcnow().isoformat(),
     }
-    
+
     print(f"DEBUG: Received slides? {req.slides is not None}")
     if req.slides is not None:
         print(f"DEBUG: Number of slides: {len(req.slides)}")
@@ -223,6 +252,17 @@ def save_designer_layout(req: DesignerSaveRequest):
         {"map_id": req.map_id, "floor_id": req.floor_id},
         {"$set": update_doc},
         upsert=True,
+    )
+
+    ws_manager.publish_sync(
+        "designer",
+        "designer_updated",
+        {
+            "map_id": req.map_id,
+            "floor_id": req.floor_id,
+            "client_id": getattr(req, "client_id", None) or (req.dict().get("client_id") if hasattr(req, "dict") else None),
+            "updated_at": update_doc["updated_at"],
+        }
     )
 
     print(
@@ -266,7 +306,8 @@ def save_placed_cameras(
 # ── POST /api/designer/zones ──────────────────────────────────────
 @router.post("/zones", dependencies=[Depends(verify_token)])
 @limiter.limit("1/minute")
-def save_zones(request: Request, 
+def save_zones(
+    request: Request,
     map_id:   str = "default",
     floor_id: str = "floor_1",
     zones:    List[Zone] = [],
@@ -386,7 +427,8 @@ def delete_all_designer_layouts(map_id: str = "default"):
     """Soft delete ALL designer documents for a map (all floors)."""
     result = designer_col.update_many({"map_id": map_id}, {"$set": {"is_deleted": True}})
     print(f"[DESIGNER] 🗑  Soft deleted {result.modified_count} designer document(s) for map='{map_id}'")
-    return {"success": True, "map_id": map_id, "deleted_count": result.deleted_count}
+    # UpdateResult has no 'deleted_count' (that is DeleteResult) -> use modified_count
+    return {"success": True, "map_id": map_id, "deleted_count": result.modified_count}
 
 
 # ── POST /api/designer/detect-zones ──────────────────────────────
@@ -397,7 +439,7 @@ def detect_zones(req: ZoneDetectRequest):
     detects room zones using OpenCV, and returns the list of proposed zones.
     """
     floor_plan = req.floor_plan
-    
+
     if not floor_plan:
         if req.source == "designer":
             doc = designer_col.find_one(
@@ -406,7 +448,7 @@ def detect_zones(req: ZoneDetectRequest):
             )
             if doc and doc.get("floor_plan"):
                 floor_plan = doc.get("floor_plan")
-                
+
             if not floor_plan:
                 maps_col = _db["map_layouts"]
                 floor_doc = maps_col.find_one(
@@ -437,7 +479,7 @@ def detect_zones(req: ZoneDetectRequest):
                 )
                 if legacy_doc and legacy_doc.get("floor_plan"):
                     floor_plan = legacy_doc.get("floor_plan")
-                    
+
             if not floor_plan:
                 doc = designer_col.find_one(
                     {"map_id": req.map_id, "floor_id": req.floor_id},
@@ -448,7 +490,7 @@ def detect_zones(req: ZoneDetectRequest):
 
     if not floor_plan:
         raise HTTPException(status_code=400, detail="No floor plan uploaded for this map and floor")
-        
+
     try:
         from app.utils.zone_detection import detect_zones_from_base64
         detected = detect_zones_from_base64(floor_plan)
@@ -468,15 +510,15 @@ async def upload_datasheet(request: Request, file: UploadFile = File(...), overw
     """
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
-        
+
     try:
         import pdfplumber
         from app.utils.datasheet_parser import DatasheetParser
         import io
-        
+
         # Read the file in memory
         content = await file.read()
-        
+
         # Extract text using pdfplumber
         text = ""
         with pdfplumber.open(io.BytesIO(content)) as pdf:
@@ -484,17 +526,17 @@ async def upload_datasheet(request: Request, file: UploadFile = File(...), overw
                 page_text = page.extract_text()
                 if page_text:
                     text += page_text + "\n"
-                    
+
         if not text.strip():
             raise HTTPException(status_code=400, detail="Could not extract text from the PDF. It may be an image-only PDF.")
-            
+
         # Parse text using the heuristic parser
         parser = DatasheetParser(text)
         extracted_data = parser.parse()
-        
+
         if not extracted_data:
             raise HTTPException(status_code=500, detail="Failed to parse data from the PDF.")
-            
+
         # Check if exists (Skip strategy as per user request)
         cam_col = _db["camera_models"]
         existing = cam_col.find_one({"id": extracted_data["id"]})
@@ -504,33 +546,33 @@ async def upload_datasheet(request: Request, file: UploadFile = File(...), overw
                 "brand": {"$regex": f"^{extracted_data['brand']}$", "$options": "i"},
                 "model": {"$regex": f"^{extracted_data['model']}$", "$options": "i"}
             })
-            
+
         if existing:
             if overwrite:
                 cam_col.update_one({"_id": existing["_id"]}, {"$set": extracted_data})
                 return {
-                    "success": True, 
-                    "skipped": False, 
+                    "success": True,
+                    "skipped": False,
                     "message": f"Camera model {extracted_data['brand']} {extracted_data['model']} was successfully overwritten.",
                     "camera": {k: v for k, v in extracted_data.items() if k != '_id'}
                 }
             else:
                 return {
-                    "success": True, 
-                    "skipped": True, 
+                    "success": True,
+                    "skipped": True,
                     "message": f"Camera model {extracted_data['brand']} {extracted_data['model']} already exists. (Skipped)",
                     "camera": {k: v for k, v in existing.items() if k != '_id'}
                 }
         # Insert new camera model
         cam_col.insert_one(extracted_data)
-        
+
         return {
-            "success": True, 
+            "success": True,
             "skipped": False,
             "message": "Datasheet processed and camera model added successfully.",
             "camera": {k: v for k, v in extracted_data.items() if k != '_id'}
         }
-        
+
     except Exception as e:
         print(f"[DATASHEET-UPLOAD] ❌ Failed to process datasheet: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to process datasheet: {str(e)}")

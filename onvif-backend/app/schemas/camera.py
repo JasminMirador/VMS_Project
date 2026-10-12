@@ -82,6 +82,10 @@ class ProbeRequest(BaseCameraRequest):
 
 class StreamRegisterRequest(BaseCameraRequest):
     rtsp_url: str = Field(..., max_length=1024)
+    source: str = Field(default="rtsp", max_length=50)
+    edge_id: str = Field(default="", max_length=255)
+    edge_ip: str = Field(default="", max_length=255)
+    edge_name: str = Field(default="", max_length=1024)
     port: int = Field(default=80, ge=1, le=65535)
     username: str = Field(default="", max_length=128)
     password: str = Field(default="", max_length=1024)

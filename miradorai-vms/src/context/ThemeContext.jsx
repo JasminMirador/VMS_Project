@@ -4,7 +4,7 @@ const ThemeContext = createContext();
 
 export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState(() => {
-    const saved = localStorage.getItem("miradorai_theme") || "dark";
+    const saved = localStorage.getItem("miradorai_theme") || "light";
     if (typeof document !== "undefined") {
       document.documentElement.setAttribute("data-theme", saved);
     }

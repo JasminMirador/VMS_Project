@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useAuth } from "../../context/AuthContext";
+import { useCameras } from "../../context/CamerasContext";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import "./MapViewPage.css";
 import SearchBar from "../../components/shared/SearchBar";
@@ -8,17 +9,19 @@ import ConfigPanel    from "./ConfigPanel";
 import HeatmapLayer   from "./HeatmapLayer";
 import CameraItem     from "./CameraItem";
 import VirtualMapView from "./VirtualMapView";
-import { drawHeatmapToContext, drawHeatmapLegendToCanvas } from "./HeatmapLogic";
+import { drawHeatmapToContext, drawHeatmapLegendToCanvas } from "./HeatMapLogic";
 import { drawCamera, getCamTypeFromName, renderMapViewSnapshot } from "./MapDrawingUtils";
 import WebRTCPlayer_MediaMTX from "../../components/shared/WebRTCPlayer_MediaMTX";
-// import { AlertPopup } from "../LiveView/LiveViewPage";
-import "../LiveView/LiveViewPage.css";
+import { AlertPopup } from "../liveview/LiveViewPage";
+import "../liveview/LiveViewPage.css";
 import { renderGltfToImage } from "./GltfFloorRenderer";
 import { renderHtmlToImage } from "./HtmlFloorRenderer";
 import Gltf3DViewer from "./Gltf3DViewer";
 import { saveFloorsDB, loadFloorsDB, saveZonesDB, loadZonesDB } from "./mapIndexedDB";
 import CalibrationOverlay from "./CalibrationOverlay";
 import CalibrationPanel from "./CalibrationPanel";
+import PartsMeasurementPanel from "./PartsMeasurementPanel";
+import { CadImportProgressModal, importCadWithProgress } from "./CadImportProgressModal";
 import logoImg from "../../assets/logo.jpg";
 import {
   buildStandardCalibration,
@@ -52,6 +55,61 @@ function getAuthHeaders() {
     : { "Content-Type": "application/json" };
 }
 
+// ── Image URL validation & sanitization ──────────────────────────────
+function isValidImageUrl(url) {
+  return typeof url === "string" && (
+    url.startsWith("data:image/") ||
+    url.startsWith("http://") ||
+    url.startsWith("https://") ||
+    url.startsWith("/") ||
+    url.startsWith("blob:")
+  );
+}
+
+function sanitizeFloor(f) {
+  if (!f) return f;
+  return {
+    ...f,
+    imageDataUrl: isValidImageUrl(f.imageDataUrl) ? f.imageDataUrl : null,
+  };
+}
+
+function hydrateFloorWithLatestVersion(fl) {
+  if (!fl) return fl;
+  const base = sanitizeFloor(fl);
+  if (base.versions && base.versions.length > 0) {
+    const targetVer = (base.activeVersionId && base.versions.find(v => v.id === base.activeVersionId))
+      || base.versions[base.versions.length - 1];
+    const verMarkers = (targetVer?.markers && targetVer.markers.length > 0)
+      ? JSON.parse(JSON.stringify(targetVer.markers))
+      : ((targetVer?.placed && targetVer.placed.length > 0)
+        ? targetVer.placed.map(p => ({
+            id: p.id,
+            camId: p.id || p.camera?.id,
+            x: p.x,
+            y: p.y,
+            direction: p.direction || 0,
+            camName: p.camera?.name || p.name || "",
+            camIp: p.camera?.ip || p.ip || "",
+            labelOffset: p.labelOffset || { dx: 0, dy: 0 },
+          }))
+        : null);
+    return {
+      ...base,
+      activeVersionId: targetVer.id,
+      imageDataUrl: targetVer.imageDataUrl || targetVer.floorPlan || base.imageDataUrl,
+      modelDataUrl: targetVer.modelDataUrl || base.modelDataUrl,
+      markers: verMarkers || (base.markers || []),
+      ppm: targetVer.ppm || base.ppm,
+      calibration: targetVer.calibration ? JSON.parse(JSON.stringify(targetVer.calibration)) : base.calibration,
+      walls: (targetVer.walls && targetVer.walls.length > 0) ? JSON.parse(JSON.stringify(targetVer.walls)) : (base.walls || []),
+      partsReport: targetVer.partsReport ? JSON.parse(JSON.stringify(targetVer.partsReport)) : (base.partsReport || null),
+    };
+  }
+  return base;
+}
+
+
 // ── LocalStorage ──────────────────────────────────────────────────────
 const LS_KEY      = "miradorai_map_floors_v2_" + MAP_ID;
 const LS_ZONE_KEY = "miradorai_map_zones_v1_" + MAP_ID;
@@ -63,7 +121,12 @@ function lsSave(v) {
     const lightweight = v.map(f => ({
       ...f,
       imageDataUrl: (f.imageDataUrl && f.imageDataUrl.length < 80000) ? f.imageDataUrl : null,
-      modelDataUrl: null, // Full 3D GLB models are persisted via MongoDB backend API
+      modelDataUrl: null, // Full 3D GLB models are persisted via MongoDB backend API & IndexedDB
+      versions: (f.versions || []).map(ver => ({
+        ...ver,
+        imageDataUrl: (ver.imageDataUrl && ver.imageDataUrl.length < 80000) ? ver.imageDataUrl : null,
+        modelDataUrl: null,
+      })),
     }));
     localStorage.setItem(LS_KEY, JSON.stringify(lightweight));
   } catch (e) {
@@ -104,11 +167,78 @@ async function apiGetMap() {
   if (!r.ok) throw new Error(r.status);
   return r.json();
 }
-async function apiSaveMap(floors) {
+// Versions duplicate the same heavy base64 assets as their parent floor.
+// Strip the duplicates before upload (full copies stay in IndexedDB, and
+// loadFloor()/hydrateFloorWithLatestVersion already fall back to the floor's image/model).
+// Keep images and 3D models when syncing with backend so remote IP access gets full plans
+const DEBUG_STRIP_ASSETS = false;
+
+function generateWallsSvg(walls, width = 2400, height = 1800) {
+  if (!walls || !Array.isArray(walls) || walls.length === 0) return null;
+  const segments = [];
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const seg of walls) {
+    if (!seg || seg.length < 2) continue;
+    const p1 = Array.isArray(seg[0]) ? { x: seg[0][0], y: seg[0][1] } : seg[0];
+    const p2 = Array.isArray(seg[1]) ? { x: seg[1][0], y: seg[1][1] } : seg[1];
+    if (!p1 || !p2 || typeof p1.x !== "number" || typeof p2.x !== "number") continue;
+    minX = Math.min(minX, p1.x, p2.x);
+    minY = Math.min(minY, p1.y, p2.y);
+    maxX = Math.max(maxX, p1.x, p2.x);
+    maxY = Math.max(maxY, p1.y, p2.y);
+    segments.push(`M ${p1.x} ${p1.y} L ${p2.x} ${p2.y}`);
+  }
+  if (!segments.length) return null;
+  const w = (Number.isFinite(width) && width > 0) ? width : Math.max(100, Math.ceil(maxX - minX + 40));
+  const h = (Number.isFinite(height) && height > 0) ? height : Math.max(100, Math.ceil(maxY - minY + 40));
+  const vx = (Number.isFinite(width) && width > 0) ? 0 : Math.floor(minX - 20);
+  const vy = (Number.isFinite(height) && height > 0) ? 0 : Math.floor(minY - 20);
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vx} ${vy} ${w} ${h}" width="${w}" height="${h}"><rect x="${vx}" y="${vy}" width="${w}" height="${h}" fill="#0b1120"/><path d="${segments.join(" ")}" stroke="#38bdf8" stroke-width="2.5" stroke-linecap="round" fill="none"/></svg>`;
+  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+}
+
+function slimFloorsForUpload(floors) {
+  return floors.map(f => {
+    const effectiveImg = f.imageDataUrl || (
+      (f.walls && f.walls.length > 0)
+        ? generateWallsSvg(f.walls, f.imageWidth || f.calibration?.imageDimensions?.width, f.imageHeight || f.calibration?.imageDimensions?.height)
+        : null
+    );
+    return {
+      ...f,
+      imageDataUrl: DEBUG_STRIP_ASSETS ? null : effectiveImg,
+      modelDataUrl: DEBUG_STRIP_ASSETS ? null : f.modelDataUrl,
+      versions: (f.versions || []).map(v => ({
+        ...v,
+        imageDataUrl:
+          DEBUG_STRIP_ASSETS || (v.imageDataUrl && v.imageDataUrl === effectiveImg)
+            ? null : v.imageDataUrl,
+        modelDataUrl:
+          DEBUG_STRIP_ASSETS || (v.modelDataUrl && v.modelDataUrl === f.modelDataUrl)
+            ? null : v.modelDataUrl,
+      })),
+    };
+  });
+}
+
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // keep under your server/proxy limit
+
+async function apiSaveMap(floors, clientId = null) {
+  const body = JSON.stringify({ map_id: MAP_ID, client_id: clientId, floors: slimFloorsForUpload(floors) });
+  console.log(`[MapView] save payload: ${(body.length / 1048576).toFixed(2)} MB`);
+
+  if (body.length > MAX_UPLOAD_BYTES) {
+    console.warn(
+      `[MapView] Map payload is ${(body.length / 1048576).toFixed(1)} MB (> limit). Saved locally only.`
+    );
+    throw new Error("PAYLOAD_TOO_LARGE");
+  }
+
   const r = await fetch(`${API}/api/maps`, {
     method: "POST",
     headers: getAuthHeaders(),
-    body: JSON.stringify({ map_id: MAP_ID, floors }),
+    body,
   });
   if (!r.ok) throw new Error(r.status);
   return r.json();
@@ -119,16 +249,17 @@ async function apiDeleteFloor(floorId) {
     method: "DELETE",
     headers: getAuthHeaders(),
   });
-  if (!r.ok) throw new Error(r.status);
-  return r.json();
+  // 404 = the backend never had this floor (its save failed), so nothing to delete
+  if (!r.ok && r.status !== 404) throw new Error(r.status);
+  return r.ok ? r.json() : null;
 }
 
 // ── NEW: Save zones to backend ────────────────────────────────────────
-async function apiSaveZones(zones) {
+async function apiSaveZones(zones, clientId = null) {
   const r = await fetch(`${API}/api/maps/zones`, {
     method: "POST",
     headers: getAuthHeaders(),
-    body: JSON.stringify({ map_id: MAP_ID, zones }),
+    body: JSON.stringify({ map_id: MAP_ID, client_id: clientId, zones }),
   });
   if (!r.ok) throw new Error(r.status);
   return r.json();
@@ -174,8 +305,6 @@ function normalizeCams(data, models = []) {
     // Require a score >= 5 so we don't falsely match different models that share the same prefix (e.g. 'ipchdw' = 3 points)
     const match = highestScore >= 5 ? bestMatch : null;
     
-    console.log(`[DEBUG] normalizeCams IP: ${d.ip} | model: ${d.model} | score: ${highestScore} | match: ${match ? match.model : 'NONE'}`);
-
     return {
       id:     d.stream_key || d.stream_key || d.ip,
       name:   d.device_name || d.name || `Camera @ ${d.ip}`,
@@ -723,6 +852,7 @@ function ZoneSidebarItem({
 // ── Main ──────────────────────────────────────────────────────────
 export default function MapViewPage() {
   const { user } = useAuth();
+  const { fetchCameras } = useCameras();
 
   // Canvas refs
   const wrapRef         = useRef(null);
@@ -790,8 +920,8 @@ export default function MapViewPage() {
   useEffect(() => {
     localStorage.setItem("miradorai_active_floor_index", String(activeFloor));
   }, [activeFloor]);
-  const [showExportMenu, setShowExportMenu] = useState(false);
-  const exportMenuRef = useRef(null);
+  const [fileDropdownOpen, setFileDropdownOpen] = useState(false);
+  const fileDropRef = useRef(null);
 
   // Toolbox / Scale / Selection States
   const [iconScale, setIconScale] = useState(() => {
@@ -805,8 +935,9 @@ export default function MapViewPage() {
   const selectedIdxRef = useRef(null);
   useEffect(() => { selectedIdxRef.current = selectedIdx; }, [selectedIdx]);
   const [toolboxOpen, setToolboxOpen] = useState(false);
+  const [cadImportProgress, setCadImportProgress] = useState(null);
 
-  // ── Modes / Layers dropdown state ────────────────────────────────
+  // ── Modes / Layers / File dropdown state ────────────────────────────────
   const [modesDropdownOpen,  setModesDropdownOpen]  = useState(false);
   const [layersDropdownOpen, setLayersDropdownOpen] = useState(false);
   const modesDropRef  = useRef(null);
@@ -815,8 +946,8 @@ export default function MapViewPage() {
 
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target)) {
-        setShowExportMenu(false);
+      if (fileDropRef.current && !fileDropRef.current.contains(e.target)) {
+        setFileDropdownOpen(false);
       }
       if (modesDropRef.current && !modesDropRef.current.contains(e.target)) {
         setModesDropdownOpen(false);
@@ -855,6 +986,14 @@ export default function MapViewPage() {
   useEffect(() => {
     localStorage.setItem("miradorai_virtualMode", String(virtualMode));
   }, [virtualMode]);
+
+  const [showWallMetrics,  setShowWallMetrics]  = useState(() => {
+    return false;
+  });
+
+  useEffect(() => {
+    canvasApiRef.current?.drawAll();
+  }, [showWallMetrics]);
   const [expandedCamId,    setExpandedCamId]    = useState(null);
   const [inspectorExpanded, setInspectorExpanded] = useState(true);
   const [inspectorTab,      setInspectorTab]      = useState("cameras");
@@ -948,11 +1087,12 @@ export default function MapViewPage() {
     };
   }, []);
 
+  const clientIdRef = useRef("map_client_" + Math.random().toString(36).slice(2) + Date.now()).current;
   const [alertCounts, setAlertCounts] = useState({});
   const camerasRef = useRef(cameras);
   useEffect(() => { camerasRef.current = cameras; }, [cameras]);
 
-  const { isConnected: isWsConnected, eventsByTopic } = useWebSocket(["alerts"]);
+  const { isConnected: isWsConnected, eventsByTopic } = useWebSocket(["alerts", "maps"]);
 
   // Fetch active alert counts periodically
   useEffect(() => {
@@ -979,6 +1119,38 @@ export default function MapViewPage() {
       });
     }
   }, [eventsByTopic.alerts]);
+
+  // ── Instant Live Sync: listen for remote map updates from other clients (e.g. localhost <-> IP) ──
+  useEffect(() => {
+    const mapEnvelope = eventsByTopic.maps;
+    if (mapEnvelope && mapEnvelope.data) {
+      const data = mapEnvelope.data;
+      if (data.client_id && data.client_id === clientIdRef) return; // skip own local save
+      if (data.map_id && data.map_id !== MAP_ID) return;
+
+      console.log("[MapView] 🔄 Real-time map update received via WebSocket!");
+      apiGetMap().then(freshData => {
+        if (!freshData) return;
+        if (freshData.zones && Array.isArray(freshData.zones)) {
+          setZones(freshData.zones);
+          zonesRef.current = freshData.zones;
+          saveZonesDB(MAP_ID, freshData.zones);
+        }
+        if (freshData.floors && Array.isArray(freshData.floors) && freshData.floors.length > 0) {
+          const sanitized = freshData.floors.map(hydrateFloorWithLatestVersion);
+          setFloors(sanitized);
+          floorsRef.current = sanitized;
+          saveFloorsDB(MAP_ID, sanitized);
+          const curFloor = sanitized[activeFloor] || sanitized[0];
+          if (curFloor) {
+            markersRef.current = curFloor.markers || [];
+            setMarkers([...(curFloor.markers || [])]);
+            canvasApiRef.current?.drawAll();
+          }
+        }
+      }).catch(err => console.warn("[MapView] Live sync reload failed:", err));
+    }
+  }, [eventsByTopic.maps, activeFloor]);
 
   // Fetch active alert counts on mount (or fallback polling)
   const loadCounts = useCallback(async () => {
@@ -1112,13 +1284,55 @@ export default function MapViewPage() {
   }, [fitImage]);
 
   // ── Switch active floor ───────────────────────────────────────────
-  const loadFloor = useCallback((idx, floorList) => {
-    const fl = (floorList || floorsRef.current)[idx];
-    if (!fl) return;
+  const loadFloor = useCallback((idx, floorList, explicitVersionId = null) => {
+    const rawFl = (floorList || floorsRef.current)[idx];
+    if (!rawFl) return;
+
+    // Determine target version: explicitVersionId, or rawFl.activeVersionId, or latest version if versions exist
+    let targetVer = null;
+    if (rawFl.versions && rawFl.versions.length > 0) {
+      if (explicitVersionId) {
+        targetVer = rawFl.versions.find(v => v.id === explicitVersionId) || null;
+      } else if (rawFl.activeVersionId) {
+        targetVer = rawFl.versions.find(v => v.id === rawFl.activeVersionId) || null;
+      }
+      if (!targetVer) {
+        targetVer = rawFl.versions[rawFl.versions.length - 1];
+      }
+    }
+
+    const verMarkers = (targetVer?.markers && targetVer.markers.length > 0)
+      ? JSON.parse(JSON.stringify(targetVer.markers))
+      : ((targetVer?.placed && targetVer.placed.length > 0)
+        ? targetVer.placed.map(p => ({
+            id: p.id,
+            camId: p.id || p.camera?.id,
+            x: p.x,
+            y: p.y,
+            direction: p.direction || 0,
+            camName: p.camera?.name || p.name || "",
+            camIp: p.camera?.ip || p.ip || "",
+            labelOffset: p.labelOffset || { dx: 0, dy: 0 },
+          }))
+        : null);
+
+    const fl = targetVer ? {
+      ...rawFl,
+      activeVersionId: targetVer.id,
+      imageDataUrl: targetVer.imageDataUrl || targetVer.floorPlan || rawFl.imageDataUrl,
+      modelDataUrl: targetVer.modelDataUrl || rawFl.modelDataUrl,
+      markers: verMarkers || (rawFl.markers || []),
+      ppm: targetVer.ppm || rawFl.ppm,
+      calibration: targetVer.calibration ? JSON.parse(JSON.stringify(targetVer.calibration)) : rawFl.calibration,
+      walls: targetVer.walls ? JSON.parse(JSON.stringify(targetVer.walls)) : (rawFl.walls || []),
+      partsReport: targetVer.partsReport ? JSON.parse(JSON.stringify(targetVer.partsReport)) : (rawFl.partsReport || null),
+    } : rawFl;
+
     markersRef.current = fl.markers || [];
     setMarkers([...(fl.markers || [])]);
     setShowHeatmap(Boolean(fl.showHeatmap));
     setVirtualMode(Boolean(fl.virtualMode));
+    setShowWallMetrics(Boolean(fl.showWallMetrics));
     if (fl.modelDataUrl) {
       if (!fl.calibration || !fl.calibration.enabled) {
         const autoCal = {
@@ -1145,7 +1359,20 @@ export default function MapViewPage() {
       setCalibRefs([]);
       calibRefsRef.current = [];
     }
-    if (fl.imageDataUrl) {
+    if (targetVer?.zones && Array.isArray(targetVer.zones)) {
+      const otherFloorZones = zonesRef.current.filter(z => z.floorIndex !== idx);
+      const restoredFloorZones = JSON.parse(JSON.stringify(targetVer.zones)).map(z => ({ ...z, floorIndex: idx }));
+      const allZones = [...otherFloorZones, ...restoredFloorZones];
+      zonesRef.current = allZones;
+      setZones(allZones);
+    }
+    const effectiveImageUrl = isValidImageUrl(fl.imageDataUrl) ? fl.imageDataUrl : (
+      (fl.walls && fl.walls.length > 0)
+        ? generateWallsSvg(fl.walls, fl.imageWidth || fl.calibration?.imageDimensions?.width, fl.imageHeight || fl.calibration?.imageDimensions?.height)
+        : null
+    );
+
+    if (isValidImageUrl(effectiveImageUrl)) {
       const img   = new Image();
       img.onload  = () => { 
         floorImgRef.current = img; 
@@ -1153,7 +1380,11 @@ export default function MapViewPage() {
         fitImage(); 
         wrapRef.current?.__vtReposition?.();
       };
-      img.src     = fl.imageDataUrl;
+      img.onerror = () => {
+        floorImgRef.current = null;
+        setHasFloor(false);
+      };
+      img.src     = effectiveImageUrl;
     } else if (fl.modelDataUrl) {
       floorImgRef.current = null;
       setHasFloor(true);
@@ -1190,42 +1421,49 @@ export default function MapViewPage() {
   const persistFloors = useCallback((updated) => {
     saveFloorsDB(MAP_ID, updated);
     lsSave(updated);
-    if (authFailedRef.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
       setSaving(true); setSaveErr(false);
-      try { await apiSaveMap(updated); }
+      try { 
+        await apiSaveMap(updated, clientIdRef); 
+      }
       catch (e) {
         console.error("[MapView] persistFloors failed:", e);
         setSaveErr(true);
-        if (e.message === "401") authFailedRef.current = true;
       }
       finally { setSaving(false); }
     }, 800);
-  }, []);
+  }, [clientIdRef]);
 
   // ── Persist zones to backend & IndexedDB ───────────────────────────
   const persistZones = useCallback((updated) => {
     saveZonesDB(MAP_ID, updated);
     lsZoneSave(updated);
-    if (authFailedRef.current) return;
     if (zoneTimerRef.current) clearTimeout(zoneTimerRef.current);
     zoneTimerRef.current = setTimeout(async () => {
-      try { await apiSaveZones(updated); }
+      try { 
+        await apiSaveZones(updated, clientIdRef); 
+      }
       catch (e) {
         console.error("[MapView] persistZones failed:", e);
         setSaveErr(true);
-        if (e.message === "401") authFailedRef.current = true;
       }
     }, 800);
-  }, []);
+  }, [clientIdRef]);
 
   const updateMarkers = useCallback((next) => {
     markersRef.current = next;
     setMarkers([...next]);
-    const updated = floorsRef.current.map((f, i) =>
-      i === activeFloor ? { ...f, markers: next } : f
-    );
+    const updated = floorsRef.current.map((f, i) => {
+      if (i !== activeFloor) return f;
+      const updatedVersions = (f.versions || []).map(v => {
+        if (f.activeVersionId && v.id === f.activeVersionId) {
+          return { ...v, markers: JSON.parse(JSON.stringify(next)) };
+        }
+        return v;
+      });
+      return { ...f, markers: next, versions: updatedVersions };
+    });
     setFloors(updated);
     floorsRef.current = updated;
     persistFloors(updated);
@@ -1252,19 +1490,21 @@ export default function MapViewPage() {
       const savedFloorIdx = Number(localStorage.getItem("miradorai_active_floor_index") || 0);
 
       if (dbFloors?.length) {
-        setFloors(dbFloors);
-        floorsRef.current = dbFloors;
-        const validIdx = savedFloorIdx < dbFloors.length ? savedFloorIdx : 0;
+        const sanitized = dbFloors.map(hydrateFloorWithLatestVersion);
+        setFloors(sanitized);
+        floorsRef.current = sanitized;
+        const validIdx = savedFloorIdx < sanitized.length ? savedFloorIdx : 0;
         setActiveFloor(validIdx);
-        loadFloor(validIdx, dbFloors);
+        loadFloor(validIdx, sanitized);
       } else {
         const cached = lsLoad();
         if (cached?.length) {
-          setFloors(cached);
-          floorsRef.current = cached;
-          const validIdx = savedFloorIdx < cached.length ? savedFloorIdx : 0;
+          const sanitized = cached.map(hydrateFloorWithLatestVersion);
+          setFloors(sanitized);
+          floorsRef.current = sanitized;
+          const validIdx = savedFloorIdx < sanitized.length ? savedFloorIdx : 0;
           setActiveFloor(validIdx);
-          loadFloor(validIdx, cached);
+          loadFloor(validIdx, sanitized);
         }
       }
 
@@ -1279,11 +1519,9 @@ export default function MapViewPage() {
 
       let cams = [];
       try {
-        const r = await fetch(`${API}/api/cameras`, { headers: getAuthHeaders() });
-        if (r.status === 401) { authFailedRef.current = true; }
-        else if (r.ok) {
-          const j = await r.json();
-          cams = normalizeCams(j.devices || j.cameras || [], models);
+        const rawDevices = await fetchCameras();
+        if (rawDevices && rawDevices.length) {
+          cams = normalizeCams(rawDevices, models);
         }
       } catch {}
       if (!cams.length) {
@@ -1303,7 +1541,7 @@ export default function MapViewPage() {
         }
 
         if (data.floors?.length) {
-          // Merge with local dbFloors so full modelDataUrl/imageDataUrl and any locally created extra floors are never lost
+          // Merge with local dbFloors so full modelDataUrl/imageDataUrl, versions, and any locally created extra floors are never lost
           const maxLength = Math.max(data.floors.length, (dbFloors || []).length);
           const mergedFloors = [];
           for (let i = 0; i < maxLength; i++) {
@@ -1321,6 +1559,28 @@ export default function MapViewPage() {
                 imageDimensions: { width: 1000, height: 1000 },
                 timestamp: Date.now()
               } : null);
+
+              // Merge versions from backend and local IndexedDB (union by version id)
+              const backendVersions = df.versions || [];
+              const localVersions = localF.versions || [];
+              const versionMap = new Map();
+              localVersions.forEach(v => { if (v?.id) versionMap.set(v.id, v); });
+              backendVersions.forEach(v => {
+                if (v?.id) {
+                  const existing = versionMap.get(v.id);
+                  versionMap.set(v.id, {
+                    ...v,
+                    imageDataUrl: existing?.imageDataUrl || v.imageDataUrl || null,
+                    modelDataUrl: existing?.modelDataUrl || v.modelDataUrl || null,
+                  });
+                }
+              });
+              const mergedVersions = Array.from(versionMap.values());
+
+              const markersToUse = (localF.markers && localF.markers.length >= (df.markers?.length || 0))
+                ? localF.markers
+                : ((df.markers && df.markers.length) ? df.markers : (localF.markers || []));
+
               mergedFloors.push({
                 ...df,
                 name: df.name || localF.name,
@@ -1328,9 +1588,13 @@ export default function MapViewPage() {
                 modelDataUrl: df.modelDataUrl || localF.modelDataUrl || null,
                 ppm: ppmVal,
                 calibration: calib,
-                markers: (df.markers && df.markers.length) ? df.markers : (localF.markers || []),
+                markers: markersToUse,
+                walls: (df.walls && df.walls.length) ? df.walls : (localF.walls || []),
+                partsReport: df.partsReport || localF.partsReport || null,
                 showHeatmap: localF.showHeatmap ?? df.showHeatmap,
                 virtualMode: localF.virtualMode ?? df.virtualMode,
+                showWallMetrics: localF.showWallMetrics ?? df.showWallMetrics,
+                versions: mergedVersions,
               });
             } else if (df) {
               const is3D = Boolean(df.modelDataUrl);
@@ -1348,19 +1612,44 @@ export default function MapViewPage() {
                 ...df,
                 calibration: calib,
                 ppm: ppmVal,
+                versions: df.versions || [],
               });
             } else if (localF) {
               mergedFloors.push(localF);
             }
           }
-          setFloors(mergedFloors);
-          floorsRef.current = mergedFloors;
-          saveFloorsDB(MAP_ID, mergedFloors);
-          lsSave(mergedFloors);
+          const sanitizedMerged = mergedFloors.map(hydrateFloorWithLatestVersion);
+          setFloors(sanitizedMerged);
+          floorsRef.current = sanitizedMerged;
+          saveFloorsDB(MAP_ID, sanitizedMerged);
+          lsSave(sanitizedMerged);
+
+          // If local storage had more markers or zones than MongoDB, push to backend so IP address / other clients sync immediately
+          const localHadMoreMarkers = (dbFloors || []).some((f, idx) => (f.markers?.length || 0) > (data.floors[idx]?.markers?.length || 0));
+          const localHadMoreZones = (zonesRef.current?.length || 0) > (data.zones?.length || 0);
+
+          if (localHadMoreMarkers) {
+            console.log("[MapView] Syncing richer local markers to MongoDB...");
+            apiSaveMap(sanitizedMerged).catch(e => console.warn("[MapView] Initial saveMap sync failed:", e));
+          }
+          if (localHadMoreZones && zonesRef.current?.length) {
+            console.log("[MapView] Syncing richer local zones to MongoDB...");
+            apiSaveZones(zonesRef.current).catch(e => console.warn("[MapView] Initial saveZones sync failed:", e));
+          }
+
+          // Expand version accordion automatically for floors with versions
+          const initialExpanded = {};
+          sanitizedMerged.forEach(f => {
+            if (f.versions && f.versions.length > 0) {
+              initialExpanded[f.id] = true;
+            }
+          });
+          setExpandedVersions(prev => ({ ...initialExpanded, ...prev }));
+
           const activeIdx = Number(localStorage.getItem("miradorai_active_floor_index") || 0);
-          const validIdx = activeIdx < mergedFloors.length ? activeIdx : 0;
+          const validIdx = activeIdx < sanitizedMerged.length ? activeIdx : 0;
           setActiveFloor(validIdx);
-          loadFloor(validIdx, mergedFloors);
+          loadFloor(validIdx, sanitizedMerged);
           setStatus("Map restored - select a camera then click to place");
         } else if (data.markers?.length || data.floor_plan) {
           const calib = data.calibration || null;
@@ -1408,43 +1697,7 @@ export default function MapViewPage() {
     return () => clearTimeout(fallbackTimer);
   }, []); // eslint-disable-line
 
-  // ── Auto-refresh models/cameras ──────────────────────────────
-  useEffect(() => {
-    let interval = setInterval(async () => {
-      try {
-        let models = [];
-        const mr = await fetch(`${API}/api/designer/camera-models`, { headers: getAuthHeaders() });
-        if (mr.ok) {
-          const mj = await mr.json();
-          models = mj.cameras || [];
-        }
 
-        let rawCams = [];
-        const r = await fetch(`${API}/api/cameras`, { headers: getAuthHeaders() });
-        if (r.ok) {
-          const j = await r.json();
-          rawCams = j.devices || j.cameras || [];
-        }
-        if (!rawCams.length) {
-          try {
-            rawCams = JSON.parse(localStorage.getItem("miradorai_devices") || "[]");
-          } catch {}
-        }
-        
-        setCameras(prev => {
-          const newCams = normalizeCams(rawCams, models);
-          // Only update state if something changed (JSON.stringify comparison)
-          if (JSON.stringify(newCams) !== JSON.stringify(prev)) {
-            return newCams;
-          }
-          return prev;
-        });
-      } catch (err) {
-        console.warn("Failed to auto-refresh cameras/models", err);
-      }
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
 
   // ── Wheel zoom ────────────────────────────────────────────────────
   useEffect(() => {
@@ -1506,6 +1759,20 @@ export default function MapViewPage() {
         best = i;
       }
     });
+    return best;
+  }
+
+    function nearestPart(ix, iy) {
+    const partsList = floorsRef.current[activeFloor]?.partsReport?.parts;
+    if (!partsList || partsList.length === 0) return null;
+    const thr = 14 / scaleRef.current; // constant on-screen radius regardless of zoom
+    let best = null, bestD = thr;
+    for (let i = 0; i < partsList.length; i++) {
+      const s = partsList[i].screen;
+      if (!s) continue;
+      const d = Math.hypot(s.x - ix, s.y - iy);
+      if (d < bestD) { bestD = d; best = partsList[i]; }
+    }
     return best;
   }
 
@@ -1724,7 +1991,17 @@ export default function MapViewPage() {
           text:    `Zone: ${hoveredZone.name}`,
         });
       } else {
-        setTooltip(t => ({ ...t, visible: false }));
+        const hoveredPart = nearestPart(p.x, p.y);
+        if (hoveredPart) {
+          setTooltip({
+            visible: true,
+            x:       e.nativeEvent.offsetX + 14,
+            y:       e.nativeEvent.offsetY - 36,
+            text:    hoveredPart.name,
+          });
+        } else {
+          setTooltip(t => ({ ...t, visible: false }));
+        }
       }
     }
   }, [cameras, activeFloor]); // eslint-disable-line
@@ -1986,16 +2263,36 @@ export default function MapViewPage() {
     }
   }, [cameras, updateMarkers]);
 
-  // Global mouse up for calibration & measurement dragging
+  // Global mouse up for calibration, camera dragging, and rotation
+  // Ensures drag state is always cleared even when user releases outside the canvas
   useEffect(() => {
     const handleGlobalMouseUp = (e) => {
+      // Always clear camera drag state globally — prevents cameras sticking to cursor
+      // when mouse is released outside the canvas boundary
+      if (draggingRef.current !== null) {
+        if (markersRef.current.length > 0) {
+          updateMarkers([...markersRef.current]);
+        }
+        draggingRef.current = null;
+        draggingCamZoneRef.current = null;
+      }
+      if (rotatingRef.current !== null) {
+        rotatingRef.current = null;
+      }
+      if (draggingLabelIdxRef.current !== null) {
+        updateMarkers([...markersRef.current]);
+        draggingLabelIdxRef.current = null;
+        labelDragStartRef.current = null;
+      }
+      panStartRef.current = null;
+      // Also handle calibration / measurement drag release
       if (drawingCalibLineRef.current || calibHandleDragRef.current) {
         onMouseUp(e);
       }
     };
     window.addEventListener("mouseup", handleGlobalMouseUp);
     return () => window.removeEventListener("mouseup", handleGlobalMouseUp);
-  }, [onMouseUp]);
+  }, [onMouseUp, updateMarkers]);
 
   const onContextMenu = useCallback(e => {
     e.preventDefault();
@@ -2083,7 +2380,11 @@ export default function MapViewPage() {
     canvasApiRef.current?.drawAll();
   }
 
-  function renameZone(id, newName) { const zone = zonesRef.current.find(z => z.id === id); if (!zone) return; const trimmed = newName.trim(); if (!trimmed) return; if (!/^[a-zA-Z0-9 _.\-]+$/.test(trimmed)) { alert("Zone name contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed."); return; }
+  function renameZone(id, newName) {
+    const zone = zonesRef.current.find(z => z.id === id);
+    if (!zone) return;
+    const trimmed = newName.trim();
+    if (!trimmed) return;
     const exists = zonesRef.current.some(z => z.id !== id && z.name.toLowerCase() === trimmed.toLowerCase());
     if (exists) {
       alert("A zone with this name already exists.");
@@ -2145,6 +2446,186 @@ export default function MapViewPage() {
 
     const ext = file.name.toLowerCase().split(".").pop();
 
+    // ── Mirador project file (.mvms) — restores CAD layout + camera placements ──
+    if (ext === "mvms" || ext === "json") {
+      setStatus("Loading Mirador project file...");
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const data = JSON.parse(ev.target.result);
+          if (data.format !== "mirador-floor-v1" || !data.imageDataUrl) {
+            throw new Error("Not a valid Mirador project file.");
+          }
+          const img = new Image();
+          img.onload = () => {
+            floorImgRef.current = img;
+            setHasFloor(true);
+            setStatus(`Project restored - ${data.markers?.length || 0} camera(s) loaded`);
+            fitImage();
+
+            const updated = floorsRef.current.map((f, i) =>
+              i === activeFloor
+                ? {
+                    ...f,
+                    imageDataUrl: data.imageDataUrl,
+                    modelDataUrl: null,
+                    ppm: data.ppm || f.ppm,
+                    calibration: data.calibration || f.calibration,
+                    walls: data.walls || [],
+                    partsReport: data.partsReport || f.partsReport,
+                    markers: data.markers || [],
+                  }
+                : f
+            );
+            setFloors(updated);
+            floorsRef.current = updated;
+            persistFloors(updated);
+            updateMarkers(data.markers || []);
+          };
+          img.onerror = () => {
+            setStatus("Failed to render project floor plan image");
+            showAlert("Project Load Error", "Failed to render the floor plan image embedded in this project file.");
+          };
+          img.src = data.imageDataUrl;
+        } catch (err) {
+          console.error("[MapView] Project file load failed:", err);
+          setStatus("Failed to load project file - " + (err.message || "invalid format"));
+          showAlert("Invalid Project File", err.message || "This file is not a valid Mirador project file.");
+        }
+      };
+      reader.readAsText(file);
+      e.target.value = "";
+      return;
+    }
+
+    // ── AutoCAD .dwg / .dxf layout import with Real-Time Progress ───
+    if (ext === "dwg" || ext === "dxf") {
+      setStatus(`Importing AutoCAD ${ext.toUpperCase()} layout (${(file.size / 1024).toFixed(0)} KB)…`);
+      setCadImportProgress({
+        open: true,
+        percent: 5,
+        stage: `Uploading ${file.name}...`,
+        fileName: file.name,
+        fileSize: file.size,
+      });
+
+      const token = getToken();
+
+      importCadWithProgress(file, token, (percent, stage) => {
+        setCadImportProgress({
+          open: true,
+          percent,
+          stage,
+          fileName: file.name,
+          fileSize: file.size,
+        });
+      })
+        .then((cadData) => {
+          setCadImportProgress({
+            open: true,
+            percent: 95,
+            stage: "Rendering CAD floor plan...",
+            fileName: file.name,
+            fileSize: file.size,
+          });
+
+          const img = new Image();
+          img.onload = () => {
+            floorImgRef.current = img;
+            setHasFloor(true);
+            setStatus(
+              `AutoCAD layout loaded (${cadData.layers?.length || 0} layers) — select a camera then click to place`
+            );
+            fitImage();
+
+            // ── [CAD-DIAGNOSTIC PART C: MAPVIEW] ──────────────────────────
+            const canvasRect = wrapRef.current?.getBoundingClientRect() || { width: 0, height: 0 };
+            console.log(`\n==================== [CAD-DIAGNOSTIC PART C: MAPVIEW .${ext.toUpperCase()}] ====================`);
+            console.log(`1. Response PPM Received: ${cadData.ppm} px/m (Units: ${cadData.units})`);
+            console.log(`2. Image Native Dimensions: ${img.width} x ${img.height} px | SVG Header: ${cadData.width} x ${cadData.height} px`);
+            console.log(`3. Rendered Canvas/Container DOM Rect: ${canvasRect.width.toFixed(1)} x ${canvasRect.height.toFixed(1)} px`);
+            console.log(`4. Zoom Scale at Import: scaleRef=${scaleRef.current.toFixed(4)} (Zoom: ${Math.round(scaleRef.current * 100)}%)`);
+            console.log(`5. Responsive Fit Scaling: Image is scaled onto HTML5 Canvas via scale factor: ${scaleRef.current.toFixed(4)}`);
+            console.log(`=========================================================================================\n`);
+
+            const autoCalib = cadData.ppm
+              ? {
+                  enabled: true,
+                  mode: "standard",
+                  ppm: cadData.ppm,
+                  unit: cadData.units || "meters",
+                  references: [],
+                  imageDimensions: { width: cadData.width || img.width, height: cadData.height || img.height },
+                  timestamp: Date.now(),
+                }
+              : null;
+
+            const newVersion = {
+              id: "v_" + Date.now(),
+              name: `v${(floorsRef.current[activeFloor]?.versions?.length || 0) + 1}`,
+              timestamp: Date.now(),
+              imageDataUrl: cadData.dataUrl,
+              modelDataUrl: null,
+              markers: floorsRef.current[activeFloor]?.markers || [],
+              zones: zonesRef.current.filter(z => z.floorIndex === activeFloor) || [],
+              ppm: cadData.ppm || floorsRef.current[activeFloor]?.ppm || 22,
+              calibration: autoCalib || floorsRef.current[activeFloor]?.calibration,
+              walls: cadData.walls || [],
+              partsReport: cadData.partsReport || null,
+            };
+
+            const updated = floorsRef.current.map((f, i) =>
+              i === activeFloor
+                ? {
+                    ...f,
+                    imageDataUrl: cadData.dataUrl,
+                    modelDataUrl: null,
+                    ppm: cadData.ppm || f.ppm,
+                    calibration: autoCalib || f.calibration,
+                    walls: cadData.walls || [],
+                    partsReport: cadData.partsReport || null,
+                    versions: [...(f.versions || []), newVersion],
+                  }
+                : f
+            );
+            setFloors(updated);
+            floorsRef.current = updated;
+            persistFloors(updated);
+
+            setCadImportProgress({
+              open: true,
+              percent: 100,
+              stage: "Import complete!",
+              fileName: file.name,
+              fileSize: file.size,
+            });
+
+            setTimeout(() => {
+              setCadImportProgress(null);
+            }, 300);
+          };
+          img.onerror = () => {
+            setCadImportProgress(null);
+            console.error("[MapView] Failed to render converted CAD image");
+            setStatus("Failed to render converted CAD layout");
+            showAlert("CAD Render Error", "Failed to render the converted AutoCAD floor plan image.");
+          };
+          img.src = cadData.dataUrl;
+        })
+        .catch((err) => {
+          setCadImportProgress(null);
+          console.error("[MapView] AutoCAD conversion failed:", err);
+          setStatus("CAD conversion failed — " + (err.message || "unknown error"));
+          showAlert(
+            "AutoCAD Import Failed",
+            "Failed to convert CAD layout: " + (err.message || "unknown error")
+          );
+        });
+
+      e.target.value = "";
+      return;
+    }
+
     // ── .gltf / .glb → load 3D model and generate 2D fallback ─────
     if (ext === "gltf" || ext === "glb") {
       setStatus("Loading 3D model...");
@@ -2185,8 +2666,21 @@ export default function MapViewPage() {
             timestamp: Date.now()
           };
 
+          const new3dVersion = {
+            id: "v_" + Date.now(),
+            name: `v${(floorsRef.current[activeFloor]?.versions?.length || 0) + 1}`,
+            timestamp: Date.now(),
+            imageDataUrl,
+            modelDataUrl,
+            markers: restoredMarkers,
+            zones: zonesRef.current.filter(z => z.floorIndex === activeFloor) || [],
+            ppm: ppm || 25.0,
+            calibration: auto3dCalib,
+            partsReport,
+          };
+
           const updated = floorsRef.current.map((f, i) =>
-            i === activeFloor ? { ...f, imageDataUrl, modelDataUrl, ppm, calibration: auto3dCalib, partsReport, markers: restoredMarkers } : f
+            i === activeFloor ? { ...f, imageDataUrl, modelDataUrl, ppm, calibration: auto3dCalib, partsReport, markers: restoredMarkers, versions: [...(f.versions || []), new3dVersion] } : f
           );
           setFloors(updated);
           floorsRef.current = updated;
@@ -2220,14 +2714,24 @@ export default function MapViewPage() {
             setHasFloor(true);
             setStatus("HTML floor plan loaded - select a camera then click to place");
             fitImage();
+            const newHtmlVersion = {
+              id: "v_" + Date.now(),
+              name: `v${(floorsRef.current[activeFloor]?.versions?.length || 0) + 1}`,
+              timestamp: Date.now(),
+              imageDataUrl: dataUrl,
+              modelDataUrl: null,
+              markers: floorsRef.current[activeFloor]?.markers || [],
+              zones: zonesRef.current.filter(z => z.floorIndex === activeFloor) || [],
+              ppm: floorsRef.current[activeFloor]?.ppm || 22,
+            };
+            const updated = floorsRef.current.map((f, i) =>
+              i === activeFloor ? { ...f, imageDataUrl: dataUrl, modelDataUrl: null, versions: [...(f.versions || []), newHtmlVersion] } : f
+            );
+            setFloors(updated);
+            floorsRef.current = updated;
+            persistFloors(updated);
           };
           img.src = dataUrl;
-          const updated = floorsRef.current.map((f, i) =>
-            i === activeFloor ? { ...f, imageDataUrl: dataUrl } : f
-          );
-          setFloors(updated);
-          floorsRef.current = updated;
-          persistFloors(updated);
         })
         .catch((err) => {
           console.error("[MapView] HTML render failed:", err);
@@ -2237,7 +2741,7 @@ export default function MapViewPage() {
       return;
     }
 
-    // ── Image files (JPEG, PNG, etc.) - existing flow ─────────────
+    // ── Image files (JPEG, PNG, SVG, etc.) ─────────────────────────
     const reader = new FileReader();
     reader.onload = ev => {
       const dataUrl = ev.target.result;
@@ -2247,14 +2751,28 @@ export default function MapViewPage() {
         setHasFloor(true);
         setStatus("Floor plan loaded - select a camera then click to place");
         fitImage();
+        const newImgVersion = {
+          id: "v_" + Date.now(),
+          name: `v${(floorsRef.current[activeFloor]?.versions?.length || 0) + 1}`,
+          timestamp: Date.now(),
+          imageDataUrl: dataUrl,
+          modelDataUrl: null,
+          markers: floorsRef.current[activeFloor]?.markers || [],
+          zones: zonesRef.current.filter(z => z.floorIndex === activeFloor) || [],
+          ppm: floorsRef.current[activeFloor]?.ppm || 22,
+        };
+        const updated = floorsRef.current.map((f, i) =>
+          i === activeFloor ? { ...f, imageDataUrl: dataUrl, modelDataUrl: null, versions: [...(f.versions || []), newImgVersion] } : f
+        );
+        setFloors(updated);
+        floorsRef.current = updated;
+        persistFloors(updated);
+      };
+      img.onerror = () => {
+        setStatus("Failed to load image file");
+        showAlert("Invalid Image", "The selected file is not a supported or valid image format.");
       };
       img.src = dataUrl;
-      const updated = floorsRef.current.map((f, i) =>
-        i === activeFloor ? { ...f, imageDataUrl: dataUrl } : f
-      );
-      setFloors(updated);
-      floorsRef.current = updated;
-      persistFloors(updated);
     };
     reader.readAsDataURL(file);
     e.target.value = "";
@@ -2285,6 +2803,7 @@ export default function MapViewPage() {
     if (currentFl) {
       currentFl.showHeatmap = showHeatmap;
       currentFl.virtualMode = virtualMode;
+      currentFl.showWallMetrics = showWallMetrics;
       currentFl.markers = markersRef.current;
     }
     setActiveFloor(idx);
@@ -2358,34 +2877,80 @@ export default function MapViewPage() {
     });
   }
 
+  function saveFloorVersion(floorIdx = activeFloor, customName = null) {
+    const floor = floorsRef.current[floorIdx];
+    if (!floor) return;
+    const versions = floor.versions || [];
+    const newVersionName = customName || `v${versions.length + 1}`;
+    const newVersion = {
+      id: "v_" + Date.now(),
+      name: newVersionName,
+      timestamp: Date.now(),
+      imageDataUrl: floor.imageDataUrl || null,
+      modelDataUrl: floor.modelDataUrl || null,
+      markers: JSON.parse(JSON.stringify(markersRef.current || floor.markers || [])),
+      zones: JSON.parse(JSON.stringify(zonesRef.current.filter(z => z.floorIndex === floorIdx) || [])),
+      ppm: floor.ppm || 22,
+      calibration: floor.calibration ? JSON.parse(JSON.stringify(floor.calibration)) : null,
+      walls: floor.walls ? JSON.parse(JSON.stringify(floor.walls)) : [],
+      partsReport: floor.partsReport ? JSON.parse(JSON.stringify(floor.partsReport)) : null,
+    };
+
+    const updated = floorsRef.current.map((f, i) =>
+      i === floorIdx ? { ...f, activeVersionId: newVersion.id, versions: [...(f.versions || []), newVersion] } : f
+    );
+    setFloors(updated);
+    floorsRef.current = updated;
+    persistFloors(updated);
+    setExpandedVersions(prev => ({ ...prev, [floor.id]: true }));
+    setStatus(`Saved version "${newVersionName}" for ${floor.name || `Floor ${floorIdx + 1}`}`);
+  }
+
   function restoreVersion(floorIdx, vId) {
-    const floor = floors[floorIdx];
+    const floor = (floorsRef.current || floors)[floorIdx];
     if (!floor || !floor.versions) return;
     const v = floor.versions.find(ver => ver.id === vId);
     if (!v) return;
-    const updated = floors.map((f, i) => i === floorIdx ? {
+    const restoredMarkers = v.markers ? JSON.parse(JSON.stringify(v.markers)) : (v.placed ? v.placed.map(p => ({
+      id: p.id,
+      camId: p.id || p.camera?.id,
+      x: p.x,
+      y: p.y,
+      direction: p.direction || 0,
+      camName: p.camera?.name || p.name || "",
+      camIp: p.camera?.ip || p.ip || "",
+      labelOffset: p.labelOffset || { dx: 0, dy: 0 },
+    })) : []);
+
+    const updated = (floorsRef.current || floors).map((f, i) => i === floorIdx ? {
       ...f,
-      imageDataUrl: v.floorPlan || v.imageDataUrl || f.imageDataUrl,
+      activeVersionId: v.id,
+      imageDataUrl: v.imageDataUrl || v.floorPlan || f.imageDataUrl,
       modelDataUrl: v.modelDataUrl || f.modelDataUrl,
-      markers: v.placed ? v.placed.map(p => ({
-        id: p.id,
-        camId: p.id || p.camera?.id,
-        x: p.x,
-        y: p.y,
-        direction: p.direction || 0,
-        camName: p.camera?.name || p.name || "",
-        camIp: p.camera?.ip || p.ip || "",
-      })) : (v.markers || f.markers),
-      ppm: v.ppm || f.ppm
+      markers: restoredMarkers,
+      ppm: v.ppm || f.ppm,
+      calibration: v.calibration ? JSON.parse(JSON.stringify(v.calibration)) : f.calibration,
+      walls: v.walls ? JSON.parse(JSON.stringify(v.walls)) : (f.walls || []),
+      partsReport: v.partsReport ? JSON.parse(JSON.stringify(v.partsReport)) : (f.partsReport || null),
     } : f);
     setFloors(updated);
     floorsRef.current = updated;
     persistFloors(updated);
-    loadFloor(floorIdx, updated);
+    if (v.zones && Array.isArray(v.zones)) {
+      const otherFloorZones = zonesRef.current.filter(z => z.floorIndex !== floorIdx);
+      const restoredFloorZones = JSON.parse(JSON.stringify(v.zones)).map(z => ({ ...z, floorIndex: floorIdx }));
+      const allZones = [...otherFloorZones, ...restoredFloorZones];
+      zonesRef.current = allZones;
+      setZones(allZones);
+      persistZones(allZones);
+    }
+    loadFloor(floorIdx, updated, v.id);
+    setStatus(`Switched to version "${v.name}" for ${floor.name || `Floor ${floorIdx + 1}`}`);
   }
 
-  function renameVersion(floorIdx, vId, newName) { if (!newName || !newName.trim()) return; if (!/^[a-zA-Z0-9 _.\-]+$/.test(newName.trim())) { alert("Version name contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed."); return; }
-    const updated = floors.map((f, i) => {
+  function renameVersion(floorIdx, vId, newName) {
+    if (!newName || !newName.trim()) return;
+    const updated = (floorsRef.current || floors).map((f, i) => {
       if (i !== floorIdx || !f.versions) return f;
       return {
         ...f,
@@ -2398,16 +2963,24 @@ export default function MapViewPage() {
   }
 
   function deleteVersion(floorIdx, vId) {
-    const updated = floors.map((f, i) => {
+    const updated = (floorsRef.current || floors).map((f, i) => {
       if (i !== floorIdx || !f.versions) return f;
+      const remainingVersions = f.versions.filter(v => v.id !== vId);
+      const newActiveVersionId = f.activeVersionId === vId
+        ? (remainingVersions[remainingVersions.length - 1]?.id || null)
+        : f.activeVersionId;
       return {
         ...f,
-        versions: f.versions.filter(v => v.id !== vId)
+        activeVersionId: newActiveVersionId,
+        versions: remainingVersions
       };
     });
     setFloors(updated);
     floorsRef.current = updated;
     persistFloors(updated);
+    if (floorIdx === activeFloor) {
+      loadFloor(floorIdx, updated);
+    }
   }
 
   // ── Mode helpers ──────────────────────────────────────────────────
@@ -2639,7 +3212,7 @@ export default function MapViewPage() {
     } else {
       alert("3D viewer is not initialized for GLB export.");
     }
-    setShowExportMenu(false);
+    setFileDropdownOpen(false);
   }
 
   // ── Export 3D Top-Down 2D Snapshot (pristine top view without altering current 3D viewport angle) ──
@@ -2652,7 +3225,114 @@ export default function MapViewPage() {
     } else {
       exportMapPNG(isHeatmap ? "heatmap" : "design");
     }
-    setShowExportMenu(false);
+    setFileDropdownOpen(false);
+  }
+
+  // ── Export Project File (CAD layout + camera placements, round-trippable) ──
+  function exportProjectFile() {
+    const currentFloor = floorsRef.current[activeFloor];
+    if (!currentFloor || !currentFloor.imageDataUrl) {
+      alert("No floor plan loaded to export.");
+      return;
+    }
+    const projectData = {
+      format: "mirador-floor-v1",
+      exportedAt: new Date().toISOString(),
+      floorName: currentFloor.name || `Floor_${activeFloor + 1}`,
+      imageDataUrl: currentFloor.imageDataUrl,
+      ppm: currentFloor.ppm || null,
+      calibration: currentFloor.calibration || null,
+      walls: currentFloor.walls || [],
+      partsReport: currentFloor.partsReport || null,
+      markers: markersRef.current || [],
+    };
+    const blob = new Blob([JSON.stringify(projectData)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${(currentFloor.name || "floor").replace(/\s+/g, "_")}.mvms`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setFileDropdownOpen(false);
+  }
+
+  // ── Export AutoCAD DWG Design Layout ────────────────────────────────
+  async function exportCADDesignDWG() {
+    const currentFloor = floorsRef.current[activeFloor];
+    if (!currentFloor) {
+      alert("No active floor loaded to export.");
+      return;
+    }
+    const currentWalls = currentFloor.walls || [];
+    const currentPpm = currentFloor.calibration?.ppm || currentFloor.ppm || 25.0;
+    const floorDisplayName = (currentFloor.name || `Floor_${activeFloor + 1}`).replace(/\s+/g, "_");
+
+    const payload = {
+      map_id: MAP_ID,
+      floor_id: currentFloor.id || `floor_${activeFloor + 1}`,
+      floor_name: currentFloor.name || `Floor ${activeFloor + 1}`,
+      walls: currentWalls,
+      cameras: (currentFloor.markers || markersRef.current || []).map(m => ({
+        id: m.camId || m.id,
+        x: m.x,
+        y: m.y,
+        direction: m.direction || 0,
+        fov: m.fov || m.fovAngle || 60,
+        distance: m.distance || 15,
+        name: m.camName || m.name || "Camera",
+        model: m.camName || m.model || "Standard IP Cam",
+      })),
+      zones: zonesRef.current.filter(z => z.floorIndex === activeFloor) || [],
+      ppm: currentPpm,
+    };
+
+    try {
+      const token = getToken();
+      const headers = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = "Bearer " + token;
+
+      const res = await fetch(`${API}/api/maps/export-cad`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${floorDisplayName}.dwg`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setStatus(`Exported AutoCAD DWG layout "${floorDisplayName}.dwg"`);
+      } else {
+        throw new Error(`Server returned ${res.status}`);
+      }
+    } catch (err) {
+      console.warn("[MapViewPage] Backend CAD export failed, generating client-side DXF:", err);
+      let dxf = "0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n";
+      const scale = currentPpm || 25.0;
+      currentWalls.forEach(w => {
+        if (w && w.length >= 2) {
+          dxf += `0\nLINE\n8\nWALLS\n10\n${w[0][0]/scale}\n20\n${-w[0][1]/scale}\n30\n0\n11\n${w[1][0]/scale}\n21\n${-w[1][1]/scale}\n31\n0\n`;
+        }
+      });
+      (currentFloor.markers || markersRef.current || []).forEach(p => {
+        dxf += `0\nPOINT\n8\nCAMERAS\n10\n${p.x/scale}\n20\n${-p.y/scale}\n30\n0\n`;
+        dxf += `0\nTEXT\n8\nANNOTATIONS\n10\n${p.x/scale + 0.5}\n20\n${-p.y/scale}\n30\n0\n40\n0.5\n1\n${p.camName || p.name || "Camera"}\n`;
+      });
+      dxf += "0\nENDSEC\n0\nEOF\n";
+      const blob = new Blob([dxf], { type: "application/dxf" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${floorDisplayName}.dwg`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setStatus(`Exported CAD layout "${floorDisplayName}.dwg"`);
+    }
+    setFileDropdownOpen(false);
   }
 
   // ── Export PNG ────────────────────────────────────────────────────
@@ -2709,6 +3389,8 @@ export default function MapViewPage() {
       exportMode,
       ppm: floorPpm,
       calibration: floorCalibration,
+      walls: activeFloorObj.walls || [],
+      showWallMetrics: showWallMetrics,
       iconScale: iconScale,
       logoImage: logoElem,
       padTop,
@@ -2722,7 +3404,7 @@ export default function MapViewPage() {
     a.download = exportMode === "heatmap" ? `mirador_coverage_heatmap.png` : `mirador_design_layout.png`;
     a.href     = oc.toDataURL("image/png");
     a.click();
-    setShowExportMenu(false);
+    setFileDropdownOpen(false);
   }
 
   // Computed
@@ -2902,8 +3584,7 @@ export default function MapViewPage() {
                         });
                         if (!r.ok) {
                           const errData = await r.json();
-                          alert(`CV Zone detection failed: ${(typeof errData.detail === "string" ? errData.detail : (Array.isArray(errData.detail) ? errData.detail.map(d => d.msg || "Invalid input").join(", ") : (r.statusText)))}`);
-                          return;
+                          alert(`CV Zone detection failed: ${(typeof errData.detail === "string" ? errData.detail : (Array.isArray(errData.detail) ? errData.detail.map(d => d.msg || "Invalid input").join(", ") : (r.statusText)))}`);                          return;
                         }
                         const data = await r.json();
                         if (data.success && data.zones?.length > 0) {
@@ -3034,6 +3715,23 @@ export default function MapViewPage() {
                       <span className="mv-dropdown-card__desc">3D virtual camera positions</span>
                     </div>
                     <div className={`mv-dropdown-card__toggle ${virtualMode ? "mv-dropdown-card__toggle--on mv-dropdown-card__toggle--purple" : ""}`} />
+                  </button>
+
+                  {/* Wall Dimensions (Metrics in meters) */}
+                  <button
+                    className={`mv-dropdown-card ${showWallMetrics ? "mv-dropdown-card--active" : ""}`}
+                    onClick={() => setShowWallMetrics(v => !v)}
+                  >
+                    <div className="mv-dropdown-card__icon" style={{ color: "#38bdf8" }}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="26" height="26">
+                        <path d="M3 21h18M3 10h18M3 7l2-2h14l2 2M7 10v4M12 10v6M17 10v4"/>
+                      </svg>
+                    </div>
+                    <div className="mv-dropdown-card__body">
+                      <span className="mv-dropdown-card__label">Wall Dimensions</span>
+                      <span className="mv-dropdown-card__desc">Wall length metrics in meters</span>
+                    </div>
+                    <div className={`mv-dropdown-card__toggle ${showWallMetrics ? "mv-dropdown-card__toggle--on mv-dropdown-card__toggle--blue" : ""}`} />
                   </button>
 
                 </div>
@@ -3170,108 +3868,153 @@ export default function MapViewPage() {
           )}
 
           <div className="mv-toolbar-group-actions" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <button className="mv-tbtn-new secondary" onClick={() => fileInputRef.current?.click()} title="Import Plan">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="13" height="13">
-                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
-              </svg>
-              Import Plan
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*,.gltf,.glb,.html,.htm"
-              style={{ display: "none" }}
-              onChange={handleFileChange}
-            />
-
-            <div className="mv-export-group" ref={exportMenuRef}>
+            {/* ── File / Actions Dropdown ── */}
+            <div className="mv-icon-drop-wrap" ref={fileDropRef}>
               <button
-                className={`mv-tbtn-new secondary ${showExportMenu ? "active" : ""}`}
-                onClick={() => setShowExportMenu(!showExportMenu)}
-                disabled={!hasFloor}
-                title="Export PNG snapshot"
+                className={`mv-icon-btn ${fileDropdownOpen ? "mv-icon-btn--active" : ""}`}
+                onClick={() => {
+                  setFileDropdownOpen(o => !o);
+                  setModesDropdownOpen(false);
+                  setLayersDropdownOpen(false);
+                  setToolboxOpen(false);
+                }}
+                title="File & Actions"
               >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="13" height="13">
-                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
                 </svg>
-                Export
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10" style={{ marginLeft: 2, opacity: 0.6 }}>
-                  <polyline points="6 9 12 15 18 9" />
+                <span className="mv-icon-btn__label">File</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" width="10" height="10" className={`mv-icon-btn__chevron ${fileDropdownOpen ? "open" : ""}`}>
+                  <polyline points="6 9 12 15 18 9"/>
                 </svg>
               </button>
 
-              {showExportMenu && (
-                <div className="mv-export-menu">
+              {fileDropdownOpen && (
+                <div className="mv-dropdown-panel mv-dropdown-panel--file">
+                  <div className="mv-dropdown-panel__title">Project File Actions</div>
+
+                  {/* Import Plan */}
+                  <button
+                    className="mv-dropdown-item-btn"
+                    onClick={() => {
+                      setFileDropdownOpen(false);
+                      fileInputRef.current?.click();
+                    }}
+                  >
+                    <div className="mv-dropdown-item-btn__icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                      </svg>
+                    </div>
+                    <span>Import Plan</span>
+                  </button>
+
+                  {/* Save Version */}
+                  <button
+                    className="mv-dropdown-item-btn"
+                    onClick={() => {
+                      setFileDropdownOpen(false);
+                      saveFloorVersion(activeFloor);
+                    }}
+                    disabled={!hasFloor}
+                    title="Save current floor layout as a version"
+                  >
+                    <div className="mv-dropdown-item-btn__icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                        <polyline points="17 21 17 13 7 13 7 21" />
+                        <polyline points="7 3 7 8 15 8" />
+                      </svg>
+                    </div>
+                    <span>Save Version</span>
+                  </button>
+
+                  <div className="mv-dropdown-panel__title" style={{ marginTop: "10px" }}>Export Options</div>
+
                   {floors[activeFloor]?.modelDataUrl ? (
-                    <>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                       {/* 1. Download Design (.glb) */}
-                      <button className="mv-export-item" onClick={export3DModelGLB}>
-                        <div className="mv-export-item__icon" style={{ color: "#1D9E75" }}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                      <button
+                        className="mv-dropdown-item-btn"
+                        style={{ background: "rgba(29, 158, 117, 0.12)", border: "1px solid rgba(29, 158, 117, 0.3)", color: "#1D9E75" }}
+                        onClick={export3DModelGLB}
+                      >
+                        <div className="mv-dropdown-item-btn__icon" style={{ color: "#1D9E75" }}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
                             <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
                             <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
                             <line x1="12" y1="22.08" x2="12" y2="12"></line>
                           </svg>
                         </div>
-                        <div className="mv-export-item__label">
-                          <span>Download Design (.glb)</span>
-                          <small style={{ fontSize: "10px", opacity: 0.6, display: "block" }}>With 3D cameras &amp; solid beams</small>
-                        </div>
+                        <span>Download Design (.glb)</span>
                       </button>
 
                       {/* 2. Download Design 2D */}
-                      <button className="mv-export-item" onClick={() => export3DTopDownSnapshot(false)}>
-                        <div className="mv-export-item__icon">
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                      <button
+                        className="mv-dropdown-item-btn"
+                        onClick={() => export3DTopDownSnapshot(false)}
+                      >
+                        <div className="mv-dropdown-item-btn__icon">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
                             <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 21V9" />
                           </svg>
                         </div>
-                        <div className="mv-export-item__label">
-                          <span>Download Design 2D</span>
-                          <small style={{ fontSize: "10px", opacity: 0.6, display: "block" }}>Pristine top-down 2D snapshot</small>
-                        </div>
+                        <span>Download Design 2D</span>
                       </button>
 
                       {/* 3. Download Heatmap 2D */}
                       <button
-                        className="mv-export-item"
+                        className="mv-dropdown-item-btn"
                         disabled={!showHeatmap}
-                        title={!showHeatmap ? "Enable the Heatmap layer to download heatmap 2D" : "Download 2D top-down heatmap snapshot"}
+                        title={!showHeatmap ? "Enable the Heatmap layer to download heatmap 2D" : "Download Heatmap 2D"}
                         style={{
                           opacity: !showHeatmap ? 0.45 : 1,
                           cursor: !showHeatmap ? "not-allowed" : "pointer"
                         }}
                         onClick={() => { if (showHeatmap) export3DTopDownSnapshot(true); }}
                       >
-                        <div className="mv-export-item__icon mv-export-item__icon--heatmap" style={{ opacity: showHeatmap ? 1 : 0.5 }}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                        <div className="mv-dropdown-item-btn__icon" style={{ color: showHeatmap ? "#f59e0b" : "inherit" }}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
                             <circle cx="12" cy="12" r="3" />
                             <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
                           </svg>
                         </div>
-                        <div className="mv-export-item__label">
-                          <span>Download Heatmap 2D</span>
-                          <small style={{ fontSize: "10px", opacity: 0.6, display: "block" }}>{showHeatmap ? "Top-down coverage heatmap" : "Requires Heatmap layer active"}</small>
-                        </div>
+                        <span>Download Heatmap 2D</span>
                       </button>
-                    </>
-                  ) : (
-                    <>
-                      {/* 2D Download Design */}
-                      <button className="mv-export-item" onClick={() => exportMapPNG("design")}>
-                        <div className="mv-export-item__icon">
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                    </div>
+                  ) : ((floors[activeFloor]?.walls && floors[activeFloor]?.walls.length > 0) || floors[activeFloor]?.partsReport || floors[activeFloor]?.isCad) ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                      {/* 1. Download Design (PNG) */}
+                      <button
+                        className="mv-dropdown-item-btn"
+                        onClick={() => exportMapPNG("design")}
+                      >
+                        <div className="mv-dropdown-item-btn__icon">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
                             <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 21V9" />
                           </svg>
                         </div>
-                        <div className="mv-export-item__label">
-                          <span>Download Design</span>
-                        </div>
+                        <span>Download Design</span>
                       </button>
 
-                      {/* 2D Download Heatmap */}
+                      {/* 2. Download CAD design (DWG) */}
                       <button
-                        className="mv-export-item"
+                        className="mv-dropdown-item-btn"
+                        style={{ background: "rgba(168, 85, 247, 0.12)", border: "1px solid rgba(168, 85, 247, 0.3)", color: "#a855f7" }}
+                        onClick={exportCADDesignDWG}
+                        title="Download AutoCAD (.dwg) layout with camera & FOV layers"
+                      >
+                        <div className="mv-dropdown-item-btn__icon" style={{ color: "#a855f7" }}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                          </svg>
+                        </div>
+                        <span>Download CAD design</span>
+                      </button>
+
+                      {/* 3. Download Heatmap (PNG) */}
+                      <button
+                        className="mv-dropdown-item-btn"
                         disabled={!showHeatmap}
                         title={!showHeatmap ? "Enable the Heatmap layer to download heatmap" : "Download Heatmap"}
                         style={{
@@ -3280,16 +4023,66 @@ export default function MapViewPage() {
                         }}
                         onClick={() => { if (showHeatmap) exportMapPNG("heatmap"); }}
                       >
-                        <div className="mv-export-item__icon mv-export-item__icon--heatmap" style={{ opacity: showHeatmap ? 1 : 0.5 }}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                        <div className="mv-dropdown-item-btn__icon" style={{ color: showHeatmap ? "#f59e0b" : "inherit" }}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
                             <circle cx="12" cy="12" r="3" />
                             <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
                           </svg>
                         </div>
-                        <div className="mv-export-item__label">
-                          <span>Download Heatmap</span>
-                          <small style={{ fontSize: "10px", opacity: 0.6, display: "block" }}>{showHeatmap ? "Coverage heatmap" : "Requires Heatmap layer active"}</small>
+                        <span>Download Heatmap</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                      {/* 1. Download Design */}
+                      <button
+                        className="mv-dropdown-item-btn"
+                        onClick={() => exportMapPNG("design")}
+                      >
+                        <div className="mv-dropdown-item-btn__icon">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                            <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 21V9" />
+                          </svg>
                         </div>
+                        <span>Download Design</span>
+                      </button>
+
+                      {/* 2. Download Heatmap */}
+                      <button
+                        className="mv-dropdown-item-btn"
+                        disabled={!showHeatmap}
+                        title={!showHeatmap ? "Enable the Heatmap layer to download heatmap" : "Download Heatmap"}
+                        style={{
+                          opacity: !showHeatmap ? 0.45 : 1,
+                          cursor: !showHeatmap ? "not-allowed" : "pointer"
+                        }}
+                        onClick={() => { if (showHeatmap) exportMapPNG("heatmap"); }}
+                      >
+                        <div className="mv-dropdown-item-btn__icon" style={{ color: showHeatmap ? "#f59e0b" : "inherit" }}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                            <circle cx="12" cy="12" r="3" />
+                            <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                          </svg>
+                        </div>
+                        <span>Download Heatmap</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {hasFloor && (
+                    <>
+                      <div className="mv-dropdown-divider" />
+                      <button
+                        className="mv-dropdown-item-btn mv-dropdown-item-btn--danger"
+                        onClick={() => { setFileDropdownOpen(false); clearFloor(); }}
+                        title="Clear Map Floor Plan"
+                      >
+                        <div className="mv-dropdown-item-btn__icon">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                            <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"/>
+                          </svg>
+                        </div>
+                        <span>Clear Floor Plan</span>
                       </button>
                     </>
                   )}
@@ -3297,13 +4090,13 @@ export default function MapViewPage() {
               )}
             </div>
 
-            <button className="mv-tbtn-new danger" onClick={clearFloor} title="Clear Map Floor Plan">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="13" height="13">
-                <polyline points="3 6 5 6 21 6"/>
-                <path d="M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2"/>
-              </svg>
-              Clear
-            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,.gltf,.glb,.html,.htm,.dwg,.dxf,.svg,.mvms,.json"
+              style={{ display: "none" }}
+              onChange={handleFileChange}
+            />
 
             {/* {floors[activeFloor]?.modelDataUrl && (
               <button
@@ -3563,25 +4356,21 @@ export default function MapViewPage() {
                             overflow: "hidden"
                           }}
                         >
-                          {f.modelDataUrl && (
-                            <div style={{
-                              position: "absolute",
-                              top: "4px",
-                              left: "4px",
-                              background: "rgba(29, 158, 117, 0.9)",
-                              color: "#fff",
-                              fontSize: "8.5px",
-                              fontWeight: "800",
-                              padding: "1px 5px",
-                              borderRadius: "3px",
-                              letterSpacing: "0.5px",
-                              zIndex: 2
-                            }}>
+                          {f.modelDataUrl ? (
+                            <div className="mv-floor-badge-3d">
                               3D
                             </div>
-                          )}
+                          ) : ((f.walls && f.walls.length > 0) || f.partsReport || f.isCad) ? (
+                            <div className="mv-floor-badge-cad">
+                              CAD
+                            </div>
+                          ) : isValidImageUrl(f.imageDataUrl) ? (
+                            <div className="mv-floor-badge-2d">
+                              2D
+                            </div>
+                          ) : null}
 
-                          {f.imageDataUrl ? (
+                          {isValidImageUrl(f.imageDataUrl) ? (
                             <img
                               src={f.imageDataUrl}
                               alt={floorDisplayName}
@@ -3608,6 +4397,22 @@ export default function MapViewPage() {
                                 <line x1="12" y1="22.08" x2="12" y2="12" />
                               </svg>
                               <span style={{ fontSize: "9px", fontWeight: "600" }}>3D Model</span>
+                            </div>
+                          ) : ((f.walls && f.walls.length > 0) || f.partsReport || f.isCad) ? (
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                gap: "4px",
+                                color: "#8b5cf6"
+                              }}
+                            >
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="18" height="18">
+                                <path d="M3 3h18v18H3z" />
+                                <path d="M3 9h18M9 21V9" />
+                              </svg>
+                              <span style={{ fontSize: "9px", fontWeight: "600" }}>CAD Layout</span>
                             </div>
                           ) : (
                             <div
@@ -3741,12 +4546,12 @@ export default function MapViewPage() {
                             <span>{camCount} Cam{camCount !== 1 ? "s" : ""} • {zoneCount} Zone{zoneCount !== 1 ? "s" : ""}</span>
                             {f.versions && f.versions.length > 0 && (
                               <div
-                                onClick={(e) => { e.stopPropagation(); setExpandedVersions(prev => ({ ...prev, [f.id]: !prev[f.id] })); }}
+                                onClick={(e) => { e.stopPropagation(); setExpandedVersions(prev => ({ ...prev, [f.id]: !(prev[f.id] ?? true) })); }}
                                 style={{ cursor: "pointer", padding: "2px", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}
-                                title={expandedVersions[f.id] ? "Hide versions" : "Show versions"}
+                                title={(expandedVersions[f.id] ?? true) ? "Hide versions" : "Show versions"}
                               >
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12"
-                                  style={{ transition: "transform 0.2s", transform: expandedVersions[f.id] ? "rotate(180deg)" : "rotate(0deg)" }}
+                                  style={{ transition: "transform 0.2s", transform: (expandedVersions[f.id] ?? true) ? "rotate(180deg)" : "rotate(0deg)" }}
                                 >
                                   <polyline points="6 9 12 15 18 9" />
                                 </svg>
@@ -3758,98 +4563,120 @@ export default function MapViewPage() {
                     </div>
 
                     {/* Versions Tree */}
-                    {f.versions && f.versions.length > 0 && expandedVersions[f.id] && (
+                    {f.versions && f.versions.length > 0 && (expandedVersions[f.id] ?? true) && (
                       <div style={{ paddingLeft: "28px", display: "flex", flexDirection: "column", gap: "4px", position: "relative", paddingBottom: "4px" }}>
                         <div style={{ position: "absolute", left: "14px", top: 0, bottom: "14px", width: "1px", background: "var(--border-light)" }}></div>
-                        {f.versions.map((v) => (
-                          <div
-                            key={v.id}
-                            onClick={(e) => { e.stopPropagation(); restoreVersion(i, v.id); }}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "8px",
-                              fontSize: "12px",
-                              color: "var(--text-primary)",
-                              cursor: "pointer",
-                              padding: "4px 8px",
-                              borderRadius: "4px",
-                              background: "var(--bg-elevated)",
-                              position: "relative",
-                              border: "0.5px solid var(--border-light)",
-                              transition: "all 0.15s"
-                            }}
-                            onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.borderColor = "var(--teal)"; }}
-                            onMouseLeave={e => { e.currentTarget.style.background = "var(--bg-elevated)"; e.currentTarget.style.borderColor = "var(--border-light)"; }}
-                            title={`Restore ${v.name}`}
-                          >
-                            <div style={{ position: "absolute", left: "-14px", top: "50%", width: "10px", height: "1px", background: "var(--border-light)" }}></div>
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10" style={{ flexShrink: 0, color: "var(--text-muted)" }}>
-                              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                              <polyline points="17 21 17 13 7 13 7 21" />
-                              <polyline points="7 3 7 8 15 8" />
-                            </svg>
+                        {f.versions.map((v) => {
+                          const isVerActive = f.activeVersionId
+                            ? f.activeVersionId === v.id
+                            : v.id === f.versions[f.versions.length - 1]?.id;
 
-                            {editingVersionId === v.id ? (
-                              <input
-                                type="text"
-                                value={editingVersionName}
-                                onChange={e => setEditingVersionName(e.target.value)}
-                                onBlur={() => {
-                                  renameVersion(i, v.id, editingVersionName);
-                                  setEditingVersionId(null);
-                                }}
-                                onKeyDown={e => {
-                                  if (e.key === "Enter") {
+                          return (
+                            <div
+                              key={v.id}
+                              onClick={(e) => { e.stopPropagation(); restoreVersion(i, v.id); }}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "8px",
+                                fontSize: "12px",
+                                color: isVerActive ? "var(--teal)" : "var(--text-primary)",
+                                cursor: "pointer",
+                                padding: "4px 8px",
+                                borderRadius: "4px",
+                                background: isVerActive ? "rgba(16, 185, 129, 0.12)" : "var(--bg-elevated)",
+                                position: "relative",
+                                border: isVerActive ? "1px solid var(--teal)" : "0.5px solid var(--border-light)",
+                                fontWeight: isVerActive ? "600" : "normal",
+                                transition: "all 0.15s"
+                              }}
+                              onMouseEnter={e => {
+                                if (!isVerActive) {
+                                  e.currentTarget.style.background = "var(--bg-hover)";
+                                  e.currentTarget.style.borderColor = "var(--teal)";
+                                }
+                              }}
+                              onMouseLeave={e => {
+                                if (!isVerActive) {
+                                  e.currentTarget.style.background = "var(--bg-elevated)";
+                                  e.currentTarget.style.borderColor = "var(--border-light)";
+                                }
+                              }}
+                              title={`Switch to ${v.name}`}
+                            >
+                              <div style={{ position: "absolute", left: "-14px", top: "50%", width: "10px", height: "1px", background: "var(--border-light)" }}></div>
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10" style={{ flexShrink: 0, color: isVerActive ? "var(--teal)" : "var(--text-muted)" }}>
+                                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                                <polyline points="17 21 17 13 7 13 7 21" />
+                                <polyline points="7 3 7 8 15 8" />
+                              </svg>
+
+                              {editingVersionId === v.id ? (
+                                <input
+                                  type="text"
+                                  value={editingVersionName}
+                                  onChange={e => setEditingVersionName(e.target.value)}
+                                  onBlur={() => {
                                     renameVersion(i, v.id, editingVersionName);
                                     setEditingVersionId(null);
-                                  } else if (e.key === "Escape") {
-                                    setEditingVersionId(null);
-                                  }
-                                }}
-                                onClick={e => e.stopPropagation()}
-                                autoFocus
-                                style={{
-                                  background: "var(--bg-input)", border: "1px solid var(--teal)", borderRadius: "3px", color: "var(--text-primary)",
-                                  fontSize: "12px", padding: "1px 4px", width: "100%", outline: "none"
-                                }}
-                              />
-                            ) : (
-                              <>
-                                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.name}</span>
-                                <span style={{ fontSize: "10px", color: "var(--text-secondary)", flexShrink: 0 }}>
-                                  ({v.placed ? v.placed.length : (v.markers ? v.markers.length : 0)})
-                                </span>
-                                <svg
-                                  viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10"
-                                  style={{ opacity: 0.6, cursor: "pointer", flexShrink: 0, marginLeft: "4px", color: "var(--text-secondary)" }}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setEditingVersionId(v.id);
-                                    setEditingVersionName(v.name);
                                   }}
-                                  title="Rename version"
-                                >
-                                  <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
-                                </svg>
-                                <svg
-                                  viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10"
-                                  style={{ opacity: 0.8, cursor: "pointer", flexShrink: 0, marginLeft: "4px", color: "#ef4444" }}
-                                  onMouseEnter={e => e.currentTarget.style.opacity = 1}
-                                  onMouseLeave={e => e.currentTarget.style.opacity = 0.8}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    deleteVersion(i, v.id);
+                                  onKeyDown={e => {
+                                    if (e.key === "Enter") {
+                                      renameVersion(i, v.id, editingVersionName);
+                                      setEditingVersionId(null);
+                                    } else if (e.key === "Escape") {
+                                      setEditingVersionId(null);
+                                    }
                                   }}
-                                  title="Delete version"
-                                >
-                                  <line x1="18" y1="6" x2="6" y2="18" />
-                                  <line x1="6" y1="6" x2="18" y2="18" />
-                                </svg>
-                              </>
-                            )}
-                          </div>
-                        ))}
+                                  onClick={e => e.stopPropagation()}
+                                  autoFocus
+                                  style={{
+                                    background: "var(--bg-input)", border: "1px solid var(--teal)", borderRadius: "3px", color: "var(--text-primary)",
+                                    fontSize: "12px", padding: "1px 4px", width: "100%", outline: "none"
+                                  }}
+                                />
+                              ) : (
+                                <>
+                                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.name}</span>
+                                  {isVerActive && (
+                                    <span style={{ fontSize: "9px", padding: "1px 4px", borderRadius: "3px", background: "rgba(16, 185, 129, 0.25)", color: "var(--teal)", fontWeight: 700, flexShrink: 0 }}>
+                                      Active
+                                    </span>
+                                  )}
+                                  <span style={{ fontSize: "10px", color: isVerActive ? "var(--teal)" : "var(--text-secondary)", flexShrink: 0 }}>
+                                    ({v.placed ? v.placed.length : (v.markers ? v.markers.length : 0)})
+                                  </span>
+                                  <svg
+                                    viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10"
+                                    style={{ opacity: 0.6, cursor: "pointer", flexShrink: 0, marginLeft: "4px", color: "var(--text-secondary)" }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingVersionId(v.id);
+                                      setEditingVersionName(v.name);
+                                    }}
+                                    title="Rename version"
+                                  >
+                                    <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                                  </svg>
+                                  <svg
+                                    viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10"
+                                    style={{ opacity: 0.8, cursor: "pointer", flexShrink: 0, marginLeft: "4px", color: "#ef4444" }}
+                                    onMouseEnter={e => e.currentTarget.style.opacity = 1}
+                                    onMouseLeave={e => e.currentTarget.style.opacity = 0.8}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      deleteVersion(i, v.id);
+                                    }}
+                                    title="Delete version"
+                                  >
+                                    <line x1="18" y1="6" x2="6" y2="18" />
+                                    <line x1="6" y1="6" x2="18" y2="18" />
+                                  </svg>
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -3886,6 +4713,7 @@ export default function MapViewPage() {
                     height: floors[activeFloor]?.imageHeight || floorImgRef.current?.height || 2048
                   }}
                   updateMarkers={updateMarkers}
+                  showWallMetrics={showWallMetrics}
                 />
               ) : (
                 <>
@@ -3914,6 +4742,8 @@ export default function MapViewPage() {
                     selectedIdx={selectedIdx}
                     ppm={floors[activeFloor]?.ppm}
                     calibration={floors[activeFloor]?.calibration}
+                    walls={floors[activeFloor]?.walls || []}
+                    showWallMetrics={showWallMetrics}
                   />
 
                   {/* Zone SVG overlay */}
@@ -3958,6 +4788,15 @@ export default function MapViewPage() {
                       }}
                     />
                   )}
+
+                  {/* Parts Measurement Panel (CAD & 2D Layouts) */}
+                  {hasFloor && floors[activeFloor]?.partsReport && !floors[activeFloor]?.modelDataUrl && (
+                    <PartsMeasurementPanel
+                      report={floors[activeFloor].partsReport}
+                      style={{ top: 14, left: 16 }}
+                      filenamePrefix={floors[activeFloor]?.name || "cad_parts"}
+                    />
+                  )}
                 </>
               )}
             </>
@@ -3974,7 +4813,7 @@ export default function MapViewPage() {
               </div>
               <p className="mv-hint__title">No floor plan loaded</p>
               <p className="mv-hint__sub">
-                Click <strong>Import Floor Plan</strong> above to upload a JPEG, PNG, GLTF, GLB, or HTML file
+                Click <strong>Import Plan</strong> above to upload AutoCAD (DWG, DXF), SVG, PNG, JPEG, GLTF, GLB, or HTML file
               </p>
             </div>
           )}
@@ -4380,6 +5219,9 @@ export default function MapViewPage() {
       )}
 
       <PremiumPopup {...popupState} />
+
+      {/* Real-time CAD Import Progress Modal */}
+      <CadImportProgressModal progress={cadImportProgress} />
     </div>
   );
 }
@@ -4584,4 +5426,3 @@ function ZoneOverlay({ zones, draftZones = [], drawingPoints, activeZoneId, scal
     </svg>
   );
 }
-

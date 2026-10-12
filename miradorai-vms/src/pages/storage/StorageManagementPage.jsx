@@ -152,8 +152,7 @@ export default function StorageManagementPage() {
     }
   };
 
-  const handleAdd = async () => {
-    if (!newPath.trim()) return;
+  const handleAdd = async () => { if (!newPath.trim()) return; if (!/^[a-zA-Z0-9 _. \-]+$/.test(newPath.trim())) { alert("Folder name contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed."); return; }
     const containerPath = toContainerPath(newPath.trim());
     const display       = toDisplayPath(containerPath);
     
@@ -184,7 +183,8 @@ export default function StorageManagementPage() {
       alert("⚠️ Warning: Remaining free space under the allocation limit is less than 200 MB! Please increase the allocation to ensure uninterrupted recording.");
     }
 
-    const displayInput  = folder.trim();
+    const displayInput  = folder.trim(); if (displayInput && !/^[a-zA-Z0-9 _. \-]+$/.test(displayInput)) { setApplyMsg(" ?? Folder name contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed."); setTimeou
+  t(() => setApplyMsg(""), 4000); return; }
     const containerPath = toContainerPath(displayInput);
 
     if (!containerPath) {

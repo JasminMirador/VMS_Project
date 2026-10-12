@@ -8,11 +8,16 @@ from datetime import datetime
 from app.core.database import mongo_client
 
 MONGO_URI       = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
-MONGO_DB_NAME   = os.environ.get("MONGO_DB_NAME")
-client          = mongo_client
-db              = client[MONGO_DB_NAME]
-diagnostics_col = db["network_diagnostics"]
-nodes_col       = db["infrastructure_nodes"]   # FIX: write live fields back here
+MONGO_DB_NAME   = os.environ.get("MONGO_DB_NAME", "vms_demo")
+
+
+def _get_db():
+    """Lazily resolve the DB and collections so the import doesn't crash
+    when mongo_client is still None (e.g. MongoDB not yet reachable)."""
+    if mongo_client is None:
+        raise RuntimeError("MongoDB client is not available yet")
+    _db = mongo_client[MONGO_DB_NAME]
+    return _db, _db["network_diagnostics"], _db["infrastructure_nodes"]
 
 
 async def ping_host(host):
@@ -86,6 +91,8 @@ async def run_diagnostics_loop():
 
     while True:
         try:
+            db, diagnostics_col, nodes_col = _get_db()
+
             cameras = await asyncio.to_thread(lambda: list(db["cameras"].find({}, {"_id": 0, "ip": 1, "name": 1})))
 
             stats = []
@@ -122,11 +129,11 @@ async def run_diagnostics_loop():
                     "rtsp_connected":  stat["ports"]["rtsp"],
                 }
 
-                def _update_node():
-                    existing = nodes_col.find_one({"id": node_id}, {"stream_status": 1, "_id": 0})
+                def _update_node(_nodes_col=nodes_col, _node_id=node_id, _node_fields=node_fields, _stat=stat):
+                    existing = _nodes_col.find_one({"id": _node_id}, {"stream_status": 1, "_id": 0})
                     if existing and not existing.get("stream_status"):
-                        node_fields["stream_status"] = "degraded" if stat["ports"]["rtsp"] else "dead"
-                    nodes_col.update_one({"id": node_id}, {"$set": node_fields})
+                        _node_fields["stream_status"] = "degraded" if _stat["ports"]["rtsp"] else "dead"
+                    _nodes_col.update_one({"id": _node_id}, {"$set": _node_fields})
 
                 await asyncio.to_thread(_update_node)
 
@@ -136,12 +143,12 @@ async def run_diagnostics_loop():
                 "bandwidth": bandwidth,
                 "timestamp": datetime.utcnow()
             }
-            def _save_report():
-                diagnostics_col.insert_one(report)
-                if diagnostics_col.count_documents({}) > 100:
-                    oldest = diagnostics_col.find_one(sort=[("_id", 1)])
+            def _save_report(_diag_col=diagnostics_col):
+                _diag_col.insert_one(report)
+                if _diag_col.count_documents({}) > 100:
+                    oldest = _diag_col.find_one(sort=[("_id", 1)])
                     if oldest:
-                        diagnostics_col.delete_one({"_id": oldest["_id"]})
+                        _diag_col.delete_one({"_id": oldest["_id"]})
 
             await asyncio.to_thread(_save_report)
 
