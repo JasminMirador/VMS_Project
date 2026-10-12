@@ -346,12 +346,24 @@ export default function IntegrationPage() {
       errors.port = "Port must be a number between 1 and 65535.";
     }
 
-    let hasStreamError = false;
+    if (formData.username && !/^[a-zA-Z0-9 _.\-]+$/.test(formData.username.trim())) {
+        errors.username = "Username can only contain letters, numbers, spaces, hyphens, underscores, and dots.";
+      }
+      if (formData.password && !/^[a-zA-Z0-9 _.\-]+$/.test(formData.password.trim())) {
+        errors.password = "Password can only contain letters, numbers, spaces, hyphens, underscores, and dots.";
+      }
+      if (formData.appName && !/^[a-zA-Z0-9 _.\-]+$/.test(formData.appName.trim())) {
+        errors.appName = "App Name can only contain letters, numbers, spaces, hyphens, underscores, and dots.";
+      }
+      if (formData.accessToken && !/^[a-zA-Z0-9 _.\-]+$/.test(formData.accessToken.trim())) {
+        errors.accessToken = "Access Token can only contain letters, numbers, spaces, hyphens, underscores, and dots.";
+      }
+      let hasStreamError = false;
     let hasStreamInvalidChars = false;
     for (let stream of formData.streams) {
       if (!stream.name.trim() || !stream.value.trim()) {
         hasStreamError = true;
-      } else if (!/^[a-zA-Z0-9 _.\-]+$/.test(stream.name.trim())) {
+      } else if (!/^[a-zA-Z0-9 _.\-]+$/.test(stream.name.trim()) || !/^[a-zA-Z0-9 _.\-:]+$/.test(stream.value.trim())) {
         hasStreamInvalidChars = true;
       }
     }
@@ -916,13 +928,14 @@ export default function IntegrationPage() {
                       </svg>
                     </span>
                     <input
-                      type="text"
-                      className="integration-input-modern"
-                      value={formData.username}
-                      onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                      placeholder="Enter username"
-                    />
-                  </div>
+                        type="text"
+                        className={`integration-input-modern ${formErrors.username ? "has-error" : ""}`}
+                        value={formData.username || ""}
+                        onChange={(e) => {
+                          setFormData({ ...formData, username: e.target.value });
+                          if (formErrors.username) setFormErrors({ ...formErrors, username: null });
+                        }}
+                        placeholder="Enter username" /> </div> {formErrors.username && <span className="integration-field-error">{formErrors.username}</span>}
                 </div>
 
                 {/* Password */}
@@ -961,6 +974,7 @@ export default function IntegrationPage() {
                       )}
                     </button>
                   </div>
+                    {formErrors.password && <span className="integration-field-error">{formErrors.password}</span>}
                 </div>
 
                 {/* App Name */}
@@ -974,13 +988,14 @@ export default function IntegrationPage() {
                       </svg>
                     </span>
                     <input
-                      type="text"
-                      className="integration-input-modern"
-                      value={formData.appName || ""}
-                      onChange={(e) => setFormData({ ...formData, appName: e.target.value })}
-                      placeholder="e.g. vms"
-                    />
-                  </div>
+                        type="text"
+                        className={`integration-input-modern ${formErrors.appName ? "has-error" : ""}`}
+                        value={formData.appName || ""}
+                        onChange={(e) => {
+                          setFormData({ ...formData, appName: e.target.value });
+                          if (formErrors.appName) setFormErrors({ ...formErrors, appName: null });
+                        }}
+                        placeholder="e.g. vms" /> </div> {formErrors.appName && <span className="integration-field-error">{formErrors.appName}</span>}
                 </div>
 
                 {/* Access Token */}
@@ -993,13 +1008,14 @@ export default function IntegrationPage() {
                       </svg>
                     </span>
                     <input
-                      type="text"
-                      className="integration-input-modern"
-                      value={formData.accessToken || ""}
-                      onChange={(e) => setFormData({ ...formData, accessToken: e.target.value })}
-                      placeholder="Paste SSO token here"
-                    />
-                  </div>
+                        type="text"
+                        className={`integration-input-modern ${formErrors.accessToken ? "has-error" : ""}`}
+                        value={formData.accessToken || ""}
+                        onChange={(e) => {
+                          setFormData({ ...formData, accessToken: e.target.value });
+                          if (formErrors.accessToken) setFormErrors({ ...formErrors, accessToken: null });
+                        }}
+                        placeholder="Paste SSO token here" /> </div> {formErrors.accessToken && <span className="integration-field-error">{formErrors.accessToken}</span>}
                 </div>
               </div>
             </div>
@@ -1276,3 +1292,6 @@ export default function IntegrationPage() {
     </div>
   );
 }
+
+
+

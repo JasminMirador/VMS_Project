@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import "./DesignerView.css";
 import { fovDrawParams } from "./CameraModelDB";
-import { drawHeatmapToContext, drawHeatmapLegendToCanvas, drawDesignLegendToCanvas } from "./HeatmapLogic";
+import { drawHeatmapToContext, drawHeatmapLegendToCanvas, drawDesignLegendToCanvas } from "./HeatMapLogic";
 import HeatmapLayer from "./HeatmapLayer";
 import * as CctvCalc from "./CctvCalculators";
 import { drawStorageReport } from "./ReportLogic.js";
@@ -16,6 +16,11 @@ import { renderHtmlToImage } from "./HtmlFloorRenderer";
 import { saveFloorsDB, loadFloorsDB } from "./mapIndexedDB";
 import CalibrationOverlay from "./CalibrationOverlay";
 import CalibrationPanel from "./CalibrationPanel";
+import PartsMeasurementPanel from "./PartsMeasurementPanel";
+import AutoPlacementModal from "./AutoPlacementModal";
+import { generatePlacementReportForPlaced } from "./AutoPlacementEngine";
+import { CadImportProgressModal, importCadWithProgress } from "./CadImportProgressModal";
+import { useWebSocket } from "../../hooks/useWebSocket";
 import {
   getPixelDistance,
   calculatePhysicalDistance,
@@ -29,6 +34,19 @@ const MAP_ID = "default";
 const FLOOR_ID = "floor_1";
 const PIXELS_PER_METRE = 22;
 
+// ── Auth ──────────────────────────────────────────────────────────────
+function getToken() {
+  return (
+    localStorage.getItem("miradorai_token") ||
+    localStorage.getItem("token")           ||
+    localStorage.getItem("authToken")       ||
+    localStorage.getItem("access_token")    ||
+    sessionStorage.getItem("token")         ||
+    sessionStorage.getItem("authToken")     ||
+    ""
+  );
+}
+
 function getAuthHeaders() {
   const t = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || "";
   return t
@@ -36,19 +54,65 @@ function getAuthHeaders() {
     : { "Content-Type": "application/json" };
 }
 
+// ── Wall SVG Generator & Asset Resolvers ──────────────────────────────────
+function generateWallsSvg(walls, width = 2400, height = 1800) {
+  if (!walls || !Array.isArray(walls) || walls.length === 0) return null;
+  const segments = [];
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const seg of walls) {
+    if (!seg || seg.length < 2) continue;
+    const p1 = Array.isArray(seg[0]) ? { x: seg[0][0], y: seg[0][1] } : seg[0];
+    const p2 = Array.isArray(seg[1]) ? { x: seg[1][0], y: seg[1][1] } : seg[1];
+    if (!p1 || !p2 || typeof p1.x !== "number" || typeof p2.x !== "number") continue;
+    minX = Math.min(minX, p1.x, p2.x);
+    minY = Math.min(minY, p1.y, p2.y);
+    maxX = Math.max(maxX, p1.x, p2.x);
+    maxY = Math.max(maxY, p1.y, p2.y);
+    segments.push(`M ${p1.x} ${p1.y} L ${p2.x} ${p2.y}`);
+  }
+  if (!segments.length) return null;
+  const w = (Number.isFinite(width) && width > 0) ? width : Math.max(100, Math.ceil(maxX - minX + 40));
+  const h = (Number.isFinite(height) && height > 0) ? height : Math.max(100, Math.ceil(maxY - minY + 40));
+  const vx = (Number.isFinite(width) && width > 0) ? 0 : Math.floor(minX - 20);
+  const vy = (Number.isFinite(height) && height > 0) ? 0 : Math.floor(minY - 20);
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vx} ${vy} ${w} ${h}" width="${w}" height="${h}"><rect x="${vx}" y="${vy}" width="${w}" height="${h}" fill="#0b1120"/><path d="${segments.join(" ")}" stroke="#38bdf8" stroke-width="2.5" stroke-linecap="round" fill="none"/></svg>`;
+  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+}
+
+function resolveSlideFloorPlan(slide, fallbackFloorPlan = null) {
+  if (!slide) return fallbackFloorPlan || null;
+  if (slide.floorPlan) return slide.floorPlan;
+  if (slide.versions && Array.isArray(slide.versions)) {
+    for (const v of slide.versions) {
+      if (v?.floorPlan) return v.floorPlan;
+    }
+  }
+  if (slide.walls && Array.isArray(slide.walls) && slide.walls.length > 0) {
+    const w = slide.imageWidth || slide.calibration?.imageDimensions?.width || 2400;
+    const h = slide.imageHeight || slide.calibration?.imageDimensions?.height || 1800;
+    return generateWallsSvg(slide.walls, w, h);
+  }
+  return fallbackFloorPlan || null;
+}
+
 // ── API helpers ───────────────────────────────────────────────────────────────
 async function apiSaveLayout({ placed, zones, ppm, floorPlan = null, slides = null, activeSlideId = null }) {
   try {
+    const finalSlides = slides || null;
+    const activeSlideObj = (finalSlides || []).find(s => s.id === activeSlideId) || (finalSlides || [])[0];
+    const effectiveFloorPlan = floorPlan || activeSlideObj?.floorPlan || null;
+
     const bodyObj = {
       map_id: MAP_ID,
       floor_id: FLOOR_ID,
-      placed: placed.map(p => ({ id: p.id, x: p.x, y: p.y, direction: p.direction, camera: p.camera, ...(p.labelOffset ? { labelOffset: p.labelOffset } : {}) })),
-      zones: zones.map(z => ({ id: z.id, name: z.name, color: z.color, polygon: z.polygon, isShape: z.isShape || false, isBoomBarrier: z.isBoomBarrier || false })),
+      placed: (placed || []).map(p => ({ id: p.id, x: p.x, y: p.y, direction: p.direction, camera: p.camera, ...(p.labelOffset ? { labelOffset: p.labelOffset } : {}) })),
+      zones: (zones || []).map(z => ({ id: z.id, name: z.name, color: z.color, polygon: z.polygon, isShape: z.isShape || false, isBoomBarrier: z.isBoomBarrier || false })),
       ppm,
-      floor_plan: floorPlan,
+      floor_plan: effectiveFloorPlan,
     };
-    if (slides) {
-      bodyObj.slides = slides;
+    if (finalSlides && finalSlides.length > 0) {
+      bodyObj.slides = finalSlides.map(({ thumbnailUrl, ...rest }) => rest);
     }
     if (activeSlideId) {
       bodyObj.active_slide_id = activeSlideId;
@@ -68,7 +132,7 @@ async function apiSaveZones(zones) {
     await fetch(`${API}/api/designer/zones?map_id=${MAP_ID}&floor_id=${FLOOR_ID}`, {
       method: "POST",
       headers: getAuthHeaders(),
-      body: JSON.stringify(zones.map(z => ({ id: z.id, name: z.name, color: z.color, polygon: z.polygon, isShape: z.isShape || false, isBoomBarrier: z.isBoomBarrier || false }))),
+      body: JSON.stringify((zones || []).map(z => ({ id: z.id, name: z.name, color: z.color, polygon: z.polygon, isShape: z.isShape || false, isBoomBarrier: z.isBoomBarrier || false }))),
     });
   } catch (e) {
     console.error("[DESIGNER] ❌ Zone save failed", e);
@@ -269,6 +333,350 @@ function getPolygonArea(polygon, ppm) {
   areaPx = Math.abs(areaPx) / 2;
   return areaPx / (ppm * ppm);
 }
+
+// ── Distance from point to line segment ─────────────────────────────────────
+function distToSegment(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const l2 = dx * dx + dy * dy;
+  if (l2 === 0) return Math.hypot(px - x1, py - y1);
+  let t = ((px - x1) * dx + (py - y1) * dy) / l2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+
+// ── Bounding box of a polygon ───────────────────────────────────────────────
+function getPolygonBounds(poly) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  if (!Array.isArray(poly)) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  for (const pt of poly) {
+    if (pt.x < minX) minX = pt.x;
+    if (pt.x > maxX) maxX = pt.x;
+    if (pt.y < minY) minY = pt.y;
+    if (pt.y > maxY) maxY = pt.y;
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+// ── CAD Component Name Formatter & Classifier ───────────────────────────────
+export function formatCadComponentName(part) {
+  if (!part) return { title: "CAD Component", icon: "📐", category: "cad", layer: "", dimStr: "" };
+
+  const rawName = String(part.name || part.groupId || "").trim();
+  const rawLayer = String(part.layer || "").trim().toUpperCase();
+  const ptype = String(part.type || "").trim().toLowerCase();
+
+  const combined = (rawName + " " + rawLayer).toUpperCase();
+
+  let category = "general";
+  let icon = "📐";
+  let categoryLabel = "CAD Component";
+
+  if (/DOOR|PORTA|PORTE|PUERTA|TUER|SWING|SLID/i.test(combined)) {
+    category = "door";
+    icon = "🚪";
+    categoryLabel = "Door";
+  } else if (/CONF.*TABLE|TABLE.*CONF|BOARDROOM/i.test(combined)) {
+    category = "table";
+    icon = "🏢";
+    categoryLabel = "Conference Table";
+  } else if (/TABLE|TAVOLO|MESA|TISCH/i.test(combined)) {
+    category = "table";
+    icon = "🪑";
+    categoryLabel = "Table";
+  } else if (/DESK|WORKSTATION|BUREAU|SCRIVANIA/i.test(combined)) {
+    category = "desk";
+    icon = "🖥️";
+    categoryLabel = "Workstation / Desk";
+  } else if (/CHAIR|SEDIA|SILLA|STUHL|SEAT|ARMCHAIR/i.test(combined)) {
+    category = "chair";
+    icon = "🪑";
+    categoryLabel = "Chair";
+  } else if (/SOFA|DIVANO|COUCH|LOUNGE/i.test(combined)) {
+    category = "sofa";
+    icon = "🛋️";
+    categoryLabel = "Sofa / Lounge";
+  } else if (/WINDOW|GLAZ|VIDRIO|VITR|FENET|VENTAN/i.test(combined)) {
+    category = "window";
+    icon = "🪟";
+    categoryLabel = "Window / Glazing";
+  } else if (/WALL|PARIET|MUR|PARED|PARTITION|CLOISON|TABIQ/i.test(combined)) {
+    category = "wall";
+    icon = "🧱";
+    categoryLabel = "Wall / Partition";
+  } else if (/COLUMN|COLONN|PILAR|PILLAR|PILAST|SÄULE/i.test(combined)) {
+    category = "column";
+    icon = "🏛️";
+    categoryLabel = "Column";
+  } else if (/STAIR|STRS|STEP|ESCAL|SCALE/i.test(combined)) {
+    category = "stairs";
+    icon = "🪜";
+    categoryLabel = "Staircase";
+  } else if (/ELEVATOR|LIFT|ASCENS/i.test(combined)) {
+    category = "elevator";
+    icon = "🛗";
+    categoryLabel = "Elevator / Lift";
+  } else if (/WC|TOILET|BATH|BAGNO|SINK|LAVABO|RESTROOM|URINAL|SHOWER/i.test(combined)) {
+    category = "sanitary";
+    icon = "🚻";
+    categoryLabel = "Restroom / Plumbing";
+  } else if (/PLANT|TREE|FLOWER|VEGET|ALBER|VERDE/i.test(combined)) {
+    category = "plant";
+    icon = "🪴";
+    categoryLabel = "Planter";
+  } else if (/LIGHT|LITE|LUMIN|LAMP/i.test(combined)) {
+    category = "light";
+    icon = "💡";
+    categoryLabel = "Lighting Fixture";
+  } else if (/PANEL|ELEC|SERVER|RACK|CABINET|HVAC|AC/i.test(combined)) {
+    category = "equipment";
+    icon = "⚡";
+    categoryLabel = "Equipment";
+  } else if (/FURN|MOBIL|MEUBL/i.test(combined)) {
+    category = "furniture";
+    icon = "🪑";
+    categoryLabel = "Furniture";
+  }
+
+  let cleanTitle = rawName;
+  cleanTitle = cleanTitle.replace(/^(BLOCK|INSERT|ENTITY):\s*/i, "");
+  const numMatch = cleanTitle.match(/\s*#(\d+)$/);
+  const instanceNum = numMatch ? `#${numMatch[1]}` : "";
+  cleanTitle = cleanTitle.replace(/\s*#\d+$/, "").trim();
+
+  // Check if raw name is an anonymous CAD block like *U123 or A$C10B8290 or hexadecimal hash
+  const isAnonymousBlock = /^([A*][$U_][A-Z0-9_]+|[0-9A-F]{7,})$/i.test(cleanTitle);
+
+  if (isAnonymousBlock || !cleanTitle) {
+    cleanTitle = `${categoryLabel}${instanceNum ? " " + instanceNum : ""}`;
+  } else {
+    // Clean underscores, multiple dashes, snake_case
+    cleanTitle = cleanTitle
+      .replace(/[_-]+/g, " ")
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+      .trim();
+    // Capitalize words
+    cleanTitle = cleanTitle.split(/\s+/)
+      .map(w => w.length <= 3 ? w.toUpperCase() : (w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()))
+      .join(" ");
+    if (instanceNum) {
+      cleanTitle += ` ${instanceNum}`;
+    }
+  }
+
+  let dimStr = "";
+  if (part.dimensions && (part.dimensions.width > 0 || part.dimensions.height > 0)) {
+    const w = part.dimensions.width;
+    const h = part.dimensions.height;
+    if (w > 0 && h > 0) {
+      dimStr = `${w.toFixed(2)}m × ${h.toFixed(2)}m`;
+    } else if (w > 0) {
+      dimStr = `${w.toFixed(2)}m`;
+    }
+  } else if (part.length_m > 0) {
+    dimStr = `${part.length_m.toFixed(2)}m`;
+  }
+
+  return {
+    title: cleanTitle,
+    category,
+    icon,
+    layer: rawLayer,
+    dimStr,
+    type: ptype,
+  };
+}
+
+// ── Hit-testing across all CAD components, walls & rooms ────────────────────
+export function findHoveredCadComponent(px, py, activeSlide, zones = [], activePpm = 25, scale = 1) {
+  if (!activeSlide) return null;
+  const ppm = activePpm || 25;
+  const pad = Math.max(10 / scale, 6);
+
+  // 1. Check CAD parts report
+  const parts = activeSlide.partsReport?.parts;
+  if (Array.isArray(parts) && parts.length > 0) {
+    const candidates = [];
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      let hit = false;
+      let minX, minY, maxX, maxY;
+      let p1 = null, p2 = null;
+
+      if (part.screenBounds) {
+        minX = part.screenBounds.minX;
+        minY = part.screenBounds.minY;
+        maxX = part.screenBounds.maxX;
+        maxY = part.screenBounds.maxY;
+        p1 = part.screenBounds.p1;
+        p2 = part.screenBounds.p2;
+
+        if (p1 && p2) {
+          const d = distToSegment(px, py, p1[0], p1[1], p2[0], p2[1]);
+          if (d <= pad) hit = true;
+        } else {
+          if (px >= minX - pad && px <= maxX + pad && py >= minY - pad && py <= maxY + pad) {
+            hit = true;
+          }
+        }
+      } else if (part.screen) {
+        const cx = part.screen.x;
+        const cy = part.screen.y;
+        const wPx = Math.max((part.dimensions?.width || 0.6) * ppm, 16);
+        const hPx = Math.max((part.dimensions?.height || 0.6) * ppm, 16);
+        minX = cx - wPx / 2;
+        maxX = cx + wPx / 2;
+        minY = cy - hPx / 2;
+        maxY = cy + hPx / 2;
+
+        if (px >= minX - pad && px <= maxX + pad && py >= minY - pad && py <= maxY + pad) {
+          hit = true;
+        }
+      }
+
+      if (hit) {
+        const area = Math.max(1, (maxX - minX) * (maxY - minY));
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
+        const dist = Math.hypot(px - cx, py - cy);
+        const isBlock = part.type === "block" || !part.type;
+
+        candidates.push({
+          part,
+          minX, minY, maxX, maxY, p1, p2,
+          area,
+          dist,
+          isBlock,
+          idx: i,
+        });
+      }
+    }
+
+    if (candidates.length > 0) {
+      // Sort: specialized blocks/fixtures first, then smallest area (most specific), then closest center
+      candidates.sort((a, b) => {
+        if (a.isBlock !== b.isBlock) return a.isBlock ? -1 : 1;
+        if (Math.abs(a.area - b.area) > 40) return a.area - b.area;
+        return a.dist - b.dist;
+      });
+
+      const best = candidates[0];
+      const fmt = formatCadComponentName(best.part);
+
+      // Check if inside a room/zone
+      let zoneName = null;
+      if (Array.isArray(zones) && zones.length > 0) {
+        const cx = (best.minX + best.maxX) / 2;
+        const cy = (best.minY + best.maxY) / 2;
+        const zMatch = zones.find(z => z.polygon?.length >= 3 && pointInOrOnPolygon(cx, cy, z.polygon));
+        if (zMatch) zoneName = zMatch.name;
+      }
+
+      return {
+        id: `cad_part_${best.idx}_${best.part.name || ""}`,
+        title: fmt.title,
+        icon: fmt.icon,
+        category: fmt.category,
+        layer: fmt.layer,
+        dimStr: fmt.dimStr,
+        zoneName,
+        type: fmt.type,
+        minX: best.minX,
+        minY: best.minY,
+        maxX: best.maxX,
+        maxY: best.maxY,
+        p1: best.p1,
+        p2: best.p2,
+      };
+    }
+  }
+
+  // 2. Check Architectural CAD Walls
+  const walls = activeSlide.walls;
+  if (Array.isArray(walls) && walls.length > 0) {
+    let bestWall = null;
+    let bestDist = 12 / scale;
+
+    for (let i = 0; i < walls.length; i++) {
+      const seg = walls[i];
+      if (!seg || seg.length < 2) continue;
+      const x1 = Array.isArray(seg[0]) ? seg[0][0] : seg[0]?.x;
+      const y1 = Array.isArray(seg[0]) ? seg[0][1] : seg[0]?.y;
+      const x2 = Array.isArray(seg[1]) ? seg[1][0] : seg[1]?.x;
+      const y2 = Array.isArray(seg[1]) ? seg[1][1] : seg[1]?.y;
+      if (x1 == null || y1 == null || x2 == null || y2 == null) continue;
+
+      const d = distToSegment(px, py, x1, y1, x2, y2);
+      if (d < bestDist) {
+        bestDist = d;
+        bestWall = { x1, y1, x2, y2, idx: i };
+      }
+    }
+
+    if (bestWall) {
+      const lenM = (Math.hypot(bestWall.x2 - bestWall.x1, bestWall.y2 - bestWall.y1) / ppm).toFixed(2);
+      const mx = (bestWall.x1 + bestWall.x2) / 2;
+      const my = (bestWall.y1 + bestWall.y2) / 2;
+
+      let zoneName = null;
+      if (Array.isArray(zones) && zones.length > 0) {
+        const zMatch = zones.find(z => z.polygon?.length >= 3 && pointInOrOnPolygon(mx, my, z.polygon));
+        if (zMatch) zoneName = zMatch.name;
+      }
+
+      return {
+        id: `cad_wall_${bestWall.idx}`,
+        title: `CAD Wall (${lenM}m)`,
+        icon: "🧱",
+        category: "wall",
+        layer: "WALLS",
+        dimStr: `${lenM}m Length`,
+        zoneName,
+        type: "wall",
+        p1: [bestWall.x1, bestWall.y1],
+        p2: [bestWall.x2, bestWall.y2],
+        minX: Math.min(bestWall.x1, bestWall.x2),
+        minY: Math.min(bestWall.y1, bestWall.y2),
+        maxX: Math.max(bestWall.x1, bestWall.x2),
+        maxY: Math.max(bestWall.y1, bestWall.y2),
+        isWall: true,
+      };
+    }
+  }
+
+  // 3. Check Zones / Rooms
+  if (Array.isArray(zones) && zones.length > 0) {
+    const matchedZones = zones.filter(z => z.polygon?.length >= 3 && pointInOrOnPolygon(px, py, z.polygon));
+    if (matchedZones.length > 0) {
+      // Pick smallest zone if nested
+      matchedZones.sort((a, b) => {
+        const bA = getPolygonBounds(a.polygon);
+        const bB = getPolygonBounds(b.polygon);
+        const areaA = (bA.maxX - bA.minX) * (bA.maxY - bA.minY);
+        const areaB = (bB.maxX - bB.minX) * (bB.maxY - bB.minY);
+        return areaA - areaB;
+      });
+
+      const z = matchedZones[0];
+      const areaM2 = getPolygonArea(z.polygon, ppm);
+
+      return {
+        id: `zone_${z.id}`,
+        title: `Zone: ${z.name}`,
+        icon: "📍",
+        category: "zone",
+        layer: z.type || "Zone",
+        dimStr: areaM2 > 0 ? `${areaM2.toFixed(1)} m²` : "",
+        color: z.color,
+        isZone: true,
+        zone: z,
+      };
+    }
+  }
+
+  return null;
+}
 // ── Loads an image and returns it as a base64 PNG data URL (for embedding in PDFs) ──
 function loadImageAsDataUrl(src, cb) {
   const img = new Image();
@@ -323,9 +731,9 @@ function PremiumPopup({ show, type, title, message, onConfirm, onCancel }) {
 // ── Export Preview Modal — draggable overlays ─────────────────────────
 function ExportPreviewModal({ baseDataUrl, exportMode, showDori, isDownloading, onDownload, onCancel, selectedCompany }) {
   const DORI_ITEMS = [
-    { color: "#a855f7", label: "Identification (250+ px/m)" },
-    { color: "#ef4444", label: "Recognition (125+ px/m)" },
-    { color: "#eab308", label: "Observation (62+ px/m)" },
+    { color: "#ef4444", label: "Identification (250+ px/m)" },
+    { color: "#f59e0b", label: "Recognition (125+ px/m)" },
+    { color: "#10b981", label: "Observation (62+ px/m)" },
     { color: "#3b82f6", label: "Detection (25+ px/m)" },
   ];
 
@@ -333,6 +741,7 @@ function ExportPreviewModal({ baseDataUrl, exportMode, showDori, isDownloading, 
   const [logo,  setLogo]  = useState({ show: true, x: null, y: null, scale: 1 });
   const [stats, setStats] = useState({ show: true, x: null, y: null, scale: 1 });
   const [dori,  setDori]  = useState({ show: true, x: null, y: null, scale: 1 });
+  const [heatmapLegend, setHeatmapLegend] = useState({ show: true, x: null, y: null, scale: 1 });
   const [titleOverlay, setTitleOverlay] = useState({ show: true, x: null, y: null, scale: 1 });
   const previewRef = useRef(null);
 
@@ -390,7 +799,7 @@ function ExportPreviewModal({ baseDataUrl, exportMode, showDori, isDownloading, 
   };
 
   // Collect final overlay positions for caller
-  const getOverlayState = () => ({ logo, stats, dori, titleOverlay });
+  const getOverlayState = () => ({ logo, stats, dori, heatmapLegend, titleOverlay });
 
   let titleText = "Designer View";
   if (exportMode === "heatmap") titleText = "Coverage Heatmap";
@@ -572,6 +981,51 @@ function ExportPreviewModal({ baseDataUrl, exportMode, showDori, isDownloading, 
             </div>
           </div>
         )}
+
+        {/* ── Heatmap Legend overlay ── */}
+        {exportMode === "heatmap" && heatmapLegend.show && (
+          <div data-zoomable-overlay="true" style={{
+            ...overlayBase,
+            bottom: heatmapLegend.y !== null ? undefined : 12,
+            left:   heatmapLegend.x !== null ? heatmapLegend.x   : 12,
+            top:    heatmapLegend.y !== null ? heatmapLegend.y   : undefined,
+            transform: `scale(${heatmapLegend.scale || 1})`,
+            transformOrigin: "top left",
+            background: "rgba(13,20,32,0.92)",
+            border: "1px solid rgba(16, 185, 129, 0.5)",
+            padding: "10px 14px", minWidth: 190,
+            cursor: "grab",
+          }} onWheel={makeWheeler(setHeatmapLegend)}>
+            <div onMouseDown={makeDragger(setHeatmapLegend)} style={{
+              position: "absolute", inset: 0, cursor: "grab", borderRadius: 8, zIndex: 0
+            }} />
+            <button onClick={() => setHeatmapLegend(s => ({ ...s, show: false }))} style={{
+              position: "absolute", top: 4, right: 6, zIndex: 2,
+              background: "none", border: "none", color: "#9ca3af",
+              cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "2px 4px",
+            }} title="Remove from export">✕</button>
+            <div style={{ position: "relative", zIndex: 1, pointerEvents: "none" }}>
+              <div style={{ color: "#34d399", fontSize: 10, fontWeight: 800, marginBottom: 6 }}>
+                COVERAGE HEATMAP
+              </div>
+              <div style={{ height: 1, background: "rgba(255,255,255,0.1)", marginBottom: 8 }} />
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
+                <div style={{
+                  width: 14, height: 10, borderRadius: 2, background: "rgba(30,41,59,0.88)",
+                  border: "1px solid rgba(255,255,255,0.2)", flexShrink: 0,
+                }} />
+                <span style={{ color: "#e2e8f0", fontSize: 10, fontWeight: 600 }}>Blind Spot (No Coverage)</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                <div style={{
+                  width: 14, height: 10, borderRadius: 2, background: "rgba(34,197,94,0.88)",
+                  boxShadow: "0 0 5px #10b981", flexShrink: 0,
+                }} />
+                <span style={{ color: "#e2e8f0", fontSize: 10, fontWeight: 600 }}>Camera Coverage</span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Download buttons */}
@@ -613,18 +1067,19 @@ function AutomationModal({ zone, ppm, cameraDB, getCameraForType, onConfirm, onC
  
   // Dynamic parsing of number from zone name, or fallback to Shoelace
   const [areaSqFtVal, setAreaSqFtVal] = useState(() => {
-    const match = zone.name.match(/\d+[,.\d]*/);
+    const match = (zone?.name || "").match(/\d+[,.\d]*/);
     if (match) {
       return match[0];
     }
-    const areaSqm = getPolygonArea(zone.polygon, ppm);
+    const areaSqm = getPolygonArea(zone?.polygon, ppm);
     return Math.round(areaSqm * 10.7639).toString();
   });
 
-  const parsedAreaSqm = (parseFloat(areaSqFtVal.replace(/,/g, '')) / 10.7639) || 0;
+  const parsedAreaSqm = (parseFloat(String(areaSqFtVal || "").replace(/,/g, '')) / 10.7639) || 0;
 
   // Extract actual unique types present in cameraDB
-  const uniqueTypesInDB = [...new Set(cameraDB.map(c => c.type))].filter(Boolean);
+  const cameraDBList = Array.isArray(cameraDB) ? cameraDB : [];
+  const uniqueTypesInDB = [...new Set(cameraDBList.map(c => c.type))].filter(Boolean);
  
   const typeLabels = {
     dome: "Dome Camera",
@@ -1012,7 +1467,8 @@ function FovVisualizer({ camera }) {
 // ── Camera drawing ────────────────────────────────────────────────────────────
 // FIX 1: clipZone now auto-detects the camera's own zone when no active zone is set.
 // This ensures FOV is always clipped to its zone even after refresh.
-function drawPlacedCamera(ctx, p, ppm, hovering, selected, zonesRef, activeZoneIdRef, highlightedId, showLabel = true, showPpm = false, hideBeam = false, iconScale = 1.20, renderLayer = "all", canvasScale = 1, showMetricsVisibility = false, showHeatmap = false) {
+function drawPlacedCamera(ctx, p, ppm, hovering, selected, zonesRef, activeZoneIdRef, highlightedId, showLabel = true, showPpm = false, hideBeam = false, iconScale = 1.20, renderLayer = "all", canvasScale = 1, showMetricsVisibility = false, showHeatmap = false, wallsRef = null) {
+  const isLight = typeof document !== "undefined" && document.documentElement.getAttribute("data-theme") === "light";
   const { x, y, direction, camera } = p;
   const col = TYPE_COLORS[camera.type] || "#3b82f6";
   const isHighlit = p.id === highlightedId;
@@ -1031,54 +1487,109 @@ function drawPlacedCamera(ctx, p, ppm, hovering, selected, zonesRef, activeZoneI
     // ── Zone clip — always clip to the camera's own zone ─────────────
     let clipping = false;
     let clipZone = null;
-    const boomBarriers = (zonesRef?.current || []).filter(z => z.isBoomBarrier);
+    const barrierZones = (zonesRef?.current || []).filter(z =>
+      z.isBoomBarrier ||
+      z.isBarrier ||
+      /barrier|wall|partition|obstacle|fence/i.test(z.name || z.type || "")
+    );
+    const barrierPolys = barrierZones.filter(z => z.polygon && z.polygon.length >= 3).map(z => z.polygon);
 
-    if (zonesRef?.current) {
-      if (activeZoneIdRef?.current) {
-        const activeZone = zonesRef.current.find(z => z.id === activeZoneIdRef.current);
-        if (activeZone && activeZone.polygon?.length >= 3 && pointInPolygon(x, y, activeZone.polygon)) {
-          clipZone = activeZone;
-        } else {
-          hideBeam = true;
-        }
+    const wallsList = (wallsRef && (wallsRef.current || (Array.isArray(wallsRef) ? wallsRef : []))) || [];
+    const camMinX = originX - radius - 20;
+    const camMaxX = originX + radius + 20;
+    const camMinY = originY - radius - 20;
+    const camMaxY = originY + radius + 20;
+
+    const nearbyWalls = wallsList.filter(seg => {
+      if (!seg || seg.length < 2) return false;
+      const p1 = Array.isArray(seg[0]) ? { x: seg[0][0], y: seg[0][1] } : seg[0];
+      const p2 = Array.isArray(seg[1]) ? { x: seg[1][0], y: seg[1][1] } : seg[1];
+      const minX = Math.min(p1.x, p2.x);
+      const maxX = Math.max(p1.x, p2.x);
+      const minY = Math.min(p1.y, p2.y);
+      const maxY = Math.max(p1.y, p2.y);
+      return maxX >= camMinX && minX <= camMaxX && maxY >= camMinY && minY <= camMaxY;
+    });
+
+    const camZone = (zonesRef?.current || []).find(z =>
+      z.polygon && z.polygon.length >= 3 && (
+        (p?.zoneId && z.id === p.zoneId) ||
+        pointInPolygon(x, y, z.polygon)
+      )
+    );
+
+    clipZone = camZone || null;
+
+    if (zonesRef?.current && activeZoneIdRef?.current) {
+      if (camZone && camZone.id === activeZoneIdRef.current) {
+        clipZone = camZone;
       } else {
-        const containedZones = zonesRef.current.filter(
-          z => z.polygon?.length >= 3 && pointInPolygon(x, y, z.polygon) && !z.isBoomBarrier
-        );
-        if (containedZones.length > 0) {
-          containedZones.sort((a, b) => getPolygonArea(a.polygon, ppm) - getPolygonArea(b.polygon, ppm));
-          clipZone = containedZones[0];
-        }
+        hideBeam = true;
       }
     }
 
     const startClip = () => {
-      if ((clipZone && clipZone.polygon.length >= 3) || boomBarriers.length > 0) {
+      const storedVisPoly = p?.visPoly;
+      const hasObstacles = barrierPolys.length > 0 || nearbyWalls.length > 0;
+      let polyToClip = null;
+
+      if (clipZone && clipZone.polygon?.length >= 3) {
+        // Camera is placed inside a specific room / zone: beam MUST NOT go beyond this zone (perfect in Image 3)
+        try {
+          const visPoly = CctvCalc.computeFovVisibility(
+            { x: originX, y: originY },
+            angle,
+            halfRad,
+            radius + 2,
+            barrierPolys,
+            nearbyWalls,
+            clipZone.polygon
+          );
+          polyToClip = (visPoly && visPoly.length >= 3) ? visPoly : clipZone.polygon;
+        } catch (e) {
+          polyToClip = clipZone.polygon;
+        }
+      } else {
+        // Camera is in an open/unzoned area: use storedVisPoly (if matching current camera position) or compute against obstacles
+        if (storedVisPoly && storedVisPoly.length >= 3) {
+          const originDist = Math.hypot(storedVisPoly[0].x - originX, storedVisPoly[0].y - originY);
+          if (originDist <= Math.max(30, 1.5 * ppm)) {
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            for (const pt of storedVisPoly) {
+              if (pt.x < minX) minX = pt.x;
+              if (pt.x > maxX) maxX = pt.x;
+              if (pt.y < minY) minY = pt.y;
+              if (pt.y > maxY) maxY = pt.y;
+            }
+            if ((maxX - minX) * (maxY - minY) >= 20) {
+              polyToClip = storedVisPoly;
+            }
+          }
+        }
+
+        if (!polyToClip && hasObstacles) {
+          try {
+            const visPoly = CctvCalc.computeFovVisibility(
+              { x: originX, y: originY },
+              angle,
+              halfRad,
+              radius + 2,
+              barrierPolys,
+              nearbyWalls,
+              null
+            );
+            if (visPoly && visPoly.length >= 3) {
+              polyToClip = visPoly;
+            }
+          } catch (e) {
+            console.error("Visibility clip error:", e);
+          }
+        }
+      }
+
+      if (polyToClip && polyToClip.length >= 3) {
         ctx.save();
         ctx.beginPath();
-        let basePoly = clipZone?.polygon;
-        
-        if (!basePoly) {
-           basePoly = [];
-           const R = radius + 10;
-           for(let i=0; i<=16; i++){
-               const a = angle - halfRad + (2*halfRad * (i/16));
-               basePoly.push({ x: originX + Math.cos(a)*R, y: originY + Math.sin(a)*R });
-           }
-           basePoly.push({x: originX, y: originY});
-        }
-
-        let polyToClip = basePoly;
-        try {
-          const obstaclesPolys = boomBarriers.map(z => z.polygon);
-          const visPoly = CctvCalc.computeVisibilityPolygon({ x: originX, y: originY }, basePoly, obstaclesPolys);
-          if (visPoly && visPoly.length >= 3) {
-            polyToClip = visPoly;
-          }
-        } catch (e) {
-          console.error("Visibility clip error:", e);
-        }
-
         polyToClip.forEach((pt, i) => {
           if (i === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
         });
@@ -1087,7 +1598,12 @@ function drawPlacedCamera(ctx, p, ppm, hovering, selected, zonesRef, activeZoneI
         clipping = true;
       }
     };
-    const endClip = () => { if (clipping) { ctx.restore(); clipping = false; } };
+    const endClip = () => {
+      if (clipping) {
+        ctx.restore();
+        clipping = false;
+      }
+    };
 
     // ── Clip everything (DORI zones + FOV cone) inside the drawn zone polygon ──
     startClip();
@@ -1113,67 +1629,70 @@ function drawPlacedCamera(ctx, p, ppm, hovering, selected, zonesRef, activeZoneI
       };
 
       // Minimum screen-pixel radius per DORI ring (so they're always visible)
-      // We compensate for low ppm by enforcing a floor in screen pixels
-      const MIN_SCREEN_PX = [60, 40, 25, 14]; // Detection, Observation, Recognition, Identification
-      const thresholds = [25, 62, 125, 250];
-      const colors     = ["#3b82f6", "#eab308", "#ef4444", "#a855f7"];
+      // DORI zones sorted closest to furthest: Identification (Red), Recognition (Yellow), Observation (Green), Detection (Blue)
+      const doriDefs = [
+        { label: "Identification", ppm: 250, color: "#ef4444", minScreen: 14 },
+        { label: "Recognition",    ppm: 125, color: "#f59e0b", minScreen: 25 },
+        { label: "Observation",    ppm: 62,  color: "#10b981", minScreen: 40 },
+        { label: "Detection",      ppm: 25,  color: "#3b82f6", minScreen: 60 },
+      ];
 
-      const zonesPpm = thresholds.map((tPpm, i) => {
-        const distMetres  = getDistMetres(tPpm);           // metres
-        const distCanvas  = distMetres * ppm;              // canvas pixels (world space)
-        // Ensure minimum visibility in screen pixels: at least MIN_SCREEN_PX[i] screen px
-        const minCanvas   = MIN_SCREEN_PX[i] / Math.max(canvasScale, 0.05);
-        return { d: Math.max(distCanvas, minCanvas), c: colors[i], m: distMetres };
-      });
+      let prevCanvasR = 0;
+      doriDefs.forEach((def, i) => {
+        const distM = getDistMetres(def.ppm);
+        const distCanvas = Math.max(distM * ppm, def.minScreen / Math.max(canvasScale, 0.05));
+        const outerR = Math.min(radius, distCanvas);
 
-      zonesPpm.forEach(z => {
-        const dVal = Math.min(z.d, radius);
-        if (dVal <= 0) return;
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(originX, originY);
-        ctx.arc(originX, originY, dVal, angle - halfRad, angle + halfRad);
-        ctx.closePath();
-        ctx.fillStyle = z.c + "30";
-        ctx.fill();
-        ctx.restore();
-      });
-
-      zonesPpm.forEach(z => {
-        const dVal = Math.min(z.d, radius);
-        if (z.d > radius || dVal <= 0) return;
-
-        ctx.beginPath();
-        ctx.arc(originX, originY, dVal, angle - halfRad, angle + halfRad);
-        ctx.strokeStyle = z.c + "77";
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-
-        // Render DORI meter label badge along beam centerline
-        if (dVal > 15) {
-          const labelX = originX + Math.cos(angle) * (dVal * 0.88);
-          const labelY = originY + Math.sin(angle) * (dVal * 0.88);
+        if (outerR > prevCanvasR + 0.5) {
+          // Annular sector fill so each band has a pure, unmixed color
           ctx.save();
-          ctx.font = "bold 10px Inter, Arial, sans-serif";
-          const txt = `${z.m.toFixed(1)} m`;
-          const tw = ctx.measureText(txt).width + 8;
-          const th = 14;
-
-          ctx.fillStyle = z.c;
           ctx.beginPath();
-          if (ctx.roundRect) ctx.roundRect(labelX - tw / 2, labelY - th / 2, tw, th, 4);
-          else ctx.rect(labelX - tw / 2, labelY - th / 2, tw, th);
+          ctx.arc(originX, originY, outerR, angle - halfRad, angle + halfRad);
+          if (prevCanvasR > 0) {
+            ctx.arc(originX, originY, prevCanvasR, angle + halfRad, angle - halfRad, true);
+          } else {
+            ctx.lineTo(originX, originY);
+          }
+          ctx.closePath();
+          ctx.fillStyle = def.color + (i === 0 ? "55" : i === 1 ? "48" : i === 2 ? "40" : "32");
           ctx.fill();
+          ctx.restore();
 
-          ctx.strokeStyle = "#ffffff";
-          ctx.lineWidth = 1;
+          // Outer boundary arc stroke
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(originX, originY, outerR, angle - halfRad, angle + halfRad);
+          ctx.strokeStyle = def.color + "aa";
+          ctx.lineWidth = 1.5;
           ctx.stroke();
 
-          ctx.fillStyle = "#ffffff";
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillText(txt, labelX, labelY + 0.5);
+          // Render DORI meter label badge along beam centerline
+          if (outerR > 15) {
+            const labelX = originX + Math.cos(angle) * (outerR * 0.90);
+            const labelY = originY + Math.sin(angle) * (outerR * 0.90);
+            ctx.font = "bold 10px Inter, Arial, sans-serif";
+            const txt = `${distM.toFixed(1)} m`;
+            const tw = ctx.measureText(txt).width + 8;
+            const th = 14;
+
+            ctx.fillStyle = def.color;
+            ctx.beginPath();
+            if (ctx.roundRect) ctx.roundRect(labelX - tw / 2, labelY - th / 2, tw, th, 4);
+            else ctx.rect(labelX - tw / 2, labelY - th / 2, tw, th);
+            ctx.fill();
+
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            ctx.fillStyle = "#ffffff";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(txt, labelX, labelY + 0.5);
+          }
           ctx.restore();
+
+          prevCanvasR = outerR;
         }
       });
     }
@@ -1188,10 +1707,11 @@ function drawPlacedCamera(ctx, p, ppm, hovering, selected, zonesRef, activeZoneI
       if (!showPpm) {
         const g = ctx.createRadialGradient(originX, originY, 0, originX, originY, radius);
         if (showHeatmap) {
-          g.addColorStop(0, "rgba(16, 185, 129, 0.70)");
-          g.addColorStop(0.45, "rgba(16, 185, 129, 0.48)");
-          g.addColorStop(0.8, "rgba(16, 185, 129, 0.25)");
-          g.addColorStop(1, "rgba(16, 185, 129, 0.08)");
+          // Intense emerald green coverage highlight on heatmap
+          g.addColorStop(0, "rgba(16, 185, 129, 0.65)");
+          g.addColorStop(0.35, "rgba(16, 185, 129, 0.48)");
+          g.addColorStop(0.75, "rgba(16, 185, 129, 0.30)");
+          g.addColorStop(1, "rgba(16, 185, 129, 0.10)");
         } else {
           g.addColorStop(0, selected ? "rgba(14, 165, 233, 0.75)" : "rgba(14, 165, 233, 0.60)");
           g.addColorStop(0.45, selected ? "rgba(14, 165, 233, 0.52)" : "rgba(14, 165, 233, 0.38)");
@@ -1573,67 +2093,69 @@ function drawPlacedCamera(ctx, p, ppm, hovering, selected, zonesRef, activeZoneI
   ctx.shadowBlur = 0; ctx.restore();
 
   // ── Permanent Label with optional dotted leader line ────────────────────
-  const displayLabel = p.customName || p.camName || camera.name || camera.model || "Camera";
-  const lbl = displayLabel;
-  ctx.font = "600 10.5px Inter, sans-serif";
-  const tw = ctx.measureText(lbl).width;
+  if (showLabel) {
+    const displayLabel = p.customName || p.camName || camera.name || camera.model || "Camera";
+    const lbl = displayLabel;
+    ctx.font = "600 10.5px Inter, sans-serif";
+    const tw = ctx.measureText(lbl).width;
 
-  // Apply label offset if present
-  const lo = p.labelOffset || { dx: 0, dy: 0 };
-  const labelCenterX = x + lo.dx;
-  const labelTopY = y - 24 + lo.dy;
-  const bx = labelCenterX - tw / 2 - 7;
-  const by = labelTopY;
-  const labelW = tw + 14;
-  const labelH = 18;
+    // Apply label offset if present
+    const lo = p.labelOffset || { dx: 0, dy: 0 };
+    const labelCenterX = x + lo.dx;
+    const labelTopY = y - 24 + lo.dy;
+    const bx = labelCenterX - tw / 2 - 7;
+    const by = labelTopY;
+    const labelW = tw + 14;
+    const labelH = 18;
 
-  // Draw dotted leader line if label has been moved
-  if (lo.dx !== 0 || lo.dy !== 0) {
+    // Draw dotted leader line if label has been moved
+    if (lo.dx !== 0 || lo.dy !== 0) {
+      ctx.save();
+      ctx.setLineDash([4, 3]);
+      ctx.strokeStyle = col + "88";
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(labelCenterX, by + labelH / 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+
     ctx.save();
-    ctx.setLineDash([4, 3]);
-    ctx.strokeStyle = col + "88";
-    ctx.lineWidth = 1.2;
+    const isLight = document.documentElement.getAttribute("data-theme") === "light";
+    ctx.fillStyle = isLight ? "rgba(255, 255, 255, 0.95)" : "#0d1117f2";
     ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(labelCenterX, by + labelH / 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    if (ctx.roundRect) ctx.roundRect(bx, by, labelW, labelH, 4);
+    else ctx.rect(bx, by, labelW, labelH);
+    ctx.fill();
+
+    // Highlight border if selected or highlighted
+    if (selected || isHighlit) {
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    } else if (lo.dx !== 0 || lo.dy !== 0) {
+      // Subtle dashed border when label is offset (visual cue it's draggable)
+      ctx.strokeStyle = col + "66";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 2]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    } else {
+      ctx.strokeStyle = isLight ? "rgba(0, 0, 0, 0.15)" : "rgba(255, 255, 255, 0.2)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    // Draw camera label text
+    ctx.fillStyle = isLight ? "#0f172a" : "#f1f5f9";
+    ctx.font = "600 10.5px Inter, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(displayLabel, labelCenterX, by + 9);
     ctx.restore();
   }
-
-  ctx.save();
-  const isLight = document.documentElement.getAttribute("data-theme") === "light";
-  ctx.fillStyle = isLight ? "rgba(255, 255, 255, 0.95)" : "#0d1117f2";
-  ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(bx, by, labelW, labelH, 4);
-  else ctx.rect(bx, by, labelW, labelH);
-  ctx.fill();
-
-  // Highlight border if selected or highlighted
-  if (selected || isHighlit) {
-    ctx.strokeStyle = col;
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-  } else if (lo.dx !== 0 || lo.dy !== 0) {
-    // Subtle dashed border when label is offset (visual cue it's draggable)
-    ctx.strokeStyle = col + "66";
-    ctx.lineWidth = 1;
-    ctx.setLineDash([2, 2]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  } else {
-    ctx.strokeStyle = isLight ? "rgba(0, 0, 0, 0.15)" : "rgba(255, 255, 255, 0.2)";
-    ctx.lineWidth = 1;
-    ctx.stroke();
-  }
-
-  // Draw camera label text
-  ctx.fillStyle = isLight ? "#0f172a" : "#f1f5f9";
-  ctx.font = "600 10.5px Inter, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(displayLabel, labelCenterX, by + 9);
-  ctx.restore();
 
   // ── Minimalist Accent Grip Dot Rotation Handle ──
   const ang2 = (p.direction || 0) * (Math.PI / 180);
@@ -1932,26 +2454,26 @@ function DoriLegendCard({ show, onClose, camera }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#a855f7', boxShadow: '0 0 6px rgba(168,85,247,0.5)', flexShrink: 0 }} />
+            <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444', boxShadow: '0 0 6px rgba(239,68,68,0.5)', flexShrink: 0 }} />
             <span style={{ color: '#334155', fontSize: 11, fontWeight: 600 }}>Identification (250+ px/m)</span>
           </div>
-          <span style={{ color: '#7e22ce', fontSize: 11, fontWeight: 700, marginLeft: 8 }}>{dori.identification.toFixed(1)} m</span>
+          <span style={{ color: '#dc2626', fontSize: 11, fontWeight: 700, marginLeft: 8 }}>{dori.identification.toFixed(1)} m</span>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444', boxShadow: '0 0 6px rgba(239,68,68,0.5)', flexShrink: 0 }} />
+            <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#f59e0b', boxShadow: '0 0 6px rgba(245,158,11,0.5)', flexShrink: 0 }} />
             <span style={{ color: '#334155', fontSize: 11, fontWeight: 600 }}>Recognition (125+ px/m)</span>
           </div>
-          <span style={{ color: '#dc2626', fontSize: 11, fontWeight: 700, marginLeft: 8 }}>{dori.recognition.toFixed(1)} m</span>
+          <span style={{ color: '#d97706', fontSize: 11, fontWeight: 700, marginLeft: 8 }}>{dori.recognition.toFixed(1)} m</span>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#eab308', boxShadow: '0 0 6px rgba(234,179,8,0.5)', flexShrink: 0 }} />
+            <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 6px rgba(16,185,129,0.5)', flexShrink: 0 }} />
             <span style={{ color: '#334155', fontSize: 11, fontWeight: 600 }}>Observation (62+ px/m)</span>
           </div>
-          <span style={{ color: '#a16207', fontSize: 11, fontWeight: 700, marginLeft: 8 }}>{dori.observation.toFixed(1)} m</span>
+          <span style={{ color: '#059669', fontSize: 11, fontWeight: 700, marginLeft: 8 }}>{dori.observation.toFixed(1)} m</span>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -2006,7 +2528,19 @@ export default function DesignerView({ onBack }) {
   const placedRef = useRef([]);
   useEffect(() => { placedRef.current = placed; }, [placed]);
 
+  const [showCameraNames, setShowCameraNames] = useState(true);
+  const showCameraNamesRef = useRef(true);
+  useEffect(() => { showCameraNamesRef.current = showCameraNames; }, [showCameraNames]);
+  const [autoPlacementOpen, setAutoPlacementOpen] = useState(false);
+  const [autoPlacementPreview, setAutoPlacementPreview] = useState(null);
+  const autoPlacementPreviewRef = useRef(null);
+  useEffect(() => { autoPlacementPreviewRef.current = autoPlacementPreview; }, [autoPlacementPreview]);
+
+  const [lastAutoPlacementReport, setLastAutoPlacementReport] = useState(null);
+  const lastAutoPlacementReportRef = useRef(null);
+
   const [saveStatus, setSaveStatus] = useState("saved"); // "saving" | "saved" | "failed"
+  const [cadImportProgress, setCadImportProgress] = useState(null);
 
   const [iconScale, setIconScale] = useState(() => {
     const saved = localStorage.getItem("miradorai_iconScale");
@@ -2158,6 +2692,9 @@ export default function DesignerView({ onBack }) {
   const [activeSlideId, setActiveSlideId] = useState(null);
   const activeSlideIdRef = useRef(null);
   useEffect(() => { activeSlideIdRef.current = activeSlideId; }, [activeSlideId]);
+  const isSwitchingSlideRef = useRef(false);
+  const clientIdRef = useRef("designer_client_" + Math.random().toString(36).slice(2) + Date.now()).current;
+  const { eventsByTopic } = useWebSocket(["designer"]);
 
   const [editingSlideId, setEditingSlideId] = useState(null);
   const [editingSlideName, setEditingSlideName] = useState("");
@@ -2337,6 +2874,9 @@ export default function DesignerView({ onBack }) {
   useEffect(() => { selectedIdxRef.current = selectedIdx; }, [selectedIdx]);
   const copiedCameraRef = useRef(null);
   const [hoveredIdx, setHoveredIdx] = useState(null);
+  const [hoveredCadItem, setHoveredCadItem] = useState(null);
+  const hoveredCadItemRef = useRef(null);
+  const cadTooltipRef = useRef(null);
   const [zoomPct, setZoomPct] = useState(100);
   const [mode, setMode] = useState("place");
   const modeRef = useRef("place");
@@ -2354,6 +2894,14 @@ export default function DesignerView({ onBack }) {
   const [showMetricsVisibility, setShowMetricsVisibility] = useState(false);
   const showMetricsVisibilityRef = useRef(false);
   useEffect(() => { showMetricsVisibilityRef.current = showMetricsVisibility; }, [showMetricsVisibility]);
+  const [showWallMetrics, setShowWallMetrics] = useState(() => {
+    return localStorage.getItem("miradorai_showWallMetrics") !== "false";
+  });
+  const showWallMetricsRef = useRef(true);
+  useEffect(() => {
+    showWallMetricsRef.current = showWallMetrics;
+    localStorage.setItem("miradorai_showWallMetrics", String(showWallMetrics));
+  }, [showWallMetrics]);
   const [showConfigDrawer, setShowConfigDrawer] = useState(false);
   const [inspectorExpanded, setInspectorExpanded] = useState(true);
   const [inspectorTab, setInspectorTab] = useState("cameras"); // "cameras" | "zones"
@@ -2410,21 +2958,25 @@ export default function DesignerView({ onBack }) {
   const apiSaveLayout = useCallback(async ({ placed, zones, ppm, floorPlan = null, slides = null, activeSlideId = null }) => {
     setSaveStatus("saving");
     try {
+      const finalSlides = slides || slidesRef.current;
+      const finalActiveId = activeSlideId || activeSlideIdRef.current;
+      const activeSlideObj = (finalSlides || []).find(s => s.id === finalActiveId) || (finalSlides || [])[0];
+      const effectiveFloorPlan = floorPlan || activeSlideObj?.floorPlan || null;
+
       const bodyObj = {
         map_id: MAP_ID,
         floor_id: FLOOR_ID,
+        client_id: clientIdRef,
         placed: placed.map(p => ({ id: p.id, x: p.x, y: p.y, direction: p.direction, camera: p.camera, ...(p.labelOffset ? { labelOffset: p.labelOffset } : {}) })),
         zones: zones.map(z => ({ id: z.id, name: z.name, color: z.color, polygon: z.polygon })),
         ppm,
-        floor_plan: floorPlan,
+        floor_plan: effectiveFloorPlan,
       };
       
-      const finalSlides = slides || slidesRef.current;
       if (finalSlides && finalSlides.length > 0) {
         bodyObj.slides = finalSlides.map(({ modelDataUrl, floorPlan, thumbnailUrl, ...rest }) => rest);
       }
       
-      const finalActiveId = activeSlideId || activeSlideIdRef.current;
       if (finalActiveId) {
         bodyObj.active_slide_id = finalActiveId;
       }
@@ -2443,26 +2995,37 @@ export default function DesignerView({ onBack }) {
       console.error("[DESIGNER] ❌ Save failed", e);
       setSaveStatus("failed");
     }
-  }, []);
+  }, [clientIdRef]);
 
   // ── Debounced save ────────────────────────────────────────────────────────
   const scheduleSave = useCallback((placedList, zonesList, currentPpm) => {
     setSaveStatus("saving");
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
+      const curIdx = slidesRef.current.findIndex(s => s.id === activeSlideIdRef.current);
+      if (curIdx >= 0) {
+        slidesRef.current[curIdx] = {
+          ...slidesRef.current[curIdx],
+          placed: placedList,
+          zones: zonesList,
+          ppm: currentPpm
+        };
+      }
+      const activeSlide = slidesRef.current[curIdx];
       apiSaveLayout({ 
         placed: placedList, 
         zones: zonesList, 
         ppm: currentPpm,
         slides: slidesRef.current,
-        activeSlideId: activeSlideIdRef.current
+        activeSlideId: activeSlideIdRef.current,
+        floorPlan: activeSlide?.floorPlan || null
       }).then(() => {
         setSaveStatus("saved");
       }).catch(() => {
         setSaveStatus("failed");
       });
     }, 800);
-  }, []);
+  }, [apiSaveLayout]);
 
   // ── Canvas draw ───────────────────────────────────────────────────────────
   const getStripePattern = (ctx) => {
@@ -2500,6 +3063,50 @@ export default function DesignerView({ onBack }) {
       for (let gy = 0; gy < 2000; gy += 40) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(2000, gy); ctx.stroke(); }
       ctx.fillStyle = isLight ? "#94a3b8" : "#1e2d3e"; ctx.font = "14px monospace"; ctx.textAlign = "center";
       ctx.fillText("Import a floor plan or use the grid", 1000, 1000);
+    }
+
+    // ── Soft blueprint slate blindspot tint when Heatmap is active ─────────
+    if (showHeatmap) {
+      ctx.save();
+      ctx.fillStyle = "rgba(15, 23, 42, 0.25)";
+      const imgW = floorImgRef.current?.width || 2000;
+      const imgH = floorImgRef.current?.height || 2000;
+      ctx.fillRect(0, 0, imgW, imgH);
+      ctx.restore();
+    }
+
+    const activeSlide = slidesRef.current.find(s => s.id === activeSlideIdRef.current);
+    const currentWalls = activeSlide?.walls || [];
+
+    // ── Architectural Wall Dimensions in Meters ──────────────────────────────
+    if (showWallMetricsRef.current) {
+      const activePpm = activeSlide?.calibration?.enabled ? (activeSlide.calibration.ppm || ppmRef.current) : (ppmRef.current || activeSlide?.ppm || PIXELS_PER_METRE);
+      if (activePpm) {
+        const allWalls = [...currentWalls];
+        if (zonesRef.current && zonesRef.current.length > 0) {
+          zonesRef.current.forEach(z => {
+            if (z.polygon && z.polygon.length >= 2) {
+              for (let i = 0; i < z.polygon.length; i++) {
+                const p1 = z.polygon[i];
+                const p2 = z.polygon[(i + 1) % z.polygon.length];
+                allWalls.push([p1, p2]);
+              }
+            }
+          });
+        }
+        const img = floorImgRef.current;
+        if (allWalls.length === 0 && img && img.width > 0 && img.height > 0) {
+          allWalls.push(
+            [{ x: 0, y: 0 }, { x: img.width, y: 0 }],
+            [{ x: img.width, y: 0 }, { x: img.width, y: img.height }],
+            [{ x: img.width, y: img.height }, { x: 0, y: img.height }],
+            [{ x: 0, y: img.height }, { x: 0, y: 0 }]
+          );
+        }
+        if (allWalls.length > 0) {
+          CctvCalc.drawWallDimensions(ctx, allWalls, activePpm, { showDebugBoundary: true });
+        }
+      }
     }
 
 
@@ -2757,9 +3364,55 @@ export default function DesignerView({ onBack }) {
         "beam",
         scaleRef.current,
         showMetricsVisibilityRef.current,
-        showHeatmap
+        showHeatmap,
+        currentWalls
       );
     });
+
+    // ── Auto Placement Preview - Pass 1: Preview FOV Beams (Clipped to Interior Layout) ──
+    if (autoPlacementPreviewRef.current && autoPlacementPreviewRef.current.cameras) {
+      const previewCams = autoPlacementPreviewRef.current.cameras;
+      const activePpm = activeSlide?.calibration?.enabled
+        ? (activeSlide.calibration.ppm || ppmRef.current)
+        : (ppmRef.current || activeSlide?.ppm || PIXELS_PER_METRE);
+
+      previewCams.forEach((cam, i) => {
+        const camSpec = cam.camera || cam.model || {
+          type: "dome",
+          hfov: 90,
+          vfov: 60,
+          rangeDay: 25,
+          model: "Auto Cam"
+        };
+        const dummyPlaced = {
+          camera: camSpec,
+          x: cam.x,
+          y: cam.y,
+          direction: cam.direction,
+          id: `preview_${i}`,
+          zoneId: cam.zoneId || null,
+          zoneName: cam.zoneName || null,
+          visPoly: cam.visPoly
+        };
+        drawPlacedCamera(
+          ctx, dummyPlaced, activePpm,
+          false,
+          false,
+          zonesRef,
+          activeZoneIdRef,
+          null,
+          false,
+          false,
+          false,
+          iconScaleRef.current,
+          "beam",
+          scaleRef.current,
+          false,
+          showHeatmap,
+          currentWalls
+        );
+      });
+    }
 
     // ── Placed cameras - Pass 2: Draw ALL bodies & labels ─────────────────────
     placedRef.current.forEach((p, i) => {
@@ -2770,16 +3423,94 @@ export default function DesignerView({ onBack }) {
         zonesRef,
         activeZoneIdRef,
         highlightedCamIdRef.current,
-        false,
+        showCameraNamesRef.current,
         showPpm,
         false,
         iconScaleRef.current,
         "body",
         scaleRef.current,
         showMetricsVisibilityRef.current,
-        showHeatmap
+        showHeatmap,
+        currentWalls
       );
     });
+
+    // ── Auto Placement Preview - Pass 2: Preview Bodies & Number Badges ───────
+    if (autoPlacementPreviewRef.current && autoPlacementPreviewRef.current.cameras) {
+      const previewCams = autoPlacementPreviewRef.current.cameras;
+      const activePpm = activeSlide?.calibration?.enabled
+        ? (activeSlide.calibration.ppm || ppmRef.current)
+        : (ppmRef.current || activeSlide?.ppm || PIXELS_PER_METRE);
+
+      previewCams.forEach((cam, i) => {
+        const camSpec = cam.camera || cam.model || {
+          type: "dome",
+          hfov: 90,
+          vfov: 60,
+          rangeDay: 25,
+          model: "Auto Cam",
+          brand: ""
+        };
+        const dummyPlaced = {
+          camera: camSpec,
+          customName: `[${i + 1}] ${camSpec.brand ? camSpec.brand + " " : ""}${camSpec.model || "Cam"}`,
+          x: cam.x,
+          y: cam.y,
+          direction: cam.direction,
+          id: `preview_${i}`,
+          zoneId: cam.zoneId || null,
+          zoneName: cam.zoneName || null,
+          visPoly: cam.visPoly
+        };
+        drawPlacedCamera(
+          ctx, dummyPlaced, activePpm,
+          false,
+          false,
+          zonesRef,
+          activeZoneIdRef,
+          null,
+          false,
+          false,
+          false,
+          iconScaleRef.current,
+          "body",
+          scaleRef.current,
+          false,
+          showHeatmap,
+          currentWalls
+        );
+
+        // Preview badge overlay with number [1], [2]...
+        const S = iconScaleRef.current;
+        ctx.save();
+        ctx.translate(cam.x, cam.y);
+        ctx.beginPath();
+        ctx.arc(0, 0, 16 * S, 0, Math.PI * 2);
+        ctx.strokeStyle = "#10b981";
+        ctx.lineWidth = 2.2;
+        ctx.setLineDash([4, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Badge pill with number
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(-10, -22 * S, 20, 14, 4);
+        else ctx.rect(-10, -22 * S, 20, 14);
+        ctx.fillStyle = "#10b981";
+        ctx.fill();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 9px Inter, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(`${i + 1}`, 0, -22 * S + 7);
+
+        ctx.restore();
+      });
+    }
 
     // ── Rotation handle for selected camera ───────────────────────────────────
     if (selectedIdx !== null && selectedIdx < placedRef.current.length) {
@@ -2821,34 +3552,51 @@ export default function DesignerView({ onBack }) {
       ctx.restore();
     }
 
-    // ── Zone Hover Tooltip ───────────────────────────────────────────────────
-    if (mouseMapPosRef.current && hoveredIdx === null) {
-      const hoveredZone = zonesRef.current.find(
-        z => z.polygon?.length >= 3 && pointInOrOnPolygon(mouseMapPosRef.current.x, mouseMapPosRef.current.y, z.polygon)
-      );
-
-      if (hoveredZone) {
-        const lbl = `Zone: ${hoveredZone.name}`;
-        ctx.font = "10.5px Inter, sans-serif";
-        const tw = ctx.measureText(lbl).width;
-        const tx = mouseMapPosRef.current.x;
-        const ty = mouseMapPosRef.current.y - 18;
-        const bx = tx - tw / 2 - 7;
-        const by = ty - 9;
-        ctx.save();
-        ctx.fillStyle = isLight ? "rgba(255, 255, 255, 0.95)" : "rgba(13, 17, 23, 0.95)";
-        ctx.strokeStyle = hoveredZone.color;
-        ctx.lineWidth = 1;
+    // ── CAD Component & Zone Hover Canvas Highlight ────────────────────────────
+    const curHoveredCad = hoveredCadItemRef.current;
+    if (curHoveredCad && hoveredIdx === null) {
+      ctx.save();
+      if (curHoveredCad.isWall && curHoveredCad.p1 && curHoveredCad.p2) {
+        // Glowing wall highlight line
+        ctx.strokeStyle = "#38bdf8";
+        ctx.lineWidth = Math.max(3.5 / sc, 2);
+        ctx.shadowColor = "rgba(56, 189, 248, 0.8)";
+        ctx.shadowBlur = 10;
+        ctx.lineCap = "round";
         ctx.beginPath();
-        if (ctx.roundRect) ctx.roundRect(bx, by, tw + 14, 18, 4);
-        else ctx.rect(bx, by, tw + 14, 18);
+        ctx.moveTo(curHoveredCad.p1[0], curHoveredCad.p1[1]);
+        ctx.lineTo(curHoveredCad.p2[0], curHoveredCad.p2[1]);
+        ctx.stroke();
+
+        // Terminal endpoints
+        ctx.fillStyle = "#38bdf8";
+        ctx.beginPath();
+        ctx.arc(curHoveredCad.p1[0], curHoveredCad.p1[1], 4 / sc, 0, Math.PI * 2);
+        ctx.arc(curHoveredCad.p2[0], curHoveredCad.p2[1], 4 / sc, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (curHoveredCad.minX != null && curHoveredCad.maxX != null && !curHoveredCad.isZone) {
+        // Glowing CAD component bounding box highlight
+        const bw = curHoveredCad.maxX - curHoveredCad.minX;
+        const bh = curHoveredCad.maxY - curHoveredCad.minY;
+        const pad = 2 / sc;
+        const rx = curHoveredCad.minX - pad;
+        const ry = curHoveredCad.minY - pad;
+        const rw = bw + pad * 2;
+        const rh = bh + pad * 2;
+
+        ctx.strokeStyle = "rgba(56, 189, 248, 0.85)";
+        ctx.fillStyle = "rgba(56, 189, 248, 0.12)";
+        ctx.lineWidth = Math.max(1.8 / sc, 1.2);
+        ctx.shadowColor = "rgba(56, 189, 248, 0.5)";
+        ctx.shadowBlur = 8;
+        ctx.setLineDash([5 / sc, 3 / sc]);
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(rx, ry, rw, rh, Math.min(6 / sc, rw / 4));
+        else ctx.rect(rx, ry, rw, rh);
         ctx.fill();
         ctx.stroke();
-        ctx.fillStyle = isLight ? "#1e293b" : "#e8edf5";
-        ctx.textAlign = "center"; ctx.textBaseline = "middle";
-        ctx.fillText(lbl, tx, ty);
-        ctx.restore();
       }
+      ctx.restore();
     }
 
     // ── Text Annotations ─────────────────────────────────────────────────────
@@ -2908,7 +3656,47 @@ export default function DesignerView({ onBack }) {
     });
 
     ctx.restore();
-  }, [ppm, hoveredIdx, selectedIdx, showPpm, showMetricsVisibility, showHeatmap]);
+  }, [ppm, hoveredIdx, selectedIdx, showPpm, showMetricsVisibility, showHeatmap, showWallMetrics, showCameraNames, autoPlacementPreview]);
+
+  useEffect(() => {
+    showCameraNamesRef.current = showCameraNames;
+    if (typeof draw === "function") draw();
+  }, [showCameraNames, draw]);
+
+  // ── Instant Live Sync: listen for remote designer updates from other clients (e.g. localhost <-> IP) ──
+  useEffect(() => {
+    const designerEnvelope = eventsByTopic.designer;
+    if (designerEnvelope && designerEnvelope.data) {
+      const data = designerEnvelope.data;
+      if (data.client_id && data.client_id === clientIdRef) return; // skip own local save
+      if (data.map_id && data.map_id !== MAP_ID) return;
+
+      console.log("[DesignerView] 🔄 Real-time designer update received via WebSocket!");
+      apiLoadLayout().then(backendData => {
+        if (!backendData) return;
+        if (backendData.slides && Array.isArray(backendData.slides) && backendData.slides.length > 0) {
+          const resolvedSlides = backendData.slides.map(s => ({
+            ...s,
+            floorPlan: resolveSlideFloorPlan(s, backendData.floor_plan)
+          }));
+          setSlides(resolvedSlides);
+          slidesRef.current = resolvedSlides;
+          saveFloorsDB(resolvedSlides, activeSlideIdRef.current);
+
+          const curSlide = resolvedSlides.find(s => s.id === activeSlideIdRef.current) || resolvedSlides[0];
+          if (curSlide) {
+            placedRef.current = curSlide.placed || [];
+            setPlaced(curSlide.placed || []);
+            zonesRef.current = curSlide.zones || [];
+            setZones(curSlide.zones || []);
+            setPpm(curSlide.ppm || PIXELS_PER_METRE);
+            ppmRef.current = curSlide.ppm || PIXELS_PER_METRE;
+            draw();
+          }
+        }
+      }).catch(err => console.warn("[DesignerView] Live sync reload failed:", err));
+    }
+  }, [eventsByTopic.designer, draw, clientIdRef]);
 
   const handleUndo = useCallback(() => {
     if (undoStack.length === 0) return;
@@ -2974,13 +3762,14 @@ export default function DesignerView({ onBack }) {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Security Fix: Enforce file size restriction (5MB)
+        // Security Fix: Enforce file size restriction (5MB)
     const MAX_FILE_SIZE = 5 * 1024 * 1024;
     if (file.size > MAX_FILE_SIZE) {
       alert("File upload failed. The selected file exceeds the maximum allowed size of 5MB.");
       e.target.value = "";
       return;
     }
+
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
@@ -3025,7 +3814,7 @@ export default function DesignerView({ onBack }) {
   const handleDatasheetUpload = useCallback(async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    
+
     // Security Fix: Enforce file size restriction (5MB)
     const MAX_FILE_SIZE = 5 * 1024 * 1024;
     if (file.size > MAX_FILE_SIZE) {
@@ -3283,6 +4072,10 @@ export default function DesignerView({ onBack }) {
       }
 
       if (parsedSlides && parsedSlides.length > 0) {
+        parsedSlides = parsedSlides.map(s => ({
+          ...s,
+          floorPlan: resolveSlideFloorPlan(s, backendData?.floor_plan)
+        }));
         setSlides(parsedSlides);
         slidesRef.current = parsedSlides;
 
@@ -3307,14 +4100,24 @@ export default function DesignerView({ onBack }) {
           textNodesRef.current = activeSlide.textNodes || [];
           setTextNodes(activeSlide.textNodes || []);
 
-          if (activeSlide.floorPlan) {
+          setShowWallMetrics(activeSlide.showWallMetrics !== false);
+          showWallMetricsRef.current = (activeSlide.showWallMetrics !== false);
+
+          setShowMetricsVisibility(Boolean(activeSlide.showMetricsVisibility));
+          showMetricsVisibilityRef.current = Boolean(activeSlide.showMetricsVisibility);
+
+          setShowHeatmap(Boolean(activeSlide.showHeatmap));
+          setShowPpm(Boolean(activeSlide.showPpm));
+
+          const floorPlanSrc = resolveSlideFloorPlan(activeSlide, backendData?.floor_plan);
+          if (floorPlanSrc) {
             const img = new Image();
             img.onload = () => {
               floorImgRef.current = img;
               setHasFloor(true);
               setTimeout(fitImage, 50);
             };
-            img.src = activeSlide.floorPlan;
+            img.src = floorPlanSrc;
           } else if (activeSlide.modelDataUrl) {
             floorImgRef.current = null;
             setHasFloor(true);
@@ -3382,7 +4185,7 @@ export default function DesignerView({ onBack }) {
 
   // Reactive Sync: Keep active slide inside slides list in sync with current canvas editor states
   useEffect(() => {
-    if (!activeSlideId) return;
+    if (!activeSlideId || isSwitchingSlideRef.current) return;
     setSlides(prevSlides => {
       const idx = prevSlides.findIndex(s => s.id === activeSlideId);
       if (idx === -1) return prevSlides;
@@ -3390,6 +4193,10 @@ export default function DesignerView({ onBack }) {
       const currentSlide = prevSlides[idx];
       if (
         currentSlide.ppm === ppm &&
+        currentSlide.showWallMetrics === showWallMetrics &&
+        currentSlide.showMetricsVisibility === showMetricsVisibility &&
+        currentSlide.showHeatmap === showHeatmap &&
+        currentSlide.showPpm === showPpm &&
         JSON.stringify(currentSlide.placed) === JSON.stringify(placed) &&
         JSON.stringify(currentSlide.zones) === JSON.stringify(zones) &&
         JSON.stringify(currentSlide.draftZones) === JSON.stringify(draftZones) &&
@@ -3405,11 +4212,16 @@ export default function DesignerView({ onBack }) {
         placed,
         zones,
         draftZones,
-        textNodes
+        textNodes,
+        showWallMetrics,
+        showMetricsVisibility,
+        showHeatmap,
+        showPpm
       };
+      slidesRef.current = updated;
       return updated;
     });
-  }, [placed, zones, draftZones, ppm, activeSlideId, textNodes]);
+  }, [placed, zones, draftZones, ppm, activeSlideId, textNodes, showWallMetrics, showMetricsVisibility, showHeatmap, showPpm]);
 
   // ── Camera model fetch ────────────────────────────────────────────────────
   useEffect(() => {
@@ -3524,39 +4336,88 @@ export default function DesignerView({ onBack }) {
   }, []);
 
   const switchSlide = useCallback((slideId) => {
+    if (!slideId || slideId === activeSlideIdRef.current) return;
     const targetSlide = slidesRef.current.find(s => s.id === slideId);
     if (!targetSlide) return;
 
     recordState();
 
+    // 1. Fully save current active slide's state into slidesRef
+    const curIdx = slidesRef.current.findIndex(s => s.id === activeSlideIdRef.current);
+    if (curIdx >= 0) {
+      slidesRef.current[curIdx] = {
+        ...slidesRef.current[curIdx],
+        placed: placedRef.current || [],
+        zones: zonesRef.current || [],
+        draftZones: draftZonesRef.current || [],
+        textNodes: textNodesRef.current || [],
+        ppm: ppmRef.current || PIXELS_PER_METRE,
+        showWallMetrics: showWallMetricsRef.current,
+        showMetricsVisibility: showMetricsVisibilityRef.current,
+        showHeatmap,
+        showPpm,
+      };
+    }
+
+    // 2. Set switching flag to block reactive sync tick race condition
+    isSwitchingSlideRef.current = true;
+
+    // 3. Switch active slide ID
     setActiveSlideId(slideId);
+    activeSlideIdRef.current = slideId;
 
-    setPpm(targetSlide.ppm || PIXELS_PER_METRE);
-    ppmRef.current = targetSlide.ppm || PIXELS_PER_METRE;
+    // 4. Load target slide isolated data
+    const targetPlaced = targetSlide.placed || [];
+    const targetZones = targetSlide.zones || [];
+    const targetDraftZones = targetSlide.draftZones || [];
+    const targetTextNodes = targetSlide.textNodes || [];
+    const targetPpm = targetSlide.ppm || PIXELS_PER_METRE;
 
-    placedRef.current = targetSlide.placed || [];
-    setPlaced(targetSlide.placed || []);
+    setPpm(targetPpm);
+    ppmRef.current = targetPpm;
 
-    zonesRef.current = targetSlide.zones || [];
-    setZones(targetSlide.zones || []);
+    placedRef.current = targetPlaced;
+    setPlaced(targetPlaced);
 
-    draftZonesRef.current = targetSlide.draftZones || [];
-    setDraftZones(targetSlide.draftZones || []);
+    zonesRef.current = targetZones;
+    setZones(targetZones);
+
+    draftZonesRef.current = targetDraftZones;
+    setDraftZones(targetDraftZones);
+
+    textNodesRef.current = targetTextNodes;
+    setTextNodes(targetTextNodes);
+
+    setShowWallMetrics(targetSlide.showWallMetrics !== false);
+    showWallMetricsRef.current = (targetSlide.showWallMetrics !== false);
+
+    setShowMetricsVisibility(Boolean(targetSlide.showMetricsVisibility));
+    showMetricsVisibilityRef.current = Boolean(targetSlide.showMetricsVisibility);
+
+    setShowHeatmap(Boolean(targetSlide.showHeatmap));
+    setShowPpm(Boolean(targetSlide.showPpm));
 
     drawingPointsRef.current = [];
     setDrawingPoints([]);
     setSelectedIdx(null);
     setActiveZoneId(null);
     activeZoneIdRef.current = null;
+    setAutoPlacementPreview(null);
+    autoPlacementPreviewRef.current = null;
+    setAutoPlacementOpen(false);
 
-    if (targetSlide.floorPlan) {
+    setSlides([...slidesRef.current]);
+
+    const effectiveFloorPlan = resolveSlideFloorPlan(targetSlide, null);
+
+    if (effectiveFloorPlan) {
       const img = new Image();
       img.onload = () => {
         floorImgRef.current = img;
         setHasFloor(true);
         setTimeout(fitImage, 50);
       };
-      img.src = targetSlide.floorPlan;
+      img.src = effectiveFloorPlan;
     } else if (targetSlide.modelDataUrl) {
       floorImgRef.current = null;
       setHasFloor(true);
@@ -3566,13 +4427,22 @@ export default function DesignerView({ onBack }) {
       draw();
     }
 
-    apiSaveFloorPlan(targetSlide.floorPlan);
+    if (effectiveFloorPlan) {
+      apiSaveFloorPlan(effectiveFloorPlan);
+    }
     apiSaveLayout({
-      placed: targetSlide.placed || [],
-      zones: targetSlide.zones || [],
-      ppm: targetSlide.ppm || PIXELS_PER_METRE
+      placed: targetPlaced,
+      zones: targetZones,
+      ppm: targetPpm,
+      slides: slidesRef.current,
+      activeSlideId: slideId,
+      floorPlan: effectiveFloorPlan,
     });
-  }, [recordState, fitImage, draw]);
+
+    setTimeout(() => {
+      isSwitchingSlideRef.current = false;
+    }, 80);
+  }, [recordState, fitImage, draw, showHeatmap, showPpm]);
 
   const deleteSlide = useCallback((slideId, e) => {
     if (e) e.stopPropagation();
@@ -3641,12 +4511,35 @@ export default function DesignerView({ onBack }) {
   }, [recordState, fitImage, draw, scheduleSave]);
 
   const addNewSlide = useCallback((floorPlan = null, floorPlanName = null, options = {}) => {
-    const { modelDataUrl = null, autoPpm = null, imageWidth = 2048, imageHeight = 2048, partsReport = null, embeddedPlaced = [] } = options;
+    const { modelDataUrl = null, autoPpm = null, imageWidth = 2048, imageHeight = 2048, partsReport = null, embeddedPlaced = [], walls = [], calibration = null, units = "meters" } = options;
     recordState();
 
     const newSlideId = "slide_" + Date.now();
     const newSlideName = floorPlanName || `Floor Draft ${slidesRef.current.length + 1}`;
     const effectivePpm = autoPpm || PIXELS_PER_METRE;
+    const effectiveCalib = calibration || (autoPpm ? {
+      enabled: true,
+      mode: "standard",
+      ppm: effectivePpm,
+      unit: units,
+      references: [],
+      imageDimensions: { width: imageWidth, height: imageHeight },
+      timestamp: Date.now(),
+    } : null);
+
+    const initialVersion = {
+      id: "v_" + Date.now(),
+      name: "v1",
+      timestamp: Date.now(),
+      floorPlan,
+      modelDataUrl,
+      placed: JSON.parse(JSON.stringify(embeddedPlaced || [])),
+      zones: [],
+      ppm: effectivePpm,
+      calibration: effectiveCalib,
+      walls: walls || [],
+      partsReport: partsReport || null,
+    };
 
     const newSlide = {
       id: newSlideId,
@@ -3659,10 +4552,15 @@ export default function DesignerView({ onBack }) {
       placed: embeddedPlaced,
       zones: [],
       draftZones: [],
-      ppm: effectivePpm
+      ppm: effectivePpm,
+      calibration: effectiveCalib,
+      walls: walls || [],
+      versions: [initialVersion],
     };
 
-    setSlides(prev => [...prev, newSlide]);
+    const updatedSlides = [...slidesRef.current, newSlide];
+    slidesRef.current = updatedSlides;
+    setSlides(updatedSlides);
     setActiveSlideId(newSlideId);
     activeSlideIdRef.current = newSlideId;
 
@@ -3711,10 +4609,34 @@ export default function DesignerView({ onBack }) {
     const isCurrentEmpty = currentActiveSlide && !currentActiveSlide.floorPlan && !currentActiveSlide.modelDataUrl && (!currentActiveSlide.placed || currentActiveSlide.placed.length === 0);
 
     if (isCurrentEmpty) {
-      const { modelDataUrl = null, autoPpm = null, imageWidth = 2048, imageHeight = 2048, partsReport = null, embeddedPlaced = [] } = options;
+      const { modelDataUrl = null, autoPpm = null, imageWidth = 2048, imageHeight = 2048, partsReport = null, embeddedPlaced = [], walls = [], calibration = null, units = "meters" } = options;
       recordState();
 
       const effectivePpm = autoPpm || PIXELS_PER_METRE;
+      const effectiveCalib = calibration || (autoPpm ? {
+        enabled: true,
+        mode: "standard",
+        ppm: effectivePpm,
+        unit: units,
+        references: [],
+        imageDimensions: { width: imageWidth, height: imageHeight },
+        timestamp: Date.now(),
+      } : null);
+
+      const initialVersion = {
+        id: "v_" + Date.now(),
+        name: "v1",
+        timestamp: Date.now(),
+        floorPlan,
+        modelDataUrl,
+        placed: JSON.parse(JSON.stringify(embeddedPlaced || [])),
+        zones: [],
+        ppm: effectivePpm,
+        calibration: effectiveCalib,
+        walls: walls || [],
+        partsReport: partsReport || null,
+      };
+
       const updatedSlide = {
         ...currentActiveSlide,
         name: floorPlanName || currentActiveSlide.name,
@@ -3724,10 +4646,15 @@ export default function DesignerView({ onBack }) {
         imageHeight,
         partsReport,
         placed: embeddedPlaced,
-        ppm: effectivePpm
+        ppm: effectivePpm,
+        calibration: effectiveCalib,
+        walls: walls || [],
+        versions: (currentActiveSlide.versions && currentActiveSlide.versions.length > 0) ? currentActiveSlide.versions : [initialVersion],
       };
 
-      setSlides(prev => prev.map(s => s.id === updatedSlide.id ? updatedSlide : s));
+      const updatedSlides = slidesRef.current.map(s => s.id === updatedSlide.id ? updatedSlide : s);
+      slidesRef.current = updatedSlides;
+      setSlides(updatedSlides);
       setPpm(effectivePpm);
       ppmRef.current = effectivePpm;
       placedRef.current = embeddedPlaced;
@@ -3878,7 +4805,7 @@ export default function DesignerView({ onBack }) {
     const clickedZone = zonesRef.current.find(
       z => z.polygon?.length >= 3 && pointInPolygon(p.x, p.y, z.polygon)
     );
-    if (clickedZone) {
+    if (clickedZone && isShapeZone(clickedZone)) {
       setContextMenu({
         x: e.clientX,
         y: e.clientY,
@@ -3891,18 +4818,16 @@ export default function DesignerView({ onBack }) {
 
   const onSidebarZoneContextMenu = useCallback((e, zone) => {
     e.preventDefault();
-    setContextMenu({
-      x: e.clientX,
-      y: e.clientY,
-      zone
-    });
+    if (isShapeZone(zone)) {
+      setContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        zone
+      });
+    } else {
+      setContextMenu(null);
+    }
   }, []);
-
-  const handleAutomateClick = (zone) => {
-    setAutomationZone(zone);
-    setShowAutomationModal(true);
-    setContextMenu(null);
-  };
 
   const getCameraForType = useCallback((type) => {
     const models = cameraDBRef.current.filter(c => c.type === type);
@@ -4222,6 +5147,106 @@ export default function DesignerView({ onBack }) {
     draw();
     apiSaveLayout({ placed: updatedPlaced, zones: zonesRef.current, ppm: ppmRef.current });
   }, [draw, getCameraForType]);
+
+  const handleApplyAutoPlacement = useCallback((result, replaceExisting = true) => {
+    if (!result || !result.cameras || result.cameras.length === 0) return;
+    recordState();
+
+    const existingCount = replaceExisting ? 0 : placedRef.current.length;
+    const newCameras = result.cameras.map((cam, idx) => {
+      const cameraSpec = cam.camera || cam.model || {
+        model: cam.model || "Network Camera",
+        brand: cam.brand || "Generic",
+        type: "dome",
+        hfov: 90,
+        vfov: 60,
+        rangeDay: 25,
+        resolution: "4MP",
+        megapixels: 4
+      };
+
+      return {
+        id: `placed_auto_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 5)}`,
+        camera: cameraSpec,
+        customName: `Camera ${existingCount + idx + 1} (${cameraSpec.model || "Auto"})`,
+        x: cam.x,
+        y: cam.y,
+        direction: cam.direction,
+        zoneId: cam.zoneId || null,
+        zoneName: cam.zoneName || null,
+        visPoly: cam.visPoly,
+        recordingMode: "continuous",
+        fps: 25,
+        lighting: "normal",
+        mounting: "wall",
+        includeBackbox: false,
+        includePoe: false,
+      };
+    });
+
+    const updated = replaceExisting ? newCameras : [...placedRef.current, ...newCameras];
+    placedRef.current = updated;
+    setPlaced(updated);
+
+    setLastAutoPlacementReport(result);
+    lastAutoPlacementReportRef.current = result;
+
+    const curIdx = slidesRef.current.findIndex(s => s.id === activeSlideIdRef.current);
+    if (curIdx >= 0) {
+      const updatedSlides = [...slidesRef.current];
+      updatedSlides[curIdx] = {
+        ...updatedSlides[curIdx],
+        placed: updated
+      };
+      slidesRef.current = updatedSlides;
+      setSlides(updatedSlides);
+    }
+
+    setAutoPlacementPreview(null);
+    autoPlacementPreviewRef.current = null;
+    draw();
+    scheduleSave(updated, zonesRef.current, ppmRef.current);
+  }, [recordState, scheduleSave, draw]);
+
+  const handleClearPlacedCameras = useCallback(() => {
+    recordState();
+    placedRef.current = [];
+    setPlaced([]);
+
+    const curIdx = slidesRef.current.findIndex(s => s.id === activeSlideIdRef.current);
+    if (curIdx >= 0) {
+      const updatedSlides = [...slidesRef.current];
+      updatedSlides[curIdx] = {
+        ...updatedSlides[curIdx],
+        placed: []
+      };
+      slidesRef.current = updatedSlides;
+      setSlides(updatedSlides);
+    }
+
+    setAutoPlacementPreview(null);
+    autoPlacementPreviewRef.current = null;
+    setLastAutoPlacementReport(null);
+    lastAutoPlacementReportRef.current = null;
+    draw();
+    scheduleSave([], zonesRef.current, ppmRef.current);
+  }, [recordState, scheduleSave, draw]);
+
+  const handleOpenPlacementReport = useCallback(() => {
+    let report = lastAutoPlacementReportRef.current;
+    if (!report && placedRef.current.length > 0) {
+      report = generatePlacementReportForPlaced({
+        placed: placedRef.current,
+        walls: slidesRef.current.find(s => s.id === activeSlideIdRef.current)?.walls || [],
+        zones: zonesRef.current,
+        floorImg: floorImgRef.current,
+        ppm: ppmRef.current
+      });
+      setLastAutoPlacementReport(report);
+      lastAutoPlacementReportRef.current = report;
+    }
+    setAutoPlacementOpen(true);
+  }, []);
 
   // ── Mouse events ──────────────────────────────────────────────────────────
   const onMouseDown = useCallback(e => {
@@ -4593,19 +5618,75 @@ export default function DesignerView({ onBack }) {
       const activeZone = activeZoneIdRef.current
         ? zonesRef.current.find(z => z.id === activeZoneIdRef.current)
         : null;
-      const constraintZone = activeZone || draggingCamZoneRef.current;
 
-      if (constraintZone && constraintZone.polygon.length >= 3) {
-        if (!pointInPolygon(p.x, p.y, constraintZone.polygon)) return;
+      if (activeZone && activeZone.polygon?.length >= 3) {
+        if (!pointInPolygon(p.x, p.y, activeZone.polygon)) return;
       }
 
       const updated = [...placedRef.current];
-      updated[draggingIdxRef.current] = { ...updated[draggingIdxRef.current], x: p.x, y: p.y };
+      updated[draggingIdxRef.current] = {
+        ...updated[draggingIdxRef.current],
+        x: p.x,
+        y: p.y,
+        visPoly: null // Invalidate precomputed static polygon so beam follows camera live in real-time
+      };
       placedRef.current = updated; setPlaced([...updated]); draw(); return;
     }
 
     const idx = nearestPlaced(p.x, p.y);
     if (idx !== hoveredIdx) { setHoveredIdx(idx >= 0 ? idx : null); }
+
+    // ── CAD Layout Component Hover Inspection ────────────────────────────────
+    const isNormalHoverMode = modeRef.current === "normal" || modeRef.current === "select" || modeRef.current === "place" || !modeRef.current;
+    if (idx < 0 && isNormalHoverMode && wrapRef.current && !draggingIdxRef.current && !panStartRef.current && !rotatingIdxRef.current && !draggingLabelIdxRef.current && !draggingZoneRef.current && !draggingVertexRef.current) {
+      const activeSlide = slidesRef.current.find(s => s.id === activeSlideIdRef.current);
+      const activePpm = activeSlide?.calibration?.enabled ? (activeSlide.calibration.ppm || ppmRef.current) : (ppmRef.current || activeSlide?.ppm || PIXELS_PER_METRE);
+      const hovered = findHoveredCadComponent(p.x, p.y, activeSlide, zonesRef.current, activePpm, scaleRef.current);
+
+      if (hovered) {
+        const wrapRect = wrapRef.current.getBoundingClientRect();
+        const screenX = e.clientX - wrapRect.left;
+        const screenY = e.clientY - wrapRect.top;
+
+        if (cadTooltipRef.current) {
+          cadTooltipRef.current.style.display = "flex";
+          cadTooltipRef.current.style.opacity = "1";
+          const tw = 250;
+          let tx = screenX + 16;
+          let ty = screenY - 38;
+          if (tx + tw > wrapRect.width) tx = screenX - tw - 12;
+          if (ty < 12) ty = screenY + 24;
+          cadTooltipRef.current.style.transform = `translate(${tx}px, ${ty}px)`;
+        }
+
+        if (hoveredCadItemRef.current?.id !== hovered.id) {
+          hoveredCadItemRef.current = hovered;
+          setHoveredCadItem(hovered);
+          draw();
+        }
+      } else {
+        if (hoveredCadItemRef.current !== null) {
+          hoveredCadItemRef.current = null;
+          setHoveredCadItem(null);
+          draw();
+        }
+        if (cadTooltipRef.current) {
+          cadTooltipRef.current.style.display = "none";
+          cadTooltipRef.current.style.opacity = "0";
+        }
+      }
+    } else {
+      if (hoveredCadItemRef.current !== null) {
+        hoveredCadItemRef.current = null;
+        setHoveredCadItem(null);
+        draw();
+      }
+      if (cadTooltipRef.current) {
+        cadTooltipRef.current.style.display = "none";
+        cadTooltipRef.current.style.opacity = "0";
+      }
+    }
+
     draw();
 
     // Update cursor style
@@ -4756,6 +5837,10 @@ export default function DesignerView({ onBack }) {
   // ── Drag-and-drop onto canvas ─────────────────────────────────────────────
   const onDrop = useCallback(e => {
     e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFileChange({ target: { files: e.dataTransfer.files, value: "" } });
+      return;
+    }
     const cameraId = e.dataTransfer.getData("cameraId");
     const camera = cameraDBRef.current.find(c => c.id === cameraId);
     if (!camera) return;
@@ -4795,7 +5880,6 @@ export default function DesignerView({ onBack }) {
   // ── Floor plan import ─────────────────────────────────────────────────────
   async function handleFileChange(e) {
     const file = e.target.files[0]; if (!file) return;
-
     // Security Fix: Enforce file size restriction (5MB)
     const MAX_FILE_SIZE = 5 * 1024 * 1024;
     if (file.size > MAX_FILE_SIZE) {
@@ -4803,9 +5887,91 @@ export default function DesignerView({ onBack }) {
       e.target.value = "";
       return;
     }
-
     const name = file.name.replace(/\.[^/.]+$/, "");
     const ext = file.name.toLowerCase().split(".").pop();
+
+    // ── AutoCAD .dwg / .dxf layout import with Real-Time Progress ───
+    if (ext === "dwg" || ext === "dxf") {
+      setCadImportProgress({
+        open: true,
+        percent: 5,
+        stage: `Uploading ${file.name}...`,
+        fileName: file.name,
+        fileSize: file.size,
+      });
+
+      try {
+        const token = getToken();
+
+        const cadData = await importCadWithProgress(file, token, (percent, stage) => {
+          setCadImportProgress({
+            open: true,
+            percent,
+            stage,
+            fileName: file.name,
+            fileSize: file.size,
+          });
+        });
+
+        setCadImportProgress({
+          open: true,
+          percent: 95,
+          stage: "Mounting layout to canvas...",
+          fileName: file.name,
+          fileSize: file.size,
+        });
+
+        const autoCalib = cadData.ppm
+          ? {
+              enabled: true,
+              mode: "standard",
+              ppm: cadData.ppm,
+              unit: cadData.units || "meters",
+              references: [],
+              imageDimensions: { width: cadData.width || 2400, height: cadData.height || 1800 },
+              timestamp: Date.now(),
+            }
+          : null;
+
+        // ── [CAD-DIAGNOSTIC PART C: DESIGNERVIEW] ──────────────────────────
+        const canvasRect = wrapRef.current?.getBoundingClientRect() || { width: 0, height: 0 };
+        console.log(`\n==================== [CAD-DIAGNOSTIC PART C: DESIGNERVIEW .${ext.toUpperCase()}] ====================`);
+        console.log(`1. Response PPM Received: ${cadData.ppm} px/m (Units: ${cadData.units})`);
+        console.log(`2. SVG Vector Dimensions: ${cadData.width} x ${cadData.height} px`);
+        console.log(`3. Rendered Canvas/Container DOM Rect: ${canvasRect.width.toFixed(1)} x ${canvasRect.height.toFixed(1)} px`);
+        console.log(`4. Zoom Scale at Import: scaleRef=${scaleRef.current.toFixed(4)} (Zoom: ${Math.round(scaleRef.current * 100)}%)`);
+        console.log(`5. Responsive Canvas Scaling: Active slide autoPpm=${cadData.ppm || PIXELS_PER_METRE}, scale=${scaleRef.current.toFixed(4)}`);
+        console.log(`=============================================================================================\n`);
+
+        loadOrUpdateSlide(cadData.dataUrl, name, {
+          autoPpm: cadData.ppm || PIXELS_PER_METRE,
+          imageWidth: cadData.width || 2400,
+          imageHeight: cadData.height || 1800,
+          walls: cadData.walls || [],
+          partsReport: cadData.partsReport || null,
+          calibration: autoCalib,
+          units: cadData.units || "meters",
+        });
+
+        setCadImportProgress({
+          open: true,
+          percent: 100,
+          stage: "Import complete!",
+          fileName: file.name,
+          fileSize: file.size,
+        });
+
+        setTimeout(() => {
+          setCadImportProgress(null);
+        }, 300);
+      } catch (err) {
+        setCadImportProgress(null);
+        console.error("[DesignerView] AutoCAD conversion failed:", err);
+        showAlert("AutoCAD Import Failed", "Failed to convert AutoCAD layout: " + (err.message || "unknown error"));
+      }
+      e.target.value = "";
+      return;
+    }
 
     // ── .gltf / .glb → load 3D model and auto-calibrate scale (PPM) ─────
     if (ext === "gltf" || ext === "glb") {
@@ -4988,37 +6154,29 @@ export default function DesignerView({ onBack }) {
     const currentSlide = slidesRef.current[activeSlideIdx];
     const versions = currentSlide.versions || [];
     const currentPlaced = placedRef.current || [];
+    const currentZones = zonesRef.current || [];
     
-    let hasChanges = true;
-    if (versions.length > 0) {
-      const lastVersionPlaced = versions[versions.length - 1].placed || [];
-      if (lastVersionPlaced.length === currentPlaced.length) {
-        const lastIds = lastVersionPlaced.map(c => c.id).sort().join(',');
-        const currIds = currentPlaced.map(c => c.id).sort().join(',');
-        if (lastIds === currIds) {
-          hasChanges = false;
-        }
-      }
-    }
+    const newVersion = {
+      id: "v_" + Date.now(),
+      name: `v${versions.length + 1}`,
+      timestamp: Date.now(),
+      floorPlan: currentSlide.floorPlan || null,
+      modelDataUrl: currentSlide.modelDataUrl || null,
+      placed: JSON.parse(JSON.stringify(currentPlaced)),
+      zones: JSON.parse(JSON.stringify(currentZones)),
+      ppm: ppmRef.current || currentSlide.ppm || PIXELS_PER_METRE,
+      calibration: currentSlide.calibration ? JSON.parse(JSON.stringify(currentSlide.calibration)) : null,
+      walls: currentSlide.walls ? JSON.parse(JSON.stringify(currentSlide.walls)) : [],
+      partsReport: currentSlide.partsReport ? JSON.parse(JSON.stringify(currentSlide.partsReport)) : null,
+    };
+    const updatedSlide = { ...currentSlide, versions: [...versions, newVersion] };
+    const updatedSlides = [...slidesRef.current];
+    updatedSlides[activeSlideIdx] = updatedSlide;
+    slidesRef.current = updatedSlides;
+    setSlides(updatedSlides);
     
-    if (hasChanges) {
-      const newVersion = {
-        id: "v_" + Date.now(),
-        name: `v${versions.length + 1}`,
-        timestamp: Date.now(),
-        placed: JSON.parse(JSON.stringify(currentPlaced))
-      };
-      const updatedSlide = { ...currentSlide, versions: [...versions, newVersion] };
-      const updatedSlides = [...slidesRef.current];
-      updatedSlides[activeSlideIdx] = updatedSlide;
-      slidesRef.current = updatedSlides;
-      setSlides(updatedSlides);
-      
-      scheduleSave(placedRef.current, zonesRef.current, ppmRef.current);
-      alert(`Saved ${newVersion.name}!`);
-    } else {
-      alert("No camera changes detected since last save.");
-    }
+    scheduleSave(placedRef.current, zonesRef.current, ppmRef.current);
+    alert(`Saved ${newVersion.name}!`);
   }
 
   function restoreVersion(slideId, versionId) {
@@ -5032,9 +6190,26 @@ export default function DesignerView({ onBack }) {
     }
     
     recordState(); 
-    const restoredPlaced = JSON.parse(JSON.stringify(version.placed));
+    const restoredPlaced = JSON.parse(JSON.stringify(version.placed || []));
     placedRef.current = restoredPlaced;
     setPlaced(restoredPlaced);
+    if (version.zones && Array.isArray(version.zones)) {
+      const restoredZones = JSON.parse(JSON.stringify(version.zones));
+      zonesRef.current = restoredZones;
+      setZones(restoredZones);
+    }
+    if (version.ppm) {
+      ppmRef.current = version.ppm;
+      setPpm(version.ppm);
+    }
+    if (version.floorPlan && version.floorPlan !== slide.floorPlan) {
+      const img = new Image();
+      img.onload = () => {
+        floorImgRef.current = img;
+        draw();
+      };
+      img.src = version.floorPlan;
+    }
     setSelectedIdx(null);
     setHighlightedCamId(null);
     highlightedCamIdRef.current = null;
@@ -5297,9 +6472,9 @@ function drawCameraStatsToCanvas(ctx, canvasW, canvasH, placedCameras, overrideX
 // ── Draw DORI legend box to canvas at given pixel position ──────────────────
 function drawDoriLegendToCanvas(ctx, x, y, scaleMultiplier = 1, canvasW = 1000, previewW = 960) {
   const ITEMS = [
-    { color: "#a855f7", label: "Identification (250+ px/m)" },
-    { color: "#ef4444", label: "Recognition (125+ px/m)" },
-    { color: "#eab308", label: "Observation (62+ px/m)" },
+    { color: "#ef4444", label: "Identification (250+ px/m)" },
+    { color: "#f59e0b", label: "Recognition (125+ px/m)" },
+    { color: "#10b981", label: "Observation (62+ px/m)" },
     { color: "#3b82f6", label: "Detection (25+ px/m)" },
   ];
   
@@ -5370,6 +6545,37 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
   ctx.scale(exportScale, exportScale);
   ctx.drawImage(img, 0, 0);
 
+  // ── Wall metric dimensions in snapshot ──
+  if (showWallMetricsRef.current) {
+    const activeSlide = slidesRef.current.find(s => s.id === activeSlideIdRef.current);
+    const activePpm = activeSlide?.calibration?.enabled ? (activeSlide.calibration.ppm || ppmRef.current) : (ppmRef.current || activeSlide?.ppm || PIXELS_PER_METRE);
+    if (activePpm) {
+      const allWalls = [...(activeSlide?.walls || [])];
+      if (zonesRef.current && zonesRef.current.length > 0) {
+        zonesRef.current.forEach(z => {
+          if (z.polygon && z.polygon.length >= 2) {
+            for (let i = 0; i < z.polygon.length; i++) {
+              const p1 = z.polygon[i];
+              const p2 = z.polygon[(i + 1) % z.polygon.length];
+              allWalls.push([p1, p2]);
+            }
+          }
+        });
+      }
+      if (allWalls.length === 0 && img && img.width > 0 && img.height > 0) {
+        allWalls.push(
+          [{ x: 0, y: 0 }, { x: img.width, y: 0 }],
+          [{ x: img.width, y: 0 }, { x: img.width, y: img.height }],
+          [{ x: img.width, y: img.height }, { x: 0, y: img.height }],
+          [{ x: 0, y: img.height }, { x: 0, y: 0 }]
+        );
+      }
+      if (allWalls.length > 0) {
+        CctvCalc.drawWallDimensions(ctx, allWalls, activePpm);
+      }
+    }
+  }
+
   // ── Helper: map preview coords → export canvas coords ─────────────────────
   // previewSize may be null (first build = no overlays rendered yet)
   const mapCoord = (v, previewDim, canvasDim) =>
@@ -5411,18 +6617,12 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
     // No DORI legend in Designer View
 
   } else if (exportMode === "heatmap") {
-    const hcvs = document.createElement("canvas");
-    hcvs.width = oc.width; hcvs.height = oc.height;
-    const hctx = hcvs.getContext("2d");
-    drawHeatmapToContext(hctx, hcvs.width, hcvs.height, {
-      markers: heatmapMarkers, cameras: heatmapCameras, scale: exportScale,
-      offset: { x: 0, y: 0 }, activeZone: zones.find(z => z.id === activeZoneId) || null,
-      allZones: zones, floorImg: img, step: Math.max(1, Math.round(2 * exportScale)), clear: true,
-    });
+    // Soft blueprint slate blindspot tint to clearly distinguish uncovered areas while keeping layout sharp
     ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.globalAlpha = 0.85; ctx.drawImage(hcvs, 0, 0); ctx.globalAlpha = 1;
+    ctx.fillStyle = "rgba(15, 23, 42, 0.25)";
+    ctx.fillRect(0, 0, img.width, img.height);
     ctx.restore();
+
     zonesRef.current.forEach(zone => {
       if (zone.polygon.length < 2) return;
       ctx.save(); ctx.beginPath();
@@ -5433,11 +6633,15 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
       ctx.strokeStyle = zone.color; ctx.lineWidth = 1.5; ctx.setLineDash([5, 5]); ctx.stroke();
       ctx.restore();
     });
+
+    const activeSlide = slidesRef.current.find(s => s.id === activeSlideIdRef.current);
+    const currentWalls = activeSlide?.walls || [];
+
     placedRef.current.forEach(p =>
-      drawPlacedCamera(ctx, p, ppm, false, false, zonesRef, activeZoneIdRef, null, false, false, false, iconScaleRef.current, "beam", scaleRef.current, showMetricsVisibilityRef.current)
+      drawPlacedCamera(ctx, p, ppm, false, false, zonesRef, activeZoneIdRef, null, false, false, false, iconScaleRef.current, "beam", scaleRef.current, showMetricsVisibilityRef.current, true, currentWalls)
     );
     placedRef.current.forEach(p =>
-      drawPlacedCamera(ctx, p, ppm, false, false, zonesRef, activeZoneIdRef, null, false, false, false, iconScaleRef.current, "body", scaleRef.current, showMetricsVisibilityRef.current)
+      drawPlacedCamera(ctx, p, ppm, false, false, zonesRef, activeZoneIdRef, null, false, false, false, iconScaleRef.current, "body", scaleRef.current, showMetricsVisibilityRef.current, true, currentWalls)
     );
     // ── Camera Stats box ──
     if (overlayOpts && overlayOpts.stats?.show !== false) {
@@ -5448,7 +6652,21 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
       drawCameraStatsToCanvas(ctx, oc.width, oc.height, placedRef.current, sx, sy, overlayOpts?.stats?.scale, previewSize?.w);
       ctx.restore();
     }
-    // No DORI legend in Heatmap View
+    // ── Heatmap Legend ──
+    if (!overlayOpts || overlayOpts.heatmapLegend?.show !== false) {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      const canvasScale = previewSize?.w ? (oc.width / previewSize.w) : (oc.width / 960);
+      const hx = mapCoord(overlayOpts?.heatmapLegend?.x, previewSize?.w, oc.width) ?? (18 * canvasScale);
+      const hy = mapCoord(overlayOpts?.heatmapLegend?.y, previewSize?.h, oc.height) ?? (oc.height - 110 * canvasScale);
+      drawHeatmapLegendToCanvas(ctx, oc.width, oc.height, {
+        compact: false,
+        scaleFactor: (overlayOpts?.heatmapLegend?.scale || 1) * canvasScale,
+        x: hx,
+        y: hy,
+      });
+      ctx.restore();
+    }
   } else if (exportMode === "dori") {
     zonesRef.current.forEach(zone => {
       if (zone.polygon.length < 2) return;
@@ -5807,6 +7025,90 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
     setFileDropdownOpen(false);
   }, []);
 
+  // ── Export 2D Map Snapshot (Design / Heatmap PNG) ──
+  const exportMapSnapshot = useCallback((exportMode = "design") => {
+    if (!floorImgRef.current) return;
+    const activeSlide = slidesRef.current.find(s => s.id === activeSlideIdRef.current);
+    const slideName = (activeSlide?.name || "Floor_Design").replace(/\s+/g, "_");
+    
+    buildExportCanvas(exportMode, selectedCompany, null, null, (canvas) => {
+      if (!canvas) return;
+      const a = document.createElement("a");
+      a.download = `${slideName}_${exportMode === "heatmap" ? "heatmap" : "design"}.png`;
+      a.href = canvas.toDataURL("image/png");
+      a.click();
+    });
+    setFileDropdownOpen(false);
+  }, [selectedCompany]);
+
+  // ── Export AutoCAD DWG File with Camera Layers ──
+  const exportCADDesignDWG = useCallback(async () => {
+    const activeSlide = slidesRef.current.find(s => s.id === activeSlideIdRef.current);
+    const slideName = (activeSlide?.name || "Floor_Design").replace(/\s+/g, "_");
+
+    const payload = {
+      filename: `${slideName}.dwg`,
+      floor_name: activeSlide?.name || "Floor",
+      walls: activeSlide?.walls || [],
+      cameras: (placedRef.current || []).map(p => ({
+        name: p.customName || p.camera?.model || "Camera",
+        x: p.x,
+        y: p.y,
+        direction: p.direction || 0,
+        hfov: p.camera?.hfov || 60,
+        range_m: p.camera?.rangeDay || 25,
+      })),
+      zones: zonesRef.current || [],
+      ppm: ppmRef.current || activeSlide?.ppm || 25.0,
+    };
+
+    try {
+      const token = getToken();
+      const headers = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = "Bearer " + token;
+
+      const res = await fetch(`${API}/api/maps/export-cad`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${slideName}.dwg`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        throw new Error(`Server returned ${res.status}`);
+      }
+    } catch (err) {
+      console.warn("[DesignerView] Backend CAD export failed, generating client-side DXF:", err);
+      let dxf = "0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n";
+      const scale = ppmRef.current || 25.0;
+      (activeSlide?.walls || []).forEach(w => {
+        if (w.length >= 2) {
+          dxf += `0\nLINE\n8\nWALLS\n10\n${w[0][0]/scale}\n20\n${-w[0][1]/scale}\n30\n0\n11\n${w[1][0]/scale}\n21\n${-w[1][1]/scale}\n31\n0\n`;
+        }
+      });
+      (placedRef.current || []).forEach(p => {
+        dxf += `0\nPOINT\n8\nCAMERAS\n10\n${p.x/scale}\n20\n${-p.y/scale}\n30\n0\n`;
+        dxf += `0\nTEXT\n8\nANNOTATIONS\n10\n${p.x/scale + 0.5}\n20\n${-p.y/scale}\n30\n0\n40\n0.5\n1\n${p.customName || p.camera?.model || "Camera"}\n`;
+      });
+      dxf += "0\nENDSEC\n0\nEOF\n";
+      const blob = new Blob([dxf], { type: "application/dxf" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${slideName}.dwg`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+    setFileDropdownOpen(false);
+  }, []);
+
   useEffect(() => {
     const h = e => {
       // Don't intercept if typing in an input
@@ -6035,138 +7337,180 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
 
                   <div className="dv-dropdown-panel__title" style={{ marginTop: "10px" }}>Export Options</div>
 
-                  {slides.find(s => s.id === activeSlideId)?.modelDataUrl ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "6px", margin: "0 8px" }}>
-                      {/* 1. Download Design (.glb) */}
-                      <button
-                        className="dv-dropdown-item-btn"
-                        style={{ background: "rgba(29, 158, 117, 0.12)", border: "1px solid rgba(29, 158, 117, 0.3)", color: "#1D9E75", padding: "8px 10px" }}
-                        onClick={export3DModelGLB}
-                      >
-                        <div className="dv-dropdown-item-btn__icon" style={{ color: "#1D9E75" }}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-                            <line x1="12" y1="22.08" x2="12" y2="12"></line>
-                          </svg>
-                        </div>
-                        <div style={{ display: "flex", flexDirection: "column", textAlign: "left" }}>
-                          <span style={{ fontWeight: 700, fontSize: "12px" }}>Download Design (.glb)</span>
-                          <span style={{ fontSize: "10px", opacity: 0.7 }}>With 3D cameras &amp; solid beams</span>
-                        </div>
-                      </button>
+                  {(() => {
+                    const currentSlide = slides.find(s => s.id === activeSlideId);
+                    const is3D = Boolean(currentSlide?.modelDataUrl);
+                    const isCad = !is3D && Boolean(
+                      (currentSlide?.walls && currentSlide.walls.length > 0) ||
+                      currentSlide?.partsReport ||
+                      (currentSlide?.cadLayers && currentSlide.cadLayers.length > 0) ||
+                      /(\.dwg|\.dxf|autocad|cad)/i.test(currentSlide?.name || "")
+                    );
 
-                      {/* 2. Download Design 2D */}
-                      <button
-                        className="dv-dropdown-item-btn"
-                        style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-light)", padding: "8px 10px" }}
-                        onClick={() => export3DTopDown(false)}
-                      >
-                        <div className="dv-dropdown-item-btn__icon">
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-                            <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 21V9" />
-                          </svg>
-                        </div>
-                        <div style={{ display: "flex", flexDirection: "column", textAlign: "left" }}>
-                          <span style={{ fontWeight: 700, fontSize: "12px" }}>Download Design 2D</span>
-                          <span style={{ fontSize: "10px", opacity: 0.7 }}>Pristine top-down 2D snapshot</span>
-                        </div>
-                      </button>
+                    if (is3D) {
+                      return (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "6px", margin: "0 8px" }}>
+                          {/* 1. Download Design (.glb) */}
+                          <button
+                            className="dv-dropdown-item-btn"
+                            style={{ background: "rgba(29, 158, 117, 0.12)", border: "1px solid rgba(29, 158, 117, 0.3)", color: "#1D9E75", padding: "8px 10px" }}
+                            onClick={export3DModelGLB}
+                          >
+                            <div className="dv-dropdown-item-btn__icon" style={{ color: "#1D9E75" }}>
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                                <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                                <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                              </svg>
+                            </div>
+                            <span style={{ fontWeight: 700, fontSize: "12px" }}>Download Design (.glb)</span>
+                          </button>
 
-                      {/* 3. Download Heatmap 2D */}
-                      <button
-                        className="dv-dropdown-item-btn"
-                        disabled={!showHeatmap}
-                        title={!showHeatmap ? "Enable the Heatmap layer to download heatmap 2D" : "Download 2D top-down heatmap snapshot"}
-                        style={{
-                          background: showHeatmap ? "rgba(245, 158, 11, 0.12)" : "var(--bg-elevated)",
-                          border: showHeatmap ? "1px solid rgba(245, 158, 11, 0.3)" : "1px solid var(--border-light)",
-                          color: showHeatmap ? "#f59e0b" : "var(--text-secondary)",
-                          padding: "8px 10px",
-                          opacity: !showHeatmap ? 0.45 : 1,
-                          cursor: !showHeatmap ? "not-allowed" : "pointer"
-                        }}
-                        onClick={() => { if (showHeatmap) export3DTopDown(true); }}
-                      >
-                        <div className="dv-dropdown-item-btn__icon" style={{ color: showHeatmap ? "#f59e0b" : "inherit" }}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-                            <circle cx="12" cy="12" r="3" />
-                            <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-                          </svg>
-                        </div>
-                        <div style={{ display: "flex", flexDirection: "column", textAlign: "left" }}>
-                          <span style={{ fontWeight: 700, fontSize: "12px" }}>Download Heatmap 2D</span>
-                          <span style={{ fontSize: "10px", opacity: 0.7 }}>{showHeatmap ? "Top-down coverage heatmap" : "Requires Heatmap layer active"}</span>
-                        </div>
-                      </button>
-                    </div>
-                  ) : (
-                    <div style={{ display: "flex", gap: "8px", margin: "0 8px" }}>
-                      {/* Export Designer View */}
-                      <button
-                        className="dv-dropdown-card"
-                        disabled={placed.length === 0}
-                        style={{ flex: 1, flexDirection: "column", padding: "12px 6px", alignItems: "center", justifyContent: "center", gap: "8px", opacity: placed.length === 0 ? 0.4 : 1, cursor: placed.length === 0 ? "not-allowed" : "pointer" }}
-                        onClick={() => { if (placed.length > 0) { setFileDropdownOpen(false); handleOpenExportPreview("design"); } }}
-                      >
-                        <div className="dv-dropdown-card__icon" style={{ margin: 0 }}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="24" height="24">
-                            <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 21V9" />
-                          </svg>
-                        </div>
-                        <div className="dv-dropdown-card__body" style={{ alignItems: "center" }}>
-                          <span className="dv-dropdown-card__label" style={{ textAlign: "center", fontSize: "11px", lineHeight: "1.2" }}>Designer View</span>
-                        </div>
-                      </button>
+                          {/* 2. Download Design 2D */}
+                          <button
+                            className="dv-dropdown-item-btn"
+                            style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-light)", padding: "8px 10px" }}
+                            onClick={() => export3DTopDown(false)}
+                          >
+                            <div className="dv-dropdown-item-btn__icon">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                                <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 21V9" />
+                              </svg>
+                            </div>
+                            <span style={{ fontWeight: 700, fontSize: "12px" }}>Download Design 2D</span>
+                          </button>
 
-                      {/* Export Heatmap */}
-                      <button
-                        className="dv-dropdown-card"
-                        disabled={placed.length === 0 || !showHeatmap}
-                        title={!showHeatmap ? "Enable the Heatmap layer to download heatmap" : "Export Heatmap"}
-                        style={{
-                          flex: 1,
-                          flexDirection: "column",
-                          padding: "12px 6px",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          gap: "8px",
-                          opacity: (placed.length === 0 || !showHeatmap) ? 0.4 : 1,
-                          cursor: (placed.length === 0 || !showHeatmap) ? "not-allowed" : "pointer"
-                        }}
-                        onClick={() => { if (placed.length > 0 && showHeatmap) { setFileDropdownOpen(false); handleOpenExportPreview("heatmap"); } }}
-                      >
-                        <div className="dv-dropdown-card__icon dv-dropdown-card__icon--heatmap" style={{ margin: 0 }}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="24" height="24">
-                            <circle cx="12" cy="12" r="3" />
-                            <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-                          </svg>
+                          {/* 3. Download Heatmap 2D */}
+                          <button
+                            className="dv-dropdown-item-btn"
+                            disabled={!showHeatmap}
+                            title={!showHeatmap ? "Enable the Heatmap layer to download heatmap 2D" : "Download 2D top-down heatmap snapshot"}
+                            style={{
+                              background: showHeatmap ? "rgba(245, 158, 11, 0.12)" : "var(--bg-elevated)",
+                              border: showHeatmap ? "1px solid rgba(245, 158, 11, 0.3)" : "1px solid var(--border-light)",
+                              color: showHeatmap ? "#f59e0b" : "var(--text-secondary)",
+                              padding: "8px 10px",
+                              opacity: !showHeatmap ? 0.45 : 1,
+                              cursor: !showHeatmap ? "not-allowed" : "pointer"
+                            }}
+                            onClick={() => { if (showHeatmap) export3DTopDown(true); }}
+                          >
+                            <div className="dv-dropdown-item-btn__icon" style={{ color: showHeatmap ? "#f59e0b" : "inherit" }}>
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                                <circle cx="12" cy="12" r="3" />
+                                <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                              </svg>
+                            </div>
+                            <span style={{ fontWeight: 700, fontSize: "12px" }}>Download Heatmap 2D</span>
+                          </button>
                         </div>
-                        <div className="dv-dropdown-card__body" style={{ alignItems: "center" }}>
-                          <span className="dv-dropdown-card__label" style={{ textAlign: "center", fontSize: "11px", lineHeight: "1.2" }}>Heatmap</span>
-                        </div>
-                      </button>
+                      );
+                    }
 
-                      {/* Export Clarity Zones */}
-                      <button
-                        className="dv-dropdown-card"
-                        disabled={placed.length === 0}
-                        style={{ flex: 1, flexDirection: "column", padding: "12px 6px", alignItems: "center", justifyContent: "center", gap: "8px", opacity: placed.length === 0 ? 0.4 : 1, cursor: placed.length === 0 ? "not-allowed" : "pointer" }}
-                        onClick={() => { if (placed.length > 0) { setFileDropdownOpen(false); handleOpenExportPreview("dori"); } }}
-                      >
-                        <div className="dv-dropdown-card__icon" style={{ color: "#a855f7", margin: 0 }}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="24" height="24">
-                            <circle cx="12" cy="12" r="10" />
-                            <circle cx="12" cy="12" r="6" />
-                            <circle cx="12" cy="12" r="2" />
-                          </svg>
+                    if (isCad) {
+                      return (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "6px", margin: "0 8px" }}>
+                          {/* 1. Download Design (PNG snapshot) */}
+                          <button
+                            className="dv-dropdown-item-btn"
+                            style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-light)", padding: "8px 10px" }}
+                            onClick={() => exportMapSnapshot("design")}
+                            title="Download layout snapshot image"
+                          >
+                            <div className="dv-dropdown-item-btn__icon" style={{ color: "#3b82f6" }}>
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                                <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 21V9" />
+                              </svg>
+                            </div>
+                            <span style={{ fontWeight: 700, fontSize: "12px" }}>Download Design</span>
+                          </button>
+
+                          {/* 2. Download CAD design (.dwg) */}
+                          <button
+                            className="dv-dropdown-item-btn"
+                            style={{ background: "rgba(168, 85, 247, 0.12)", border: "1px solid rgba(168, 85, 247, 0.3)", color: "#a855f7", padding: "8px 10px" }}
+                            onClick={exportCADDesignDWG}
+                            title="Download AutoCAD (.dwg) layout with camera & FOV layers"
+                          >
+                            <div className="dv-dropdown-item-btn__icon" style={{ color: "#a855f7" }}>
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                              </svg>
+                            </div>
+                            <span style={{ fontWeight: 700, fontSize: "12px" }}>Download CAD design</span>
+                          </button>
+
+                          {/* 3. Download Heatmap */}
+                          <button
+                            className="dv-dropdown-item-btn"
+                            disabled={!showHeatmap}
+                            title={!showHeatmap ? "Enable the Heatmap layer to download heatmap" : "Download coverage heatmap snapshot"}
+                            style={{
+                              background: showHeatmap ? "rgba(245, 158, 11, 0.12)" : "var(--bg-elevated)",
+                              border: showHeatmap ? "1px solid rgba(245, 158, 11, 0.3)" : "1px solid var(--border-light)",
+                              color: showHeatmap ? "#f59e0b" : "var(--text-secondary)",
+                              padding: "8px 10px",
+                              opacity: !showHeatmap ? 0.45 : 1,
+                              cursor: !showHeatmap ? "not-allowed" : "pointer"
+                            }}
+                            onClick={() => { if (showHeatmap) exportMapSnapshot("heatmap"); }}
+                          >
+                            <div className="dv-dropdown-item-btn__icon" style={{ color: showHeatmap ? "#f59e0b" : "inherit" }}>
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                                <circle cx="12" cy="12" r="3" />
+                                <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                              </svg>
+                            </div>
+                            <span style={{ fontWeight: 700, fontSize: "12px" }}>Download Heatmap</span>
+                          </button>
                         </div>
-                        <div className="dv-dropdown-card__body" style={{ alignItems: "center" }}>
-                          <span className="dv-dropdown-card__label" style={{ textAlign: "center", fontSize: "11px", lineHeight: "1.2" }}>Clarity Zones</span>
-                        </div>
-                      </button>
-                    </div>
-                  )}
+                      );
+                    }
+
+                    // 2D Layout (Default)
+                    return (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "6px", margin: "0 8px" }}>
+                        {/* 1. Download Design (PNG snapshot) */}
+                        <button
+                          className="dv-dropdown-item-btn"
+                          style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-light)", padding: "8px 10px" }}
+                          onClick={() => exportMapSnapshot("design")}
+                          title="Download layout snapshot image"
+                        >
+                          <div className="dv-dropdown-item-btn__icon" style={{ color: "#3b82f6" }}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                              <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 21V9" />
+                            </svg>
+                          </div>
+                          <span style={{ fontWeight: 700, fontSize: "12px" }}>Download Design</span>
+                        </button>
+
+                        {/* 2. Download Heatmap */}
+                        <button
+                          className="dv-dropdown-item-btn"
+                          disabled={!showHeatmap}
+                          title={!showHeatmap ? "Enable the Heatmap layer to download heatmap" : "Download coverage heatmap snapshot"}
+                          style={{
+                            background: showHeatmap ? "rgba(245, 158, 11, 0.12)" : "var(--bg-elevated)",
+                            border: showHeatmap ? "1px solid rgba(245, 158, 11, 0.3)" : "1px solid var(--border-light)",
+                            color: showHeatmap ? "#f59e0b" : "var(--text-secondary)",
+                            padding: "8px 10px",
+                            opacity: !showHeatmap ? 0.45 : 1,
+                            cursor: !showHeatmap ? "not-allowed" : "pointer"
+                          }}
+                          onClick={() => { if (showHeatmap) exportMapSnapshot("heatmap"); }}
+                        >
+                          <div className="dv-dropdown-item-btn__icon" style={{ color: showHeatmap ? "#f59e0b" : "inherit" }}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                              <circle cx="12" cy="12" r="3" />
+                              <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                            </svg>
+                          </div>
+                          <span style={{ fontWeight: 700, fontSize: "12px" }}>Download Heatmap</span>
+                        </button>
+                      </div>
+                    );
+                  })()}
 
                   {hasFloor && (
                     <>
@@ -6190,7 +7534,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
               )}
             </div>
            
-            <input ref={fileInputRef} type="file" accept="image/*,.pdf,.gltf,.glb,.html,.htm" style={{ display: "none" }} onChange={handleFileChange} />
+            <input ref={fileInputRef} type="file" accept="image/*,.pdf,.gltf,.glb,.html,.htm,.dwg,.dxf,.svg" style={{ display: "none" }} onChange={handleFileChange} />
             <input ref={jsonFileInputRef} type="file" accept=".json" style={{ display: "none" }} onChange={handleJsonImport} />
             <input ref={datasheetInputRef} type="file" accept=".pdf" style={{ display: "none" }} onChange={handleDatasheetUpload} />
 
@@ -6415,8 +7759,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                           });
                           if (!r.ok) {
                             const errData = await r.json();
-                            alert(`CV Zone detection failed: ${(typeof errData.detail === "string" ? errData.detail : (Array.isArray(errData.detail) ? errData.detail.map(d => d.msg || "Invalid input").join(", ") : (r.statusText)))}`);
-                            return;
+                            alert(`CV Zone detection failed: ${(typeof errData.detail === "string" ? errData.detail : (Array.isArray(errData.detail) ? errData.detail.map(d => d.msg || "Invalid input").join(", ") : (r.statusText)))}`);                            return;
                           }
                           const data = await r.json();
                           if (data.success && data.zones?.length > 0) {
@@ -6453,6 +7796,25 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                       {isDetectingZones && <span className="dv-dropdown-card__spinner" />}
                     </button>
 
+                    {/* Auto Placement */}
+                    <button
+                      className="dv-dropdown-card"
+                      onClick={() => {
+                        setAutoPlacementOpen(true);
+                        setModesDropdownOpen(false);
+                      }}
+                    >
+                      <div className="dv-dropdown-card__icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="24" height="24">
+                          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                          <circle cx="12" cy="12" r="3" />
+                        </svg>
+                      </div>
+                      <div className="dv-dropdown-card__body">
+                        <span className="dv-dropdown-card__label">Auto Placement</span>
+                      </div>
+                    </button>
+
                   </div>
                 </div>
               )}
@@ -6478,7 +7840,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                   <polyline points="2 12 12 17 22 12"/>
                 </svg>
                 <span className="dv-icon-btn__label">Layers</span>
-                {(showHeatmap || showPpm || showMetricsVisibility) && <span className="dv-icon-btn__dot" />}
+                {(showHeatmap || showPpm || showMetricsVisibility || showWallMetrics) && <span className="dv-icon-btn__dot" />}
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" width="10" height="10" className={`dv-icon-btn__chevron ${layersDropdownOpen ? "open" : ""}`}>
                   <polyline points="6 9 12 15 18 9"/>
                 </svg>
@@ -6487,7 +7849,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
               {layersDropdownOpen && (
                 <div className="dv-dropdown-panel" style={{ minWidth: "240px" }}>
                   <div className="dv-dropdown-panel__title">Map Layers</div>
-                  <div className="dv-dropdown-cards">
+                  <div className="dv-dropdown-panel__list">
 
                     {/* Heatmap */}
                     <button
@@ -6538,6 +7900,45 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                         <span className="dv-dropdown-card__label">Metrics Visibility</span>
                       </div>
                       <div className={`dv-dropdown-card__toggle ${showMetricsVisibility ? "dv-dropdown-card__toggle--on" : ""}`} />
+                    </button>
+
+                    {/* Wall Dimensions (Metrics in meters) */}
+                    <button
+                      className={`dv-dropdown-card ${showWallMetrics ? "dv-dropdown-card--active" : ""}`}
+                      onClick={() => { setShowWallMetrics(v => !v); setTimeout(draw, 0); }}
+                    >
+                      <div className="dv-dropdown-card__icon" style={{ color: "#38bdf8" }}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="24" height="24">
+                          <path d="M3 21h18M3 10h18M3 7l2-2h14l2 2M7 10v4M12 10v6M17 10v4"/>
+                        </svg>
+                      </div>
+                      <div className="dv-dropdown-card__body">
+                        <span className="dv-dropdown-card__label">Wall Dimensions</span>
+                      </div>
+                      <div className={`dv-dropdown-card__toggle ${showWallMetrics ? "dv-dropdown-card__toggle--on" : ""}`} />
+                    </button>
+
+                    {/* Camera Names Visibility Toggle */}
+                    <button
+                      className={`dv-dropdown-card ${showCameraNames ? "dv-dropdown-card--active" : ""}`}
+                      onClick={() => {
+                        setShowCameraNames(prev => {
+                          const next = !prev;
+                          showCameraNamesRef.current = next;
+                          setTimeout(() => { if (typeof draw === "function") draw(); }, 0);
+                          return next;
+                        });
+                      }}
+                    >
+                      <div className="dv-dropdown-card__icon" style={{ color: "#a855f7" }}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="24" height="24">
+                          <path d="M4 7h16M4 12h12M4 17h9" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </div>
+                      <div className="dv-dropdown-card__body">
+                        <span className="dv-dropdown-card__label">Camera Names</span>
+                      </div>
+                      <div className={`dv-dropdown-card__toggle ${showCameraNames ? "dv-dropdown-card__toggle--on" : ""}`} />
                     </button>
 
                   </div>
@@ -6701,6 +8102,21 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
               </svg>
               <span className="dv-icon-btn__label">Proposal</span>
             </button>
+
+            {/* ── Clear Cameras Button ── */}
+            {placed.length > 0 && (
+              <button
+                className="dv-icon-btn"
+                onClick={handleClearPlacedCameras}
+                title="Clear all placed cameras from this floor layout"
+                style={{ color: "#f87171", borderColor: "rgba(239, 68, 68, 0.35)", background: "rgba(239, 68, 68, 0.1)" }}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                  <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
+                <span className="dv-icon-btn__label">Clear Cameras</span>
+              </button>
+            )}
 
             {/* ── Toolbox Dropdown ── */}
             <div className="dv-icon-drop-wrap">
@@ -7065,23 +8481,34 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                         overflow: "hidden"
                       }}
                     >
-                      {slide.modelDataUrl && (
-                        <div style={{
-                          position: "absolute",
-                          top: "4px",
-                          left: "4px",
-                          background: "rgba(29, 158, 117, 0.9)",
-                          color: "#fff",
-                          fontSize: "8.5px",
-                          fontWeight: "800",
-                          padding: "1px 5px",
-                          borderRadius: "3px",
-                          letterSpacing: "0.5px",
-                          zIndex: 2
-                        }}>
-                          3D
-                        </div>
-                      )}
+                      {(() => {
+                        const is3D = Boolean(slide.modelDataUrl);
+                        const isCad = !is3D && Boolean(
+                          (slide.walls && slide.walls.length > 0) ||
+                          slide.partsReport ||
+                          (slide.cadLayers && slide.cadLayers.length > 0) ||
+                          /(\.dwg|\.dxf|autocad|cad)/i.test(slide.name || "")
+                        );
+                        const badgeType = is3D ? "3D" : isCad ? "CAD" : "2D";
+                        const badgeBg = is3D ? "#10b981" : isCad ? "#8b5cf6" : "#3b82f6";
+                        return (
+                          <div style={{
+                            position: "absolute",
+                            top: "4px",
+                            left: "4px",
+                            background: badgeBg,
+                            color: "#fff",
+                            fontSize: "8.5px",
+                            fontWeight: "800",
+                            padding: "1px 5px",
+                            borderRadius: "3px",
+                            letterSpacing: "0.5px",
+                            zIndex: 2
+                          }}>
+                            {badgeType}
+                          </div>
+                        );
+                      })()}
 
                       {slide.floorPlan ? (
                         <img
@@ -7094,6 +8521,39 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                             opacity: 0.85
                           }}
                         />
+                      ) : slide.modelDataUrl ? (
+                        <div
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            gap: "4px",
+                            color: "var(--teal)"
+                          }}
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="18" height="18">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                            <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+                            <line x1="12" y1="22.08" x2="12" y2="12" />
+                          </svg>
+                          <span style={{ fontSize: "9px", fontWeight: "600" }}>3D Model</span>
+                        </div>
+                      ) : ((slide.walls && slide.walls.length > 0) || slide.partsReport || slide.cadLayers?.length) ? (
+                        <div
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            gap: "4px",
+                            color: "#8b5cf6"
+                          }}
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="18" height="18">
+                            <path d="M3 3h18v18H3z" />
+                            <path d="M3 9h18M9 21V9" />
+                          </svg>
+                          <span style={{ fontSize: "9px", fontWeight: "600" }}>CAD Layout</span>
+                        </div>
                       ) : (
                         <div
                           style={{
@@ -7691,22 +9151,99 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                 height: slides.find(s => s.id === activeSlideId)?.imageHeight || floorImgRef.current?.height || 2048
               }}
               updateMarkers={handleUpdate3DMarkers}
+              showWallMetrics={showWallMetrics}
             />
           ) : (
             <>
-              {/* Calibration Overlay */}
-              {(calibRefs.length > 0 || drawingCalibLine) && (
+              {/* Parts Measurement Panel (CAD & 2D Layouts) */}
+              {slides.find(s => s.id === activeSlideId)?.partsReport && !slides.find(s => s.id === activeSlideId)?.modelDataUrl && (
+                <PartsMeasurementPanel
+                  report={slides.find(s => s.id === activeSlideId).partsReport}
+                  style={{ top: 16, left: 16 }}
+                  filenamePrefix={slides.find(s => s.id === activeSlideId)?.name || "cad_parts"}
+                />
+              )}
+
+              <canvas ref={canvasRef} className="dv-canvas"
+                style={{ cursor: mode === "pan" ? "grab" : undefined }}
+                onMouseDown={onMouseDown}
+                onMouseMove={onMouseMove}
+                onMouseUp={onMouseUp}
+                onMouseLeave={(e) => {
+                  onMouseUp(e);
+                  if (hoveredCadItemRef.current !== null) {
+                    hoveredCadItemRef.current = null;
+                    setHoveredCadItem(null);
+                    draw();
+                  }
+                  if (cadTooltipRef.current) {
+                    cadTooltipRef.current.style.display = "none";
+                    cadTooltipRef.current.style.opacity = "0";
+                  }
+                }}
+                onDoubleClick={onDoubleClick}
+                onContextMenu={onContextMenu}
+              />
+
+              {/* CAD Component Hover Badge Overlay */}
+              <div
+                ref={cadTooltipRef}
+                className="dv-cad-hover-badge"
+                style={{
+                  display: "none",
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  pointerEvents: "none",
+                  zIndex: 3000,
+                  willChange: "transform",
+                }}
+              >
+                {hoveredCadItem && (
+                  <div className="dv-cad-badge-inner">
+                    <div className="dv-cad-badge-header">
+                      <span className="dv-cad-badge-icon">{hoveredCadItem.icon || "📐"}</span>
+                      <span className="dv-cad-badge-title">{hoveredCadItem.title}</span>
+                    </div>
+                    <div className="dv-cad-badge-meta">
+                      {hoveredCadItem.layer && (
+                        <span className="dv-cad-badge-layer">{hoveredCadItem.layer}</span>
+                      )}
+                      {hoveredCadItem.dimStr && (
+                        <span className="dv-cad-badge-dim">{hoveredCadItem.dimStr}</span>
+                      )}
+                      {hoveredCadItem.zoneName && (
+                        <span className="dv-cad-badge-zone">📍 {hoveredCadItem.zoneName}</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Calibration & Measurement Overlay */}
+              {hasFloor && (mode === "calibrate" || calibRefs.length > 0 || drawingCalibLine) && (
                 <CalibrationOverlay
+                  mode={mode}
+                  calibration={slides.find(s => s.id === activeSlideId)?.calibration}
+                  calibType={calibType}
                   references={calibRefs}
                   activeRefId={activeCalibRefId}
+                  activeHandle={calibHandleDrag}
                   drawingLine={drawingCalibLine}
-                  scale={scaleRef.current || 1}
-                  offset={offsetRef.current || { x: 0, y: 0 }}
-                  calibType={calibType}
-                  showGrid={showPreviewGrid}
-                  imageDimensions={{
-                    width: floorImgRef.current?.width || 2000,
-                    height: floorImgRef.current?.height || 2000
+                  showPreviewGrid={showPreviewGrid}
+                  scaleRef={scaleRef}
+                  offsetRef={offsetRef}
+                  wrapRef={wrapRef}
+                  floorImgRef={floorImgRef}
+                  onHandleMouseDown={(refId, handle, e) => {
+                    calibHandleDragRef.current = { refId, handle };
+                    setCalibHandleDrag({ refId, handle });
+                    setActiveCalibRefId(refId);
+                    activeCalibRefIdRef.current = refId;
+                  }}
+                  onRefClick={(refId) => {
+                    setActiveCalibRefId(refId);
+                    setCalibPanelOpen(true);
                   }}
                 />
               )}
@@ -7714,20 +9251,12 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
               {/* Zone Edit Toolbars */}
               {zones.map(z => {
                 if (z.polygon.length < 3) return null;
-                let sumX = 0; let sumY = 0;
-                z.polygon.forEach(pt => { sumX += pt.x; sumY += pt.y; });
-                const centroidX = sumX / z.polygon.length;
-                const centroidY = sumY / z.polygon.length;
-
                 const sc = scaleRef.current || 1;
                 const ox = offsetRef.current?.x || 0;
                 const oy = offsetRef.current?.y || 0;
-                
-                // Place at the first vertex
                 const firstPt = z.polygon[0];
                 const screenX = firstPt.x * sc + ox - 10;
                 const screenY = firstPt.y * sc + oy - 10;
-                
                 const isEditing = editZoneId === z.id;
 
                 return (
@@ -7751,53 +9280,9 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
                       )}
                     </button>
-                    {isEditing && (
-                      <>
-                        <div
-                          onMouseDown={(e) => {
-                            e.stopPropagation(); e.preventDefault();
-                            const startX = e.clientX;
-                            const initialPolygon = JSON.parse(JSON.stringify(z.polygon));
-                            const onMove = (moveEvent) => {
-                              const dx = moveEvent.clientX - startX;
-                              const scaleFactor = Math.max(0.1, 1 + dx / 100);
-                              const updated = zonesRef.current.map(zone => {
-                                if (zone.id === z.id) {
-                                  return { ...zone, polygon: initialPolygon.map(pt => ({ x: centroidX + (pt.x - centroidX) * scaleFactor, y: centroidY + (pt.y - centroidY) * scaleFactor })) };
-                                }
-                                return zone;
-                              });
-                              zonesRef.current = updated;
-                              setZones(updated);
-                              draw();
-                            };
-                            const onUp = () => {
-                              window.removeEventListener("mousemove", onMove);
-                              window.removeEventListener("mouseup", onUp);
-                              if (typeof scheduleSave === 'function') scheduleSave(placedRef.current, zonesRef.current, ppmRef.current);
-                            };
-                            window.addEventListener("mousemove", onMove);
-                            window.addEventListener("mouseup", onUp);
-                          }}
-                          style={{ background: "none", border: "none", color: "#3b82f6", cursor: "ew-resize", display: "flex", alignItems: "center" }}
-                          title="Drag to Scale"
-                        >
-                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
-                        </div>
-                      </>
-                    )}
                   </div>
                 );
               })}
-              <canvas ref={canvasRef} className="dv-canvas"
-                style={{ cursor: mode === "pan" ? "grab" : undefined }}
-                onMouseDown={onMouseDown}
-                onMouseMove={onMouseMove}
-                onMouseUp={onMouseUp}
-                onMouseLeave={onMouseUp}
-                onDoubleClick={onDoubleClick}
-                onContextMenu={onContextMenu}
-              />
             </>
           )}
 
@@ -7980,19 +9465,23 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
 
 
 
-          <HeatmapLayer
-            markers={heatmapMarkers}
-            cameras={heatmapCameras}
-            scaleRef={scaleRef}
-            offsetRef={offsetRef}
-            wrapRef={wrapRef}
-            showHeatmap={showHeatmap}
-            floorImgRef={floorImgRef}
-            activeZone={activeZone}
-            zones={zones}
-            onlyLegend={Boolean(slides.find(s => s.id === activeSlideId)?.modelDataUrl)}
-            onClose={() => setShowHeatmap(false)}
-          />
+          {/* Heatmap overlay (2D only, matches MapViewPage) */}
+          {!slides.find(s => s.id === activeSlideId)?.modelDataUrl && showHeatmap && (
+            <HeatmapLayer
+              markers={heatmapMarkers}
+              cameras={heatmapCameras}
+              scaleRef={scaleRef}
+              offsetRef={offsetRef}
+              wrapRef={wrapRef}
+              showHeatmap={showHeatmap}
+              floorImgRef={floorImgRef}
+              activeZone={activeZone}
+              zones={zones}
+              walls={slides.find(s => s.id === activeSlideId)?.walls || []}
+              onlyLegend={true}
+              onClose={() => setShowHeatmap(false)}
+            />
+          )}
 
           <DoriLegendCard
             show={showPpm}
@@ -8020,6 +9509,85 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
           )}
 
 
+
+          {/* Floating Auto Placement Preview HUD */}
+          {autoPlacementPreview && (
+            <div style={{
+              position: "absolute",
+              top: isPanLocked ? "56px" : "16px",
+              left: "50%",
+              transform: "translateX(-50%)",
+              background: "rgba(17, 24, 39, 0.95)",
+              border: "1px solid rgba(16, 185, 129, 0.5)",
+              backdropFilter: "blur(8px)",
+              color: "#ffffff",
+              padding: "8px 16px",
+              borderRadius: "10px",
+              fontSize: "13px",
+              display: "flex",
+              alignItems: "center",
+              gap: "12px",
+              boxShadow: "0 8px 24px rgba(0, 0, 0, 0.4)",
+              zIndex: 15,
+              pointerEvents: "auto"
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#10b981", display: "inline-block" }} />
+                <span>
+                  <strong>Preview:</strong> {autoPlacementPreview.camerasPlaced} Cameras ({autoPlacementPreview.coveragePercent}% Coverage)
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <button
+                  onClick={() => handleApplyAutoPlacement(autoPlacementPreview)}
+                  style={{
+                    padding: "4px 12px",
+                    background: "#10b981",
+                    color: "#ffffff",
+                    border: "none",
+                    borderRadius: "6px",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    cursor: "pointer"
+                  }}
+                >
+                  ✓ Apply
+                </button>
+                <button
+                  onClick={() => setAutoPlacementOpen(true)}
+                  style={{
+                    padding: "4px 10px",
+                    background: "#374151",
+                    color: "#e5e7eb",
+                    border: "none",
+                    borderRadius: "6px",
+                    fontSize: "12px",
+                    cursor: "pointer"
+                  }}
+                >
+                  Adjust
+                </button>
+                <button
+                  onClick={() => {
+                    setAutoPlacementPreview(null);
+                    autoPlacementPreviewRef.current = null;
+                    draw();
+                  }}
+                  style={{
+                    padding: "4px 8px",
+                    background: "transparent",
+                    color: "#9ca3af",
+                    border: "none",
+                    fontSize: "14px",
+                    cursor: "pointer"
+                  }}
+                  title="Discard Preview"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Floating Pan Lock Top Banner Badge */}
           {isPanLocked && (
@@ -8418,16 +9986,6 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
               Remove Shape
             </button>
           )}
-          {/* Show Automate Placement only for real zones (not shapes/boom barriers) */}
-          {!isShapeZone(contextMenu.zone) && (
-            <button className="dv-ctx-item" onClick={() => handleAutomateClick(contextMenu.zone)}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14" style={{ marginRight: 6 }}>
-                <circle cx="12" cy="12" r="3" />
-                <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-              </svg>
-              Automate Placement
-            </button>
-          )}
         </div>
       )}
 
@@ -8472,6 +10030,37 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
         />
       )}
       <PremiumPopup {...popupState} />
+
+      {/* Real-time CAD Import Progress Modal */}
+      <CadImportProgressModal progress={cadImportProgress} />
+
+      {/* Auto Camera Placement Modal */}
+      <AutoPlacementModal
+        key={activeSlideId || "ap_modal"}
+        isOpen={autoPlacementOpen}
+        onClose={() => setAutoPlacementOpen(false)}
+        initialResult={lastAutoPlacementReport}
+        walls={slides.find(s => s.id === activeSlideId)?.walls || []}
+        zones={zones}
+        floorImg={floorImgRef.current}
+        ppm={slides.find(s => s.id === activeSlideId)?.calibration?.ppm || slides.find(s => s.id === activeSlideId)?.ppm || ppm || PIXELS_PER_METRE}
+        availableBrands={brands}
+        availableCameraDB={cameraDB}
+        onPreviewPlacement={(result) => {
+          setAutoPlacementPreview(result);
+          autoPlacementPreviewRef.current = result;
+          draw();
+        }}
+        onApplyPlacement={(result, replaceExisting) => {
+          handleApplyAutoPlacement(result, replaceExisting);
+        }}
+        onCancelPreview={() => {
+          setAutoPlacementPreview(null);
+          autoPlacementPreviewRef.current = null;
+          draw();
+        }}
+        onClearCameras={handleClearPlacedCameras}
+      />
     </div>
   );
 }
@@ -9382,8 +10971,6 @@ function ProjectStatsPanel({
           )}
         </div>
       </div>
-
-
     </div>
   );
 }

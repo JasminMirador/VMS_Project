@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import "./HeatmapLayer.css";
-import { drawHeatmapToContext } from "./HeatmapLogic";
-
+import { drawHeatmapToContext } from "./HeatMapLogic";
+ 
 /**
  * HeatmapLayer — works identically for both MapView and DesignerView.
  * No special props needed. Both views now use the same cone origin formula.
@@ -16,30 +16,31 @@ export default function HeatmapLayer({
   floorImgRef,
   activeZone,
   zones = [],
+  walls = [],
   onClose,
   onlyLegend = false,
 }) {
   const densityRef = useRef(null);
-
+ 
   useEffect(() => {
     if (onlyLegend) return;
     const canvas = densityRef.current;
     if (!canvas) return;
     const wrap = wrapRef?.current;
     if (!wrap) return;
-
+ 
     const W = wrap.clientWidth;
     const H = wrap.clientHeight;
     canvas.width  = W;
     canvas.height = H;
-
+ 
     const ctx = canvas.getContext("2d");
-
+ 
     if (!showHeatmap || markers.length === 0) {
       ctx.clearRect(0, 0, W, H);
       return;
     }
-
+ 
     drawHeatmapToContext(ctx, W, H, {
       markers,
       cameras,
@@ -49,33 +50,34 @@ export default function HeatmapLayer({
       allZones:  zones,
       floorImg:  floorImgRef?.current,
       step:      3,
+      walls,
     });
   }, [showHeatmap, markers, cameras, scaleRef, offsetRef, wrapRef,
-      floorImgRef, activeZone, zones, onlyLegend]);
-
+      floorImgRef, activeZone, zones, walls, onlyLegend]);
+ 
   const [translate, setTranslate] = useState({ x: 0, y: 0 });
-
+ 
   const handleMouseDown = (e) => {
     e.preventDefault();
     const startX = e.clientX - translate.x;
     const startY = e.clientY - translate.y;
-
+ 
     const handleMouseMove = (moveEvent) => {
       setTranslate({
         x: moveEvent.clientX - startX,
         y: moveEvent.clientY - startY
       });
     };
-
+ 
     const handleMouseUp = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-
+ 
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
   };
-
+ 
   return (
     <>
       {!onlyLegend && (
@@ -85,10 +87,10 @@ export default function HeatmapLayer({
           style={{ display: showHeatmap ? "block" : "none" }}
         />
       )}
-
+ 
       {showHeatmap && (
-        <div 
-          className="mv-heatmap-legend" 
+        <div
+          className="mv-heatmap-legend"
           style={{ transform: `translate(${translate.x}px, ${translate.y}px)`, cursor: 'grab', pointerEvents: 'auto' }}
           onMouseDown={handleMouseDown}
         >
@@ -106,8 +108,8 @@ export default function HeatmapLayer({
               )}
             </div>
             {onClose && (
-              <button 
-                onClick={(e) => { e.stopPropagation(); onClose(); }} 
+              <button
+                onClick={(e) => { e.stopPropagation(); onClose(); }}
                 style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: 0, fontSize: 14, lineHeight: 1 }}
                 title="Close"
               >✕</button>
@@ -115,11 +117,11 @@ export default function HeatmapLayer({
           </div>
           <div className="mv-heatmap-legend__row">
             <span className="mv-heatmap-legend__swatch mv-heatmap-legend__swatch--none" />
-            <span>Blind spot (No coverage)</span>
+            <span>Uncovered (Blind spot)</span>
           </div>
           <div className="mv-heatmap-legend__row">
             <span className="mv-heatmap-legend__swatch mv-heatmap-legend__swatch--single" />
-            <span>Single camera coverage</span>
+            <span>Camera coverage</span>
           </div>
           {/* <div className="mv-heatmap-legend__row">
             <span className="mv-heatmap-legend__swatch mv-heatmap-legend__swatch--overlap" />

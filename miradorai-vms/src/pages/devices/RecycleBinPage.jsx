@@ -2,7 +2,9 @@ import { useState, useEffect, useMemo } from "react";
 import SearchBar from "../../components/shared/SearchBar";
 import "./RecycleBinPage.css";
 
-const BACKEND = "http://192.168.126.200:8000";
+const BACKEND =
+  import.meta.env.VITE_API_URL ??
+  `http://${import.meta.env.VITE_API_HOST}:${import.meta.env.VITE_API_PORT}`;
 
 /* ── Toast ── */
 function Toast({ toast }) {
