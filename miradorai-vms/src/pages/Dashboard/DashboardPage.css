@@ -1710,3 +1710,134 @@
   border-color: var(--border) !important;
   box-shadow: var(--shadow-sm) !important;
 }
+
+/* ═══════════════════════════════════════════════════
+   VISUAL REFRESH — Vexlora-inspired card language
+   Cards go from "flat + border, shadow only on hover" to
+   "soft shadow at rest, minimal border, roomier radius",
+   badges go from small uppercase tags to rounded pills,
+   and icon chips go flat/pastel instead of gradient+inset.
+   Every value below is a theme token already defined per
+   [data-theme] in global.css, so this reads correctly in
+   both light and dark — no new theme-specific rules needed
+   beyond the hardcoded white-overlay fixes at the bottom.
+   No layout, data or JSX changed — styling only.
+   ═══════════════════════════════════════════════════ */
+ 
+.card,
+.widget,
+.health-section,
+.health-box,
+.enhanced-card,
+.storage-overview,
+.report-generation,
+.report-chart-card,
+.camera-health-center {
+  border-radius: 16px;
+  border-color: var(--border-light);
+  box-shadow: var(--shadow-sm);
+}
+ 
+.health-item,
+.event-row-item,
+.bandwidth-item-row {
+  border-radius: 12px;
+}
+ 
+/* Icon chips: flat pastel tint instead of gradient + inset shadow */
+.icon {
+  border-radius: 12px;
+  background: var(--teal-subtle);
+  box-shadow: none;
+  border: none;
+}
+ 
+/* Top stat-row icons: distinct accent per card instead of one flat
+   teal tint everywhere — Total Cameras (blue), Active Streams (teal/
+   brand), Alarms Today (red), Recording Cameras (purple). Scoped to
+   .cards .card so it doesn't touch .icon usage elsewhere (health
+   boxes, widgets, etc). :root above is the dark-theme baseline per
+   this file's existing convention, with a lighter alpha override
+   under [data-theme='light']. */
+.cards .card:nth-child(1) .icon { background: rgba(59, 130, 246, 0.14); color: var(--blue); }
+.cards .card:nth-child(2) .icon { background: var(--teal-subtle); color: var(--teal); }
+.cards .card:nth-child(3) .icon { background: rgba(239, 68, 68, 0.14); color: var(--red); }
+.cards .card:nth-child(4) .icon { background: rgba(139, 92, 246, 0.14); color: var(--purple); }
+ 
+[data-theme='light'] .cards .card:nth-child(1) .icon { background: rgba(59, 130, 246, 0.1); }
+[data-theme='light'] .cards .card:nth-child(3) .icon { background: rgba(239, 68, 68, 0.1); }
+[data-theme='light'] .cards .card:nth-child(4) .icon { background: rgba(139, 92, 246, 0.1); }
+ 
+/* Badges / tags → soft rounded pills, sentence case instead of
+   small uppercase tags (several already render their own text in
+   uppercase from JS, so this only affects ones that don't). */
+.badge,
+.count-pill,
+.event-type-badge,
+.report-tag-type,
+.report-event-tag {
+  border-radius: 9999px;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-weight: 600;
+  padding: 4px 12px;
+}
+ 
+.report-toggle-pill,
+.chart-filter-btn {
+  text-transform: none;
+  letter-spacing: 0.01em;
+}
+ 
+.storage-overview h3,
+.health-section h3 {
+  text-transform: none;
+  letter-spacing: 0;
+}
+ 
+/* Bigger, bolder headline numbers on the primary stat tiles */
+.card-content h3,
+.health-box h2 {
+  font-size: 22px;
+  letter-spacing: -0.01em;
+}
+ 
+/* ── Light-mode fixes: these were hardcoded white-on-dark overlays
+   that go nearly invisible on a white card, now theme-token-driven ── */
+[data-theme='light'] .chart-filter-btn {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+}
+ 
+[data-theme='light'] .chart-filter-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+ 
+[data-theme='light'] .report-pag-btn {
+  background: var(--bg-elevated);
+}
+ 
+[data-theme='light'] .report-view-toggle {
+  background: var(--bg-elevated);
+}
+ 
+[data-theme='light'] .report-toggle-pill.inactive:hover {
+  background: var(--bg-hover);
+}
+ 
+[data-theme='light'] .empty-chart-state {
+  border-color: var(--border-light);
+}
+ 
+[data-theme='light'] .chart-card-leaderboard-list::-webkit-scrollbar-track {
+  background: var(--bg-elevated);
+}
+ 
+[data-theme='light'] .chart-card-leaderboard-list::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+}
+ 
+[data-theme='light'] .chart-card-leaderboard-list::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}

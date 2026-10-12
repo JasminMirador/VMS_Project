@@ -42,13 +42,20 @@ html, body, #root {
   flex-direction: column;
 }
 /* ── Layout: base ────────────────────────────────────────── */
+.app-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .cameras-content-layout {
   display: flex;
   gap: 16px;
-  flex: 1;
+  flex: 1 1 auto;
   height: 100%;
   min-height: 0;
-  align-items: stretch; /* Stretch children to fill the full vertical height */
+  align-items: stretch;
   justify-content: flex-start;
 }
 .close-btn {
@@ -320,9 +327,6 @@ html, body, #root {
   gap: 8px;
 }
 
-.ec-btn {
-  /* Inherit general button styles from global.css */
-}
 
 /* Auth dialog description text */
 .ec-auth-desc {
@@ -334,10 +338,14 @@ html, body, #root {
 
 /* ── Side Panel ──────────────────────────────────────────── */
 .cam-side-panel {
+  flex: 0 0 380px;
   width: 380px;
   min-width: 380px;
-  background: var(--bg-surface, #11141b);
-  border-left: 1px solid var(--border-light);
+  height: 100%;
+  min-height: 0;
+  background: #11141b !important;
+  color: #ffffff;
+  border-left: 1px solid #1e293b;
   display: flex;
   flex-direction: column;
   position: relative;
@@ -366,9 +374,31 @@ html, body, #root {
 }
 
 .cam-side-body {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 12px;
+  background: #11141b;
+  scrollbar-width: thin;
+  scrollbar-color: #334155 transparent;
+}
+
+.cam-side-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.cam-side-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cam-side-body::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 10px;
+}
+
+.cam-side-body::-webkit-scrollbar-thumb:hover {
+  background: #475569;
 }
 
 .cam-side-item {
@@ -1010,7 +1040,13 @@ html, body, #root {
 }
 
 [data-theme="light"] .cam-side-panel {
+  background: var(--bg-surface, #ffffff) !important;
+  color: #0f172a;
   box-shadow: -8px 0 32px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .cam-side-body {
+  background: var(--bg-surface, #ffffff);
 }
 
 [data-theme="light"] .cam-side-header {
@@ -1095,5 +1131,130 @@ html, body, #root {
   background: var(--bg-elevated);
   border-color: var(--border-light);
   color: #0f172a;
+}
+
+
+
+/* ============================================================
+   GROUP MANAGEMENT SCROLL FIX
+   ============================================================ */
+.cameras-page {
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cameras-page > .app-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cameras-page .cameras-content-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  overflow: hidden;
+}
+
+.cameras-page .cam-table-wrap {
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto !important;
+  overflow-x: hidden;
+}
+
+.cameras-page .cam-table-wrap::-webkit-scrollbar {
+  width: 7px;
+}
+
+.cameras-page .cam-table-wrap::-webkit-scrollbar-track {
+  background: #0b0f15;
+}
+
+.cameras-page .cam-table-wrap::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 10px;
+}
+
+.cameras-page .cam-table-wrap::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+.cameras-page .cam-side-panel {
+  min-height: 0;
+  height: 100%;
+}
+
+.cameras-page .cam-side-body {
+  min-height: 0;
+  overflow-y: auto !important;
+  overflow-x: hidden;
+}
+
+/* ── Stable Group View button ──────────────────────────────
+   Use a normal HTML button here instead of the WebGL
+   SpecularButton. This prevents white canvas/rendering
+   artifacts on remote/GPU-limited machines while scrolling.
+*/
+.group-view-btn {
+  width: 140px;
+  height: 32px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  border: 1px solid rgba(16, 185, 129, 0.14);
+  border-radius: 8px;
+
+  background: #0d3326 !important;
+  color: #f0fff8 !important;
+
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+
+  box-shadow: none !important;
+  filter: none !important;
+  transform: none !important;
+
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.group-view-btn:hover {
+  background: #104332 !important;
+  border-color: rgba(16, 185, 129, 0.28);
+}
+
+.group-view-btn:active {
+  background: #0a281e !important;
+}
+
+.group-view-btn:focus-visible {
+  outline: 2px solid rgba(16, 185, 129, 0.45);
+  outline-offset: 2px;
+}
+
+/* Never allow generic button/canvas rules to turn this into
+   a white WebGL surface. */
+.cam-table-wrap .group-view-btn,
+.cam-table-wrap .group-view-btn::before,
+.cam-table-wrap .group-view-btn::after {
+  background-color: #0d3326 !important;
+  background-image: none !important;
 }
 

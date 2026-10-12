@@ -977,3 +977,6 @@ input[type="password"]::-webkit-contacts-auto-fill-button {
 [data-theme="light"] .dm-dropdown-item:hover {
   background: #f1f5f9;
 }
+
+.dm-error-msg { display: block; font-size: 11px; color: #f87171; margin-top: 2px; }
+.dm-cred-input.error { border-color: #f87171 !important; box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.2); }

@@ -579,6 +579,110 @@
 
 @keyframes mvSpin { to { transform: rotate(360deg); } }
 
+/* ── File Dropdown & Menu List Items ── */
+.mv-dropdown-panel--file {
+  min-width: 260px;
+}
+
+.mv-dropdown-item-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: var(--text-primary, #cbd5e1);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.12s;
+  margin-bottom: 2px;
+}
+
+.mv-dropdown-item-btn:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.08));
+  color: var(--text-primary, #fff);
+}
+
+.mv-dropdown-item-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.mv-dropdown-item-btn__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.05));
+  color: var(--text-secondary, #94a3b8);
+  flex-shrink: 0;
+}
+
+.mv-dropdown-item-btn--danger {
+  color: #ef4444;
+}
+
+.mv-dropdown-item-btn--danger:hover {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+}
+
+.mv-dropdown-divider {
+  height: 1px;
+  background: var(--border-light, rgba(255, 255, 255, 0.08));
+  margin: 6px 0;
+}
+
+/* Floor Badges */
+.mv-floor-badge-3d {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  background: rgba(29, 158, 117, 0.9);
+  color: #fff;
+  font-size: 8.5px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+  z-index: 2;
+}
+
+.mv-floor-badge-cad {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  background: rgba(147, 51, 234, 0.9);
+  color: #fff;
+  font-size: 8.5px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+  z-index: 2;
+}
+
+.mv-floor-badge-2d {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  background: rgba(37, 99, 235, 0.9);
+  color: #fff;
+  font-size: 8.5px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+  z-index: 2;
+}
+
 /* ── Main layout ──────────────────────────────────────────────── */
 .mv-main {
   display: flex;
@@ -4213,4 +4317,3 @@
   color: #059669;
   border: 1px solid rgba(16, 185, 129, 0.25);
 }
-
