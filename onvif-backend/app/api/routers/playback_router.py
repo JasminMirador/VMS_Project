@@ -9,6 +9,9 @@ from recorder import rtsp_recorder as recorder
 from recorder import encrypt_service
 from app.utils.ffmpeg_utils import FFMPEG_BIN
 
+HOST_IP      = os.environ["HOST_IP"]
+BACKEND_PORT = os.environ.get("BACKEND_PORT", "8000")
+FALLBACK_BASE_URL = os.environ.get("PUBLIC_BASE_URL") or f"http://{HOST_IP}:{BACKEND_PORT}"
 
 router = APIRouter(tags=["playback"])
 
@@ -307,10 +310,10 @@ def event_playback(
                 if enc_path.startswith("minio:"):
                     from app.utils import minio_client
                     object_key = enc_path.replace("minio:", "")
-                    stream = minio_client.get_file_stream(object_key)
-                    raw_bytes = stream.read()
-                    stream.close()
-                    stream.release_conn()
+                    minio_stream = minio_client.get_file_stream(object_key)
+                    raw_bytes = minio_stream.read()
+                    minio_stream.close()
+                    minio_stream.release_conn()
                 else:
                     with open(enc_path, "rb") as f:
                         raw_bytes = f.read()
@@ -461,7 +464,7 @@ def event_playback(
                     "Accept-Ranges":       "bytes",
                     "Cache-Control":       "no-store",
                     "Access-Control-Expose-Headers": "Content-Length, Content-Type, X-Server-IP, X-Camera-IP",
-                    "X-Server-IP": "192.168.126.200",
+                    "X-Server-IP": HOST_IP,
                     "X-Camera-IP": ip,
                 },
             )
@@ -476,7 +479,7 @@ def event_playback(
         if request:
             base_url = str(request.base_url).rstrip("/")
         else:
-            base_url = "http://192.168.126.200"
+            base_url = FALLBACK_BASE_URL
 
         encoded_time = urllib.parse.quote(time)
         clipUrl = f"{base_url}/api/event-playback/hls/{ip}/{encoded_time}/index.m3u8"
