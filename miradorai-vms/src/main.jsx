@@ -14,7 +14,7 @@ window.fetch = async (...args) => {
   if (config && config.method && ["POST", "PUT", "PATCH"].includes(config.method.toUpperCase()) && config.body && typeof config.body === "string") {
     try {
       const bodyObj = JSON.parse(config.body);
-      const nameRegex = /^[a-zA-Z0-9 _.\-]+$/;
+      const nameRegex = /^[a-zA-Z0-9 _.\-()/#+:,]+$/;
       for (const key of ["name", "title", "device_name"]) {
         if (bodyObj[key] && typeof bodyObj[key] === "string") {
           const trimmed = bodyObj[key].trim();
@@ -24,7 +24,7 @@ window.fetch = async (...args) => {
             document.body.appendChild(toastContainer);
             const root = ReactDOM.createRoot(toastContainer);
             const msg = `Validation Error`;
-            const subtitle = `'${key}' contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed.`;
+            const subtitle = `'${key}' contains invalid characters. Only letters, numbers, spaces, and safe punctuation are allowed.`;
             root.render(<Toast message={msg} subtitle={subtitle} type="error" onClose={() => {
               root.unmount();
               toastContainer.remove();

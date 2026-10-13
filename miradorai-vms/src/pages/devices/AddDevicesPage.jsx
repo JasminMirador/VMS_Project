@@ -272,8 +272,8 @@ export function EditDeviceModal({ device, groups, onClose, onSave }) {
             onClick={() => {
               if (form.device_name) {
                 const trimmed = form.device_name.trim();
-                if (!/^[a-zA-Z0-9 _-]+$/.test(trimmed)) {
-                  setAlertMsg("Device Name can only contain alphanumeric characters, spaces, dashes, and underscores.");
+                if (!/^[a-zA-Z0-9 _.\-()/#+:,]+$/.test(trimmed)) {
+                  setAlertMsg("Device Name can only contain letters, numbers, spaces, and standard punctuation.");
                   return;
                 }
               }
@@ -622,20 +622,26 @@ export default function AddDevicesPage({ onNavigate }) {
   }, [devices]);
 
   const handleSaveDevice = useCallback(async (updated) => {
+    const devName = updated.device_name || updated.name || "";
     try {
-      if (updated.device_name) {
-        updated.name = updated.device_name;
-      }
-      const { name, ... payload } = updated;
-      await fetch(`${STREAM_API}/api/cameras/by-ip/${updated.ip}`, {
+      const payload = {
+        ...updated,
+        name: devName,
+        device_name: devName,
+      };
+      const res = await fetch(`${STREAM_API}/api/cameras/by-ip/${updated.ip}`, {
         method: "PUT",
         headers: getAuthHeaders(),
         body: JSON.stringify(payload),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.error("Failed to update DB:", err);
+      }
     } catch (e) {
       console.error("Failed to update DB:", e);
     }
-    setDevices((prev) => prev.map((d) => d.id === updated.id ? updated : d));
+    setDevices((prev) => prev.map((d) => d.id === updated.id ? { ...d, ...updated, name: devName, device_name: devName } : d));
   }, [setDevices]);
 
   const performRemoveDevice = useCallback(async (deviceId) => {

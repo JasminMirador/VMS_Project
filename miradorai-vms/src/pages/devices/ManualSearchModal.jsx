@@ -394,8 +394,8 @@ export default function ManualSearchModal({
     if (!user.trim()) e.user = "Please enter the username.";
     if (!pass.trim()) e.pass = "Please enter the password.";
     if (port && (isNaN(port) || +port < 1 || +port > 65535)) e.port = "1–65535";
-    if (cameraName && !/^[a-zA-Z0-9 _-]+$/.test(cameraName.trim())) {
-      e.cameraName = "Camera Name can only contain alphanumeric characters, spaces, dashes, and underscores.";
+    if (cameraName && !/^[a-zA-Z0-9 _.\-()/#+:,]+$/.test(cameraName.trim())) {
+      e.cameraName = "Camera Name can only contain letters, numbers, spaces, and standard punctuation.";
     }
     return e;
   };
@@ -404,8 +404,8 @@ export default function ManualSearchModal({
     const e = {};
     if (!rtspUrl.trim()) e.rtspUrl = "RTSP URL is required";
     else if (!rtspUrl.toLowerCase().startsWith("rtsp://")) e.rtspUrl = "URL must start with rtsp://";
-    if (cameraName && !/^[a-zA-Z0-9 _-]+$/.test(cameraName.trim())) {
-      e.cameraName = "Camera Name can only contain alphanumeric characters, spaces, dashes, and underscores.";
+    if (cameraName && !/^[a-zA-Z0-9 _.\-()/#+:,]+$/.test(cameraName.trim())) {
+      e.cameraName = "Camera Name can only contain letters, numbers, spaces, and standard punctuation.";
     }
     return e;
   };

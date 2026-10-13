@@ -345,8 +345,8 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
   const saveEdit = () => {
     if (editForm.name) {
       const trimmed = editForm.name.trim();
-      if (!/^[a-zA-Z0-9 _-]+$/.test(trimmed)) {
-        setUiError("Camera Name can only contain alphanumeric characters, spaces, dashes, and underscores.");
+      if (!/^[a-zA-Z0-9 _.\-()/#+:,]+$/.test(trimmed)) {
+        setUiError("Camera Name can only contain letters, numbers, spaces, and standard punctuation.");
         return;
       }
     }
@@ -357,6 +357,21 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
     );
     setCameras(updated);
     saveDevices(updated);
+    if (editModal?.ip) {
+      const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
+      fetch(`${API_BASE}/api/cameras/by-ip/${editModal.ip}`, {
+        method: "PUT",
+        headers: {
+          "Authorization": token ? `Bearer ${token}` : "",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          ...editForm,
+          name: editForm.name,
+          device_name: editForm.name,
+        })
+      }).catch(err => console.error("Failed to update camera on backend:", err));
+    }
     if (prev) {
       const wasEnabled = prev.enabled !== false;
       const nowEnabled = editForm.enabled;

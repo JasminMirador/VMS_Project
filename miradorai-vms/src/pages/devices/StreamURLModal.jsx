@@ -236,8 +236,8 @@ export default function StreamURLModal({
     const trimmedUrl = input.trim();
     const trimmedName = cameraName.trim();
     
-    if (trimmedName && !/^[a-zA-Z0-9 _-]+$/.test(trimmedName)) {
-      setAlertMsg("Camera Name can only contain alphanumeric characters, spaces, dashes, and underscores.");
+    if (trimmedName && !/^[a-zA-Z0-9 _.\-()/#+:,]+$/.test(trimmedName)) {
+      setAlertMsg("Camera Name can only contain letters, numbers, spaces, and standard punctuation.");
       return;
     }
 

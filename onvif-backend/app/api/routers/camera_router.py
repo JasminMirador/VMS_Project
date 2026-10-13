@@ -380,16 +380,22 @@ async def delete_camera_by_stream(stream_name: str):
 @router.put("/cameras/by-ip/{ip}", dependencies=[Depends(require_admin)])
 async def update_camera_by_ip(ip: str, request: Request):
     import re as _re
-    _NAME_RE = _re.compile(r"^[a-zA-Z0-9 _.\-]+$")
+    _NAME_RE = _re.compile(r"^[a-zA-Z0-9 _.\-()/#+:,]+$")
+    _MODEL_RE = _re.compile(r"^[^<>\x00-\x1f\x7f]+$")
     validate_ip_only(ip)
     data = await request.json()
     if "rtsp_url" in data:
         validate_rtsp_url(data["rtsp_url"])
-    # Validate name fields
-    for _field in ("name", "device_name", "manufacturer", "model", "group_id"):
+    # Validate name and group fields
+    for _field in ("name", "device_name", "group_id"):
         if _field in data and data[_field]:
             if not _NAME_RE.match(str(data[_field]).strip()):
-                raise HTTPException(status_code=400, detail=f"'{_field}' contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed.")
+                raise HTTPException(status_code=400, detail=f"'{_field}' contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, dots, and common punctuation are allowed.")
+    # Validate hardware model and manufacturer fields (allowing hardware designations)
+    for _field in ("manufacturer", "model"):
+        if _field in data and data[_field]:
+            if not _MODEL_RE.match(str(data[_field]).strip()):
+                raise HTTPException(status_code=400, detail=f"'{_field}' contains invalid characters.")
     actual_updated_fields = []
     
     if cameras_col is not None:
@@ -1266,10 +1272,15 @@ async def add_device(device: dict):
         validate_rtsp_url(device.get("recording_rtsp"))
         
     import re as _re
-    _NAME_RE = _re.compile(r"^[a-zA-Z0-9 _.\-]+$")
-    for _field in ("name", "device_name", "manufacturer", "model", "group_id"):
+    _NAME_RE = _re.compile(r"^[a-zA-Z0-9 _.\-()/#+:,]+$")
+    _MODEL_RE = _re.compile(r"^[^<>\x00-\x1f\x7f]+$")
+    for _field in ("name", "device_name", "group_id"):
         _val = device.get(_field)
         if _val and not _NAME_RE.match(str(_val).strip()):
+            raise HTTPException(status_code=400, detail=f"'{_field}' contains invalid characters.")
+    for _field in ("manufacturer", "model"):
+        _val = device.get(_field)
+        if _val and not _MODEL_RE.match(str(_val).strip()):
             raise HTTPException(status_code=400, detail=f"'{_field}' contains invalid characters.")
 
     print("DEVICE REGISTERED:", device)

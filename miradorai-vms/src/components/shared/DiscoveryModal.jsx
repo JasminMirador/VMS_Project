@@ -220,8 +220,8 @@ export default function DiscoveryModal({
 
     toAdd.forEach((device) => {
       const camInfo = cameraCreds[device.id] || {};
-      if (camInfo.name && !/^[a-zA-Z0-9 _-]+$/.test(camInfo.name.trim())) {
-        newErrors[device.id] = "Camera Name can only contain alphanumeric characters, spaces, dashes, and underscores.";
+      if (camInfo.name && !/^[a-zA-Z0-9 _.\-()/#+:,]+$/.test(camInfo.name.trim())) {
+        newErrors[device.id] = "Camera Name can only contain letters, numbers, spaces, and standard punctuation.";
         hasError = true;
       }
     });

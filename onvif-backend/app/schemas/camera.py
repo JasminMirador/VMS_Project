@@ -19,10 +19,16 @@ class BaseCameraRequest(BaseModel):
         return data
 
 import re
-NAME_REGEX = re.compile(r"^[a-zA-Z0-9 _.-]+$")
+NAME_REGEX = re.compile(r"^[a-zA-Z0-9 _.\-()/#+:,]+$")
+MODEL_REGEX = re.compile(r"^[^<>\x00-\x1f\x7f]+$")
 
 def validate_safe_name(v: str) -> str:
     if v and not NAME_REGEX.match(v):
+        raise ValueError("Field contains invalid characters")
+    return v
+
+def validate_safe_info(v: str) -> str:
+    if v and not MODEL_REGEX.match(v):
         raise ValueError("Field contains invalid characters")
     return v
 
@@ -96,10 +102,15 @@ class StreamRegisterRequest(BaseCameraRequest):
     group_id: str = Field(default="default", max_length=255)
     live_codec: Optional[str] = Field(default="H.264", max_length=255)
     
-    @field_validator('group_id', 'device_name', 'manufacturer', 'model', mode='before')
+    @field_validator('group_id', 'device_name', mode='before')
     @classmethod
     def val_safe_name(cls, v):
         return validate_safe_name(v)
+
+    @field_validator('manufacturer', 'model', mode='before')
+    @classmethod
+    def val_safe_info(cls, v):
+        return validate_safe_info(v)
 
 class StreamAssignRequest(BaseCameraRequest):
     port: int = Field(default=80, ge=1, le=65535)
@@ -118,10 +129,15 @@ class StreamAssignRequest(BaseCameraRequest):
     bitrate:           Optional[int] = None
     bitrate_type: Optional[str] = Field(None, max_length=1024)
 
-    @field_validator('device_name', 'manufacturer', 'model', mode='before')
+    @field_validator('device_name', mode='before')
     @classmethod
     def val_safe_name(cls, v):
         return validate_safe_name(v)
+
+    @field_validator('manufacturer', 'model', mode='before')
+    @classmethod
+    def val_safe_info(cls, v):
+        return validate_safe_info(v)
 
 class VideoEncoderSettingRequest(BaseCameraRequest):
     port: int = Field(default=80, ge=1, le=65535)
