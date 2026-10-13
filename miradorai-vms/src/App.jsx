@@ -2,8 +2,11 @@
 import { useState, useEffect } from "react";
 import { BrowserRouter, useLocation } from "react-router-dom";
 import NumberTranslator from "./translation/NumberTranslator";
- import { useI18n } from "./i18n";
+import { useI18n } from "./i18n";
+import { I18nProvider } from "./i18n"; // 👈 You imported it here...
 
+  
+ 
 import { AuthProvider, useAuth } from "./context/AuthContext";
  
 import Sidebar from "./components/layout/Sidebar";
@@ -43,10 +46,9 @@ function AppContent() {
   // ==============================
   const { language, setLanguage: handleLanguageChange } = useI18n();
 
- 
   const handleSplashDone = () => {
     setShowSplash(false);
-  
+ 
     setTimeout(() => setAppVisible(true), 50);
   };
  
@@ -105,6 +107,7 @@ function AppContent() {
  
 export default function App() {
   return (
+  <I18nProvider>
     <ThemeProvider>
       <AuthProvider>
         <UserSettingsProvider>
@@ -118,5 +121,6 @@ export default function App() {
         </UserSettingsProvider>
       </AuthProvider>
     </ThemeProvider>
+  </I18nProvider>
   );
 }
