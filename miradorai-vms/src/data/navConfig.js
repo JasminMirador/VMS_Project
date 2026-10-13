@@ -308,6 +308,7 @@ export const getNavConfig = (role = "client") => {
     ...SETTINGS_NAV,
     items: SETTINGS_NAV.items.filter(item => {
       if (role === "client") {
+
         return !["raid-mgmt", "viewing-stations", "user-management"].includes(item.page);
       }
 
@@ -377,10 +378,8 @@ export const CAMERA_FEATURES_CONFIG = [
   {
     label: "PTZ Presets",
     page: "ptz-presets",
-    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-      <circle cx="12" cy="12" r="10"/>
-      <path d="M12 8l1.5 3h3l-2.5 2 1 3L12 14.5 9 16l1-3-2.5-2h3z"/>
-    </svg>`,
+    icon: ICONS.ptz,
+
   },
 ];
 

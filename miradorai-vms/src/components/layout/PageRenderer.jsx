@@ -13,6 +13,8 @@ import ManagementPage from "../../pages/devices/ManagementPage";
 import ExternalDataPage from "../../pages/devices/ExternalDataPage";
 import TimeSyncPage from "../../pages/devices/TimeSyncPage";
 import CameraFeaturesPage from "../../pages/devices/CameraFeaturesPage";
+import DashboardNewPage from "../../pages/Dashboard/DashboardNewPage";
+
 
 import StorageMgmtPage from "../../pages/storage/StorageManagementPage";
 import StorageSelPage from "../../pages/storage/StorageSelectionPage";
@@ -74,6 +76,8 @@ const AnalyticsReportPage = (props) => <ReportsPlaceholderPage {...props} report
 const MAP = {
   // ✅ DASHBOARD (DEFAULT PAGE)
   "dashboard": DashboardPage,
+  "dashboard-new": DashboardNewPage,
+
   "video-synopsis":VideoSynopsis,
   "face-detection": FaceDetectionPage,
   "ai-analytics": AiAnalyticsPage,

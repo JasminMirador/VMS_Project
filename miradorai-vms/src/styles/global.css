@@ -15,7 +15,8 @@
   --teal-dim:      #059669;
   --teal-glow:     rgba(16,185,129,0.18);
   --teal-subtle:   rgba(16,185,129,0.06);
-    /* ── Brand accent (same cyan as the login screen) ──
+
+  /* ── Brand accent (same cyan as the login screen) ──
      Single source of truth for the "Mirador cyan". Brightened on dark
      surfaces for contrast; darker in the light theme (see below).
      Used by the sidebar active state; reuse it anywhere that should
@@ -59,37 +60,69 @@
   --font-ui:       'DM Sans', 'Inter', system-ui, sans-serif;
   --font-mono:     'DM Mono', 'Fira Code', monospace;
   
-  --font-size-heading: 30px;
-  --font-size-subheading: 18px;
-  --font-size-content: 16px;
+  /* Fluid type: scales smoothly between a 360px phone and a 1440px
+     desktop instead of one fixed size for every viewport. Same value
+     in both themes since it's set once here in :root (not overridden
+     under [data-theme='light']). */
+  --font-size-heading: clamp(20px, 16.5px + 0.93vw, 30px);
+  --font-size-subheading: clamp(15px, 14px + 0.28vw, 18px);
+  --font-size-content: clamp(14px, 13.3px + 0.19vw, 16px);
 
   --transition:    0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* ── Light Mode Overrides ── */
+/* ── Light Mode Overrides ──
+   Single source of truth for the light theme (previously split
+   across two separate [data-theme='light'] blocks further apart in
+   this file, which silently fought over several tokens — bg-elevated,
+   bg-hover, bg-active, teal-dim, teal-subtle, border-dim and
+   text-secondary all differed between them, with whichever block
+   came later in the file winning per CSS cascade rules. Merged here
+   into one block, keeping the values that were actually in effect. ── */
 [data-theme='light'] {
-  --bg-base:       #f8fafc;
+  color-scheme: light;
+
+  /* ── Core Backgrounds ── */
+  --bg-base:       #f8fafd;
   --bg-surface:    #ffffff;
-  --bg-elevated:   #f1f5f9;
-  --bg-hover:      #e2e8f0;
-  --bg-active:     #cbd5e1;
+  --bg-elevated:   #f8fafc;
+  --bg-hover:      #f1f5f9;
+  --bg-active:     #e2e8f0;
 
-  --teal:          #059669;
-  --teal-dim:      #10b981;
+  /* ── Accents (Emerald / Teal) ── */
+  --teal:          #059669; /* Darker teal for light background legibility */
+  --teal-dim:      #047857;
   --teal-glow:     rgba(5, 150, 105, 0.15);
-  --teal-subtle:   rgba(5, 150, 105, 0.08);
+  --teal-subtle:   rgba(5, 150, 105, 0.05);
 
+  /* ── Brand accent (login cyan, light theme) ── */
+  --brand:              #0e7490;
+  --brand-hover:        #0b5b73;
+  --brand-tint:         #ecfeff;
+  --brand-tint-border:  #a5f3fc;
+  --brand-glow:         rgba(14, 116, 144, 0.14);
+  --brand-ring:         rgba(14, 116, 144, 0.5);
+
+  /* ── Neutral / Borders ── */
   --border:        #e2e8f0;
   --border-light:  #cbd5e1;
-  --border-dim:    rgba(0,0,0,0.06);
+  --border-dim:    rgba(0, 0, 0, 0.04);
 
-  --text-primary:  #0f172a;
-  --text-secondary:#334155;
+  /* ── Typography ── */
+  --text-primary:  #0f172a; /* Dark Slate for primary text */
+  --text-secondary:#475569; /* Medium Slate for descriptions/secondary */
   --text-muted:    #64748b;
   --text-accent:   #059669;
 
+  /* ── Semantic ── */
+  --red:           #dc2626;
+  --yellow:        #d97706;
+  --blue:          #2563eb;
+  --purple:        #7c3aed;
+
   --calendar-invert: 0;
 
+  /* ── Shadows ── */
   --shadow-sm:     0 2px 8px rgba(0,0,0,0.05);
   --shadow-md:     0 8px 24px rgba(0,0,0,0.08);
   --shadow-lg:     0 16px 48px rgba(0,0,0,0.12);
@@ -330,47 +363,7 @@ input, select, button, textarea { font-family: var(--font-ui); }
 .m-badge--purple { background: rgba(139, 92, 246, 0.15); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.2); }
 .m-badge--teal { background: var(--teal-subtle); color: var(--teal); border: 1px solid var(--teal-glow); }
 
-[data-theme="light"] {
-  color-scheme: light;
-  
-  /* ── Core Backgrounds ── */
-  --bg-base:       #f0f2f5;
-  --bg-surface:    #ffffff;
-  --bg-elevated:   #f8fafc;
-  --bg-hover:      #f1f5f9;
-  --bg-active:     #e2e8f0;
-
-  /* ── Accents (Emerald / Teal) ── */
-  --teal:          #059669; /* Darker teal for light background legibility */
-  --teal-dim:      #047857;
-  --teal-glow:     rgba(5, 150, 105, 0.15);
-  --teal-subtle:   rgba(5, 150, 105, 0.05);
-
-    /* ── Brand accent (login cyan, light theme) ── */
-  --brand:              #0e7490;
-  --brand-hover:        #0b5b73;
-  --brand-tint:         #ecfeff;
-  --brand-tint-border:  #a5f3fc;
-  --brand-glow:         rgba(14, 116, 144, 0.14);
-  --brand-ring:         rgba(14, 116, 144, 0.5);
-
-  /* ── Neutral / Borders ── */
-  --border:        #e2e8f0;
-  --border-light:  #cbd5e1;
-  --border-dim:    rgba(0, 0, 0, 0.04);
-
-  /* ── Typography ── */
-  --text-primary:  #0f172a; /* Dark Slate for primary text */
-  --text-secondary:#475569; /* Medium Slate for descriptions/secondary */
-  --text-muted:    #64748b;
-  --text-accent:   #059669;
-
-  /* ── Semantic ── */
-  --red:           #dc2626;
-  --yellow:        #d97706;
-  --blue:          #2563eb;
-  --purple:        #7c3aed;
-}
+/* (light theme tokens merged into the single block near the top of this file) */
 
 [data-theme="light"] ::-webkit-scrollbar-thumb {
   background: #cbd5e1;

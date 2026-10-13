@@ -19,9 +19,11 @@ const LANGUAGES = [
   { code: "en", label: "English", nativeLabel: "English", sub: "English · LTR", flag: "EN" },
   { code: "ar", label: "Arabic", nativeLabel: "العربية", sub: "Arabic · RTL", flag: "AR" },
 ];
+
 // ---- Fullscreen toggle (icon button, same look as the language button) ----
 function FullscreenButton() {
-  const { t } = useI18n();  const [isFullscreen, setIsFullscreen] = useState(
+  const { t } = useI18n();
+  const [isFullscreen, setIsFullscreen] = useState(
     () => !!document.fullscreenElement
   );
 
@@ -58,14 +60,12 @@ function FullscreenButton() {
       aria-pressed={isFullscreen}
     >
       <Icon name={isFullscreen ? "fullscreenExit" : "fullscreen"} width="20" height="20" />
-
     </button>
   );
 }
 
 function LanguageSelector({ language, onLanguageChange }) {
   const { t } = useI18n();
-
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
 
@@ -92,8 +92,6 @@ function LanguageSelector({ language, onLanguageChange }) {
     document.documentElement.dir = code === "ar" ? "rtl" : "ltr";
     document.documentElement.lang = code;
 
-
-
     setOpen(false);
   };
 
@@ -117,7 +115,6 @@ function LanguageSelector({ language, onLanguageChange }) {
       >
         {/* languages icon */}
         <Icon name="language" width="20" height="20" />
-
       </button>
 
       {open && (
@@ -407,8 +404,7 @@ export default function TopBar({
   const navigate = useNavigate();
   const role = user?.role;
   const { t, tText } = useI18n();
-
-
+  
   // Sidebar open/closed state (owned by Sidebar.jsx, mirrored here for the toggle button)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem("sidebar-collapsed") === "true"
@@ -639,7 +635,6 @@ const updateUserMenuPosition = () => {
     { label: "Email Schedules", page: "email-schedules", icon: iconSvg("emailSchedules") },
     { label: "Logs",            page: "logs",            icon: iconSvg("logs") },
     { label: "Recycle Bin",     page: "recycle-bin",     icon: iconSvg("recycleBin") },
-
     
 
   ];
@@ -671,6 +666,7 @@ const updateUserMenuPosition = () => {
   // Also close them whenever the route changes (e.g. sidebar item clicked)
   useEffect(() => { closeMenus(); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePage]);
+
   const navigateTo = (page) => {
     navigate(`/${page}`);
     setUserMenuOpen(false);
@@ -753,7 +749,6 @@ const updateUserMenuPosition = () => {
               {
                 icon: (
                   <Icon name="snapshot" />
-
                 ),
                 label: isCapturing ? t("topbar.capturing") : t("topbar.snapshot"),
                 onClick: () => { closeMenus(); handleAppSnapshot(); }
@@ -761,10 +756,8 @@ const updateUserMenuPosition = () => {
               {
                 icon: theme === "dark" ? (
                   <Icon name="sun" />
-
                 ) : (
                   <Icon name="moon" />
-
                 ),
                 label: t("common.theme"),
                 onClick: () => { closeMenus(); toggleTheme(); }
@@ -772,7 +765,6 @@ const updateUserMenuPosition = () => {
               {
                 icon: (
                   <Icon name="refresh" />
-
                 ),
                 label: t("common.refresh"),
                 onClick: () => { closeMenus(); window.dispatchEvent(new CustomEvent('appRefresh')); }
@@ -780,7 +772,6 @@ const updateUserMenuPosition = () => {
               ...(role === "admin" ? [{
                 icon: (
                   <Icon name="profile" />
-
                 ),
                 label: t("nav.profile"),
                 onClick: () => { closeMenus(); navigate("/profile"); }
@@ -788,7 +779,6 @@ const updateUserMenuPosition = () => {
               ...([{
                 icon: (
                   <Icon name="settings" />
-
                 ),
                 label: t("nav.settings"),
                 onClick: () => {
@@ -827,8 +817,10 @@ const updateUserMenuPosition = () => {
           language={language}
           onLanguageChange={onLanguageChange}
         />
+
         {/* Fullscreen toggle */}
         <FullscreenButton />
+
         <div className="topbar__divider" />
 
         {/* User menu */}
@@ -879,7 +871,6 @@ const updateUserMenuPosition = () => {
                 <span className={`topbar__user-badge ${user?.role || "admin"}`}>
                   {tText(user?.role?.toUpperCase() || "ADMIN")}
                 </span>
-
               </div>
               
               <div className="topbar__user-dropdown-body">
@@ -888,8 +879,8 @@ const updateUserMenuPosition = () => {
                   className="topbar__user-dropdown-item"
                   onClick={() => navigateTo("about")}
                 >
-                 <Icon name="about" />
-                 <span>{t("topbar.about")}</span>
+                  <Icon name="about" />
+                  <span>{t("topbar.about")}</span>
                 </div>
 
                 {/* Admin Only Tools */}
@@ -911,12 +902,7 @@ const updateUserMenuPosition = () => {
                         setUserMenuOpen(false);
                       }}
                     >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-                      </svg>
-                      <span>Supervisor Details</span>
-                            <Icon name="supervisor" />
+                      <Icon name="supervisor" />
                       <span>{t("topbar.supervisorDetails")}</span>
                       {/* Status dot */}
                       {supervisorConfigured !== null && (
@@ -926,10 +912,9 @@ const updateUserMenuPosition = () => {
                           boxShadow: supervisorConfigured ? "0 0 6px rgba(52,211,153,0.4)" : "0 0 6px rgba(251,191,36,0.4)",
                           marginLeft: 4,
                         }} title={supervisorConfigured ? t("topbar.pwConfiguredTip") : t("topbar.pwNotConfiguredTip")} />
-
-)}
+                      )}
                       <span className="topbar__supervisor-badge">{t("roles.admin")}</span>
-           </div>
+                    </div>
                   </>
                 )}
 
@@ -942,7 +927,7 @@ const updateUserMenuPosition = () => {
                 {user?.loginDate && (
                   <div className="topbar__user-dropdown-meta">
                     <div className="topbar__user-dropdown-meta-label">{t("topbar.lastLogin")}</div>
-           <div className="topbar__user-dropdown-meta-value">{user.loginDate}</div>
+                    <div className="topbar__user-dropdown-meta-value">{user.loginDate}</div>
                   </div>
                 )}
               </div>
