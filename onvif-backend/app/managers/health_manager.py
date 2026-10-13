@@ -10,6 +10,7 @@ from app.core import mqtt_publisher
 
 from app.core.ws_manager import ws_manager
 import os
+import shutil
 import subprocess
 import tempfile
 from app.utils import minio_client
@@ -35,7 +36,7 @@ async def async_capture_snapshot(alert, ip_slug):
             minio_path = f"alerts/{ip_slug}_{clean_time}.jpg"
             if minio_client.upload_bytes(minio_path, img_bytes):
                 minio_endpoint = os.environ.get("MINIO_ENDPOINT", "192.168.1.200:9000")
-                minio_bucket = os.environ.get("MINIO_BUCKET", "vms-rec")
+                minio_bucket = os.environ.get("MINIO_BUCKET", "vms-recordings")
                 alert["imageUrl"] = f"http://{minio_endpoint}/{minio_bucket}/{minio_path}"
 
 
@@ -44,7 +45,12 @@ async def system_health_collector():
         try:
             cpu = psutil.cpu_percent()
             ram = psutil.virtual_memory().percent
-            disk = psutil.disk_usage('/').percent
+            try:
+                root_path = os.path.splitdrive(os.path.abspath('.'))[0] + '\\' if os.name == 'nt' else '/'
+                u = shutil.disk_usage(root_path)
+                disk = round((u.used / u.total) * 100, 1) if u.total > 0 else 0.0
+            except Exception:
+                disk = 0.0
 
             # Optional process metrics summary sampling
             ffmpeg_count = 0

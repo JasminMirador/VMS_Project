@@ -2,9 +2,21 @@ import os
 import re
 import sys
 import time
+import shutil
 import psutil
 from datetime import datetime
 from app.core.database import cameras_col, db as _db
+
+def _get_system_disk_percent() -> float:
+    """Safe disk usage percent calculation across Linux and Windows."""
+    try:
+        root_path = os.path.splitdrive(os.path.abspath('.'))[0] + '\\' if os.name == 'nt' else '/'
+        usage = shutil.disk_usage(root_path)
+        if usage.total > 0:
+            return round((usage.used / usage.total) * 100, 1)
+    except Exception:
+        pass
+    return 0.0
 
 _proc_cache = {}
 
@@ -526,7 +538,7 @@ def get_vms_process_metrics():
             "system_overall_ram_percent": psutil.virtual_memory().percent,
             "system_overall_ram_used_gb": round(psutil.virtual_memory().used / (1024**3), 2),
             "system_overall_ram_total_gb": round(psutil.virtual_memory().total / (1024**3), 2),
-            "system_overall_disk_used_percent": psutil.disk_usage('/').percent,
+            "system_overall_disk_used_percent": _get_system_disk_percent(),
             "total_python_services": len(python_services),
             "total_recorder_workers": len(recorder_workers),
             "total_ffmpeg_processes": len(ffmpeg_processes),

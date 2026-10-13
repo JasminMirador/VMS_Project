@@ -1,3 +1,5 @@
+import os
+import shutil
 import psutil
 from datetime import datetime
 
@@ -19,8 +21,12 @@ async def get_system_metrics():
         ram_usage = ram.percent
 
         # Disk Usage (Root partition)
-        disk = psutil.disk_usage('/')
-        disk_usage = disk.percent
+        try:
+            root_path = os.path.splitdrive(os.path.abspath('.'))[0] + '\\' if os.name == 'nt' else '/'
+            d_usage = shutil.disk_usage(root_path)
+            disk_usage = round((d_usage.used / d_usage.total) * 100, 1) if d_usage.total > 0 else 0.0
+        except Exception:
+            disk_usage = 0.0
 
         # Uptime Calculation
         boot_time_timestamp = psutil.boot_time()

@@ -27,6 +27,9 @@ const ProcessMetricsPanel = ({ onOpenScalingReport, onOpenLiveStreamingReport })
       }
       
       const data = await res.json();
+      if (data && data.success === false) {
+        throw new Error(data.error || 'Failed to load process metrics');
+      }
       setMetrics(data);
       setError(null);
     } catch (err) {
@@ -175,19 +178,19 @@ const ProcessMetricsPanel = ({ onOpenScalingReport, onOpenLiveStreamingReport })
       <div className="vms-proc-cards-grid">
         <div className="vms-proc-card">
           <span className="vms-card-label">Total VMS CPU</span>
-          <span className="vms-card-value">{summary.total_vms_cpu_percent}%</span>
-          <div className="vms-card-sub">Overall Sys: {summary.system_overall_cpu_percent}%</div>
+          <span className="vms-card-value">{summary.total_vms_cpu_percent ?? 0}%</span>
+          <div className="vms-card-sub">Overall Sys: {summary.system_overall_cpu_percent ?? 0}%</div>
         </div>
 
         <div className="vms-proc-card">
           <span className="vms-card-label">Total VMS RAM</span>
-          <span className="vms-card-value">{summary.total_vms_ram_gb} GB</span>
-          <div className="vms-card-sub">({summary.total_vms_ram_mb} MB)</div>
+          <span className="vms-card-value">{summary.total_vms_ram_gb ?? 0} GB</span>
+          <div className="vms-card-sub">({summary.total_vms_ram_mb ?? 0} MB)</div>
         </div>
 
         <div className="vms-proc-card">
           <span className="vms-card-label">FFmpeg Transcoders</span>
-          <span className="vms-card-value">{summary.total_ffmpeg_processes} Processes</span>
+          <span className="vms-card-value">{summary.total_ffmpeg_processes ?? 0} Processes</span>
           <div className="vms-card-sub">
             {summary.orphaned_ffmpeg_count > 0 ? (
               <span className="vms-badge-warn">⚠️ {summary.orphaned_ffmpeg_count} Zombie</span>
@@ -199,13 +202,13 @@ const ProcessMetricsPanel = ({ onOpenScalingReport, onOpenLiveStreamingReport })
 
         <div className="vms-proc-card">
           <span className="vms-card-label">Recorder Workers</span>
-          <span className="vms-card-value">{summary.total_recorder_workers} Active</span>
+          <span className="vms-card-value">{summary.total_recorder_workers ?? 0} Active</span>
           <div className="vms-card-sub">Sharded Workers</div>
         </div>
 
         <div className="vms-proc-card">
           <span className="vms-card-label">Infra Engines</span>
-          <span className="vms-card-value">{summary.total_infrastructure_services} Services</span>
+          <span className="vms-card-value">{summary.total_infrastructure_services ?? 0} Services</span>
           <div className="vms-card-sub">MongoDB, MinIO, Mosquitto, MediaMTX</div>
         </div>
       </div>
