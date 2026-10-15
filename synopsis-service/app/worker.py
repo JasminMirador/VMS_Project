@@ -488,9 +488,17 @@ async def process_face_job(job_id: str, camera_map: Dict[str, str], video_paths:
             try:
                 parts = orig_vp.replace("\\", "/").split("/")
                 if len(parts) >= 2:
+                    fname_base = parts[-1].replace(".mp4", "").replace(".ts", "").replace(".enc", "")
                     date_str = parts[-2]
-                    time_str = parts[-1].replace(".mp4", "").replace(".ts", "").replace(".enc", "").replace("-", ":")
-                    video_start_dt = datetime.fromisoformat(f"{date_str}T{time_str}")
+                    try:
+                        # New format: YYYY-MM-DD_HH-MM-SS
+                        video_start_dt = datetime.strptime(fname_base, "%Y-%m-%d_%H-%M-%S")
+                    except ValueError:
+                        try:
+                            # Old format: HH-MM-SS combined with date folder
+                            video_start_dt = datetime.strptime(f"{date_str}_{fname_base}", "%Y-%m-%d_%H-%M-%S")
+                        except ValueError:
+                            pass
             except Exception:
                 pass
                 
