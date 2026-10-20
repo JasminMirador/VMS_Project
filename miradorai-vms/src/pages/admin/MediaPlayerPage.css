@@ -16,12 +16,12 @@
   --text-muted: var(--text-muted);
   --text-hint: var(--text-muted);
 
-  --amber: var(--teal);
-  --amber-dim: var(--teal-dim);
-  --amber-glow: var(--teal-glow);
-  --amber-subtle: var(--teal-subtle);
+  --amber: var(--brand);
+  --amber-dim: var(--brand-hover);
+  --amber-glow: var(--brand-glow);
+  --amber-subtle: var(--brand-tint);
 
-  --green-live: #10b981;
+  --green-live: var(--brand);
   --red-alert: #ef4444;
   --blue-info: #3b82f6;
 
@@ -686,7 +686,7 @@
   position: absolute;
   width: 12px;
   height: 12px;
-  border-color: var(--teal-dim);
+  border-color: var(--button-bg-hover);
   border-style: solid;
   pointer-events: none;
   z-index: 4;
@@ -696,7 +696,7 @@
 
 .mp-player-wrap:hover .mp-canvas-corner {
   opacity: 1;
-  border-color: var(--teal);
+  border-color: var(--brand);
 }
 
 .mp-canvas-corner.top-left {
@@ -742,7 +742,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--teal);
+  color: var(--brand);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);
   backdrop-filter: blur(4px);
   opacity: 0.8;
@@ -896,7 +896,7 @@
 
 .mp-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--teal-dim), var(--teal));
+  background: linear-gradient(90deg, var(--button-bg-hover), var(--button-bg));
   border-radius: 100px;
   transition: width 0.1s linear;
 }
@@ -907,11 +907,11 @@
   width: 13px;
   height: 13px;
   border-radius: 50%;
-  background: var(--teal);
+  background: var(--button-bg);
   transform: translateY(-50%) scale(0.7);
   opacity: 0;
   transition: opacity var(--transition), transform var(--transition);
-  box-shadow: 0 0 8px var(--teal-glow);
+  box-shadow: 0 0 8px var(--brand-glow);
   pointer-events: none;
 }
 
@@ -962,15 +962,15 @@
   width: 38px !important;
   height: 38px !important;
   border-radius: 50% !important;
-  background: linear-gradient(135deg, #059669 0%, #10b981 100%) !important;
+  background: linear-gradient(135deg, var(--brand) 0%, var(--brand) 100%) !important;
   color: #ffffff !important;
-  box-shadow: 0 3px 12px rgba(16, 185, 129, 0.4) !important;
+  box-shadow: 0 3px 12px rgba(var(--brand-rgb), 0.4) !important;
   margin: 0 2px;
   transition: box-shadow var(--transition), transform var(--transition) !important;
 }
 
 .mp-play-btn:hover:not(:disabled) {
-  box-shadow: 0 4px 18px rgba(16, 185, 129, 0.6) !important;
+  box-shadow: 0 4px 18px rgba(var(--brand-rgb), 0.6) !important;
   transform: scale(1.08) !important;
 }
 
@@ -995,7 +995,7 @@
 
 .mp-vol-slider {
   width: 70px;
-  accent-color: var(--teal);
+  accent-color: var(--brand);
   cursor: pointer;
   height: 3px;
   border-radius: 100px;
@@ -1031,8 +1031,8 @@
 }
 
 .mp-speed-btn.active {
-  color: var(--teal);
-  background: var(--teal-subtle);
+  color: var(--brand);
+  background: var(--brand-tint);
   border: 1px solid var(--border-light);
 }
 
@@ -1498,28 +1498,28 @@
   top: 4px;
   bottom: 4px;
   background: linear-gradient(90deg,
-      rgba(16, 185, 129, 0.18) 0%,
-      rgba(5, 150, 105, 0.28) 100%);
-  border: 1px solid rgba(16, 185, 129, 0.35);
+      rgba(var(--brand-rgb), 0.18) 0%,
+      rgba(var(--brand-rgb), 0.28) 100%);
+  border: 1px solid rgba(var(--brand-rgb), 0.35);
   border-radius: 4px;
   z-index: 3;
   pointer-events: auto;
   /* Allow hover title tooltip */
   cursor: pointer;
   box-shadow:
-    inset 0 0 6px rgba(16, 185, 129, 0.1),
-    0 0 8px rgba(16, 185, 129, 0.15);
+    inset 0 0 6px rgba(var(--brand-rgb), 0.1),
+    0 0 8px rgba(var(--brand-rgb), 0.15);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .mp-timescale-motion-range:hover {
   background: linear-gradient(90deg,
-      rgba(16, 185, 129, 0.35) 0%,
-      rgba(5, 150, 105, 0.45) 100%);
-  border-color: rgba(16, 185, 129, 0.75);
+      rgba(var(--brand-rgb), 0.35) 0%,
+      rgba(var(--brand-rgb), 0.45) 100%);
+  border-color: rgba(var(--brand-rgb), 0.75);
   box-shadow:
-    inset 0 0 10px rgba(16, 185, 129, 0.25),
-    0 0 14px rgba(16, 185, 129, 0.5);
+    inset 0 0 10px rgba(var(--brand-rgb), 0.25),
+    0 0 14px rgba(var(--brand-rgb), 0.5);
   transform: scaleY(1.08);
 }
 
@@ -1545,7 +1545,7 @@
   font-size: 30px;
   font-weight: 700;
   margin: 0;
-  background: linear-gradient(135deg, var(--text-primary) 0%, var(--teal) 100%);
+  background: var(--title-gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -1608,7 +1608,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--teal);
+  background: var(--button-bg);
   cursor: pointer;
   box-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
   transition: transform 0.1s ease;
@@ -1625,21 +1625,21 @@
 .mp-sharpness-value {
   font-size: 10.5px;
   font-family: var(--font-mono);
-  color: var(--teal);
+  color: var(--brand);
   min-width: 26px;
   text-align: right;
 }
 
 /* ── Verify Signature Button ────────────────────── */
 .mp-verify-btn-side {
-  background: rgba(16, 185, 129, 0.12);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  color: #10b981;
+  background: rgba(var(--brand-rgb), 0.12);
+  border: 1px solid rgba(var(--brand-rgb), 0.3);
+  color: var(--brand);
 }
 
 .mp-verify-btn-side:hover {
-  background: rgba(16, 185, 129, 0.22);
-  border-color: #10b981;
+  background: rgba(var(--brand-rgb), 0.22);
+  border-color: var(--brand);
   transform: translateY(-1px);
 }
 
@@ -1699,9 +1699,9 @@
 }
 
 .mp-verify-file-pick:hover {
-  border-color: #10b981;
-  background: rgba(16, 185, 129, 0.06);
-  color: #10b981;
+  border-color: var(--brand);
+  background: rgba(var(--brand-rgb), 0.06);
+  color: var(--brand);
 }
 
 /* ── Verify Result Banner ────────────────────────── */
@@ -1728,9 +1728,9 @@
 }
 
 .mp-verify-valid {
-  background: rgba(16, 185, 129, 0.12);
-  border: 1px solid rgba(16, 185, 129, 0.35);
-  color: #10b981;
+  background: rgba(var(--brand-rgb), 0.12);
+  border: 1px solid rgba(var(--brand-rgb), 0.35);
+  color: var(--brand);
 }
 
 .mp-verify-invalid {
@@ -1762,7 +1762,7 @@
 
 /* ── Verify Action Button ────────────────────────── */
 .mp-verify-action {
-  background: linear-gradient(135deg, #059669, #10b981) !important;
+  background: linear-gradient(135deg, var(--button-bg), var(--button-bg)) !important;
   color: #fff !important;
   border: none !important;
   display: flex;
@@ -1771,9 +1771,9 @@
 }
 
 .mp-verify-action:hover:not(:disabled) {
-  background: linear-gradient(135deg, #047857, #059669) !important;
+  background: linear-gradient(135deg, var(--brand-hover), var(--brand)) !important;
   transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.35);
+  box-shadow: 0 4px 16px rgba(var(--brand-rgb), 0.35);
 }
 
 .mp-verify-action:disabled {

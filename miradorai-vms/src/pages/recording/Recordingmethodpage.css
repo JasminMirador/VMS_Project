@@ -22,7 +22,7 @@
   font-weight: 700;
   margin: 0;
   color: var(--text-primary);
-  background: linear-gradient(135deg, #fff 0%, var(--teal) 100%);
+  background: var(--title-gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   letter-spacing: -0.02em;
@@ -50,7 +50,7 @@
 }
 
 .rm-filter:focus {
-  border-color: var(--teal);
+  border-color: var(--brand);
   background: rgba(255, 255, 255, 0.06);
   box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.15);
 }
@@ -267,7 +267,7 @@
   padding: 2px 6px;
   border-radius: 4px;
   background: rgba(45, 212, 191, 0.1);
-  color: var(--teal);
+  color: var(--brand);
   text-transform: uppercase;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -385,14 +385,14 @@
 }
 
 .rm-h-select:hover {
-  border-color: var(--teal);
+  border-color: var(--brand);
   background-color: rgba(255, 255, 255, 0.08);
   box-shadow: 0 0 0 4px rgba(45, 212, 191, 0.1);
 }
 
 .rm-h-select:focus {
   outline: none;
-  border-color: var(--teal);
+  border-color: var(--brand);
   background-color: rgba(255, 255, 255, 0.1);
 }
 
@@ -430,8 +430,8 @@
   left: 50%;
   transform: translateX(-50%);
   background: var(--bg-elevated, #1a1e28);
-  border: 1px solid var(--teal, #00c8a0);
-  color: var(--teal, #00c8a0);
+  border: 1px solid var(--brand);
+  color: var(--brand);
   padding: 12px 24px;
   border-radius: 8px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
@@ -474,7 +474,7 @@
 }
 
 .rm-select-btn:hover {
-  border-color: var(--teal);
+  border-color: var(--brand);
   background-color: rgba(255, 255, 255, 0.08);
   box-shadow: 0 0 0 4px rgba(45, 212, 191, 0.1);
 }
@@ -513,7 +513,7 @@
 
 .rm-dropdown-item.active {
   background: rgba(45, 212, 191, 0.15);
-  color: var(--teal);
+  color: var(--brand);
   font-weight: 600;
 }
 
@@ -531,7 +531,7 @@
 }
 
 [data-theme="light"] .rm-page-title {
-  background: linear-gradient(135deg, #0f172a 0%, var(--teal) 100%);
+  background: var(--title-gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
@@ -544,7 +544,7 @@
 
 [data-theme="light"] .rm-filter:focus {
   background: var(--bg-surface);
-  border-color: var(--teal);
+  border-color: var(--brand);
 }
 
 [data-theme="light"] .rm-table-wrap.card {
@@ -677,4 +677,4 @@
 [data-theme="light"] .rm-dropdown-item:hover {
   background: var(--bg-hover);
   color: #0f172a;
-}
+}

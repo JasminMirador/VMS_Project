@@ -21,7 +21,7 @@
   font-size: var(--font-size-heading);
   font-weight: 700;
   margin: 0;
-  background: linear-gradient(135deg, var(--text-primary) 0%, var(--teal) 100%);
+  background: var(--title-gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -71,9 +71,9 @@
 }
 
 .card:hover {
-  border-color: var(--teal);
+  border-color: var(--brand);
   transform: translateY(-3px);
-  box-shadow: 0 8px 24px rgba(16, 185, 129, 0.15);
+  box-shadow: 0 8px 24px rgba(var(--brand-rgb), 0.15);
 }
 
 .icon {
@@ -83,10 +83,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--teal);
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.05));
+  color: var(--brand);
+  background: linear-gradient(135deg, rgba(var(--brand-rgb), 0.15), rgba(var(--brand-rgb), 0.05));
   box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.05), 0 4px 12px rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(var(--brand-rgb), 0.15);
   flex-shrink: 0;
 }
 
@@ -195,9 +195,9 @@
 }
 
 .health-box:hover {
-  border-color: var(--teal);
+  border-color: var(--brand);
   transform: translateY(-3px);
-  box-shadow: 0 8px 24px rgba(16, 185, 129, 0.15);
+  box-shadow: 0 8px 24px rgba(var(--brand-rgb), 0.15);
 }
 
 .health-box-header {
@@ -362,7 +362,7 @@
 }
 
 .health-item:hover {
-  border-color: var(--teal);
+  border-color: var(--brand);
 }
 
 .health-item-main {
@@ -461,9 +461,9 @@
 }
 
 .storage-overview:hover {
-  border-color: var(--teal);
+  border-color: var(--brand);
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(16, 185, 129, 0.15);
+  box-shadow: 0 8px 24px rgba(var(--brand-rgb), 0.15);
 }
 
 .storage-overview h3 {
@@ -485,7 +485,7 @@
 
 .storage-bar-progress {
   height: 100%;
-  background: linear-gradient(90deg, var(--teal), #00d2ff);
+  background: linear-gradient(90deg, var(--button-bg), #00d2ff);
   transition: width 0.4s ease;
 }
 
@@ -540,9 +540,9 @@
 }
 
 .report-generation:hover {
-  border-color: var(--teal);
+  border-color: var(--brand);
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(16, 185, 129, 0.15);
+  box-shadow: 0 8px 24px rgba(var(--brand-rgb), 0.15);
 }
 
 .report-section-header {
@@ -625,8 +625,8 @@
 
 .report-input:focus {
   outline: none;
-  border-color: var(--teal);
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1);
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px rgba(var(--brand-rgb), 0.1);
 }
 
 .report-custom-select {
@@ -687,8 +687,8 @@
 }
 
 .report-dropdown-item.active {
-  background: rgba(16, 185, 129, 0.1);
-  color: var(--teal);
+  background: rgba(var(--brand-rgb), 0.1);
+  color: var(--brand);
   font-weight: 600;
 }
 
@@ -702,9 +702,9 @@
   font-size: calc(13px * var(--fs, 1));
   font-weight: 600;
   border-radius: 9999px;
-  border: 1px solid var(--teal-glow);
-  background: var(--teal-subtle);
-  color: var(--teal);
+  border: 1px solid var(--brand-glow);
+  background: var(--brand-tint);
+  color: var(--brand);
   cursor: pointer;
   transition: all var(--transition);
   text-transform: none;
@@ -714,11 +714,11 @@
 }
 
 .report-btn-primary:hover:not(:disabled) {
-  background: var(--teal-glow);
-  border-color: var(--teal);
-  color: var(--teal);
+  background: var(--brand-glow);
+  border-color: var(--brand);
+  color: var(--brand);
   transform: translateY(-1px);
-  box-shadow: 0 2px 10px var(--teal-glow);
+  box-shadow: 0 2px 10px var(--brand-glow);
 }
 
 .report-btn-primary:disabled {
@@ -731,9 +731,9 @@
   font-size: calc(13px * var(--fs, 1));
   font-weight: 600;
   border-radius: 9999px;
-  border: 1px solid var(--teal-glow);
+  border: 1px solid var(--brand-glow);
   background: transparent;
-  color: var(--teal);
+  color: var(--brand);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -746,11 +746,11 @@
 }
 
 .report-btn-secondary:hover {
-  background: var(--teal-subtle);
-  border-color: var(--teal);
-  color: var(--teal);
+  background: var(--brand-tint);
+  border-color: var(--brand);
+  color: var(--brand);
   transform: translateY(-1px);
-  box-shadow: 0 2px 10px var(--teal-glow);
+  box-shadow: 0 2px 10px var(--brand-glow);
 }
 
 .report-alert {
@@ -847,8 +847,8 @@
 }
 
 .report-tag-type.motion {
-  background: rgba(16, 185, 129, 0.15);
-  color: var(--teal);
+  background: rgba(var(--brand-rgb), 0.15);
+  color: var(--brand);
 }
 
 .report-event-tag {
@@ -980,10 +980,10 @@
 }
 
 .carousel-arrow:hover {
-  background: rgba(16, 185, 129, 0.25);
-  border-color: var(--teal);
-  color: var(--teal);
-  box-shadow: 0 4px 18px rgba(16, 185, 129, 0.35);
+  background: rgba(var(--brand-rgb), 0.25);
+  border-color: var(--brand);
+  color: var(--brand);
+  box-shadow: 0 4px 18px rgba(var(--brand-rgb), 0.35);
   transform: translateY(-50%) scale(1.1);
 }
 
@@ -1011,9 +1011,9 @@
 }
 
 .enhanced-card:hover {
-  border-color: var(--teal);
+  border-color: var(--brand);
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(16, 185, 129, 0.15);
+  box-shadow: 0 8px 24px rgba(var(--brand-rgb), 0.15);
 }
 
 .clickable-widget {
@@ -1039,7 +1039,7 @@
 }
 
 .enhanced-card-header .header-icon {
-  color: var(--teal);
+  color: var(--brand);
   display: flex;
   align-items: center;
 }
@@ -1120,7 +1120,7 @@
 }
 
 .event-row-item:hover {
-  border-color: rgba(16, 185, 129, 0.3);
+  border-color: rgba(var(--brand-rgb), 0.3);
   background: var(--bg-hover);
 }
 
@@ -1221,9 +1221,9 @@
 }
 
 .chart-filter-btn.active {
-  background: rgba(16, 185, 129, 0.2) !important;
-  color: var(--teal) !important;
-  border-color: rgba(16, 185, 129, 0.4) !important;
+  background: rgba(var(--brand-rgb), 0.2) !important;
+  color: var(--brand) !important;
+  border-color: rgba(var(--brand-rgb), 0.4) !important;
 }
 
 .warning-banner {
@@ -1259,7 +1259,7 @@
 }
 
 .bandwidth-item-row:hover {
-  border-color: var(--teal) !important;
+  border-color: var(--brand) !important;
   transform: translateX(2px);
   background: var(--bg-hover);
 }
@@ -1284,7 +1284,7 @@
   border-radius: 3px;
 }
 .bandwidth-list-container::-webkit-scrollbar-thumb:hover {
-  background: var(--teal);
+  background: var(--brand);
 }
 
 .bandwidth-card {
@@ -1307,7 +1307,7 @@
 }
 
 .enhanced-card:hover {
-  border-color: var(--teal) !important;
+  border-color: var(--brand) !important;
   box-shadow: var(--shadow-md);
 }
 
@@ -1358,8 +1358,8 @@
 
 /* ── Combined Actions Dropdown Styles ── */
 .report-actions-item:hover {
-  background: rgba(16, 185, 129, 0.15) !important;
-  color: var(--teal) !important;
+  background: rgba(var(--brand-rgb), 0.15) !important;
+  color: var(--brand) !important;
 }
 
 /* ── Print Media Query for Report Printing ── */
@@ -1419,9 +1419,9 @@
 }
 
 .report-toggle-pill.active {
-  background: rgba(16, 185, 129, 0.15);
-  border: 1px solid rgba(16, 185, 129, 0.4);
-  color: var(--teal);
+  background: rgba(var(--brand-rgb), 0.15);
+  border: 1px solid rgba(var(--brand-rgb), 0.4);
+  color: var(--brand);
 }
 
 .report-toggle-pill.inactive {
@@ -1487,7 +1487,7 @@
 }
 
 .report-chart-card:hover {
-  border-color: var(--teal);
+  border-color: var(--brand);
 }
 
 .chart-card-header {
@@ -1536,9 +1536,9 @@
 /* ── Chart Leaderboard & Search Styles ── */
 .chart-header-action-btn {
   font-size: calc(11px * var(--fs, 1));
-  color: var(--teal);
-  background: rgba(16, 185, 129, 0.08);
-  border: 1px solid rgba(16, 185, 129, 0.2);
+  color: var(--brand);
+  background: rgba(var(--brand-rgb), 0.08);
+  border: 1px solid rgba(var(--brand-rgb), 0.2);
   padding: 4px 10px;
   border-radius: 4px;
   cursor: pointer;
@@ -1547,8 +1547,8 @@
 }
 
 .chart-header-action-btn:hover {
-  background: rgba(16, 185, 129, 0.18);
-  border-color: var(--teal);
+  background: rgba(var(--brand-rgb), 0.18);
+  border-color: var(--brand);
   color: #ffffff;
 }
 
@@ -1565,8 +1565,8 @@
 
 .chart-card-search-input:focus {
   outline: none;
-  border-color: var(--teal);
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.15);
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px rgba(var(--brand-rgb), 0.15);
 }
 
 .chart-card-leaderboard-wrapper {
@@ -1711,6 +1711,138 @@
   box-shadow: var(--shadow-sm) !important;
 }
 
+/* ═══════════════════════════════════════════════════
+   VISUAL REFRESH — Vexlora-inspired card language
+   Cards go from "flat + border, shadow only on hover" to
+   "soft shadow at rest, minimal border, roomier radius",
+   badges go from small uppercase tags to rounded pills,
+   and icon chips go flat/pastel instead of gradient+inset.
+   Every value below is a theme token already defined per
+   [data-theme] in global.css, so this reads correctly in
+   both light and dark — no new theme-specific rules needed
+   beyond the hardcoded white-overlay fixes at the bottom.
+   No layout, data or JSX changed — styling only.
+   ═══════════════════════════════════════════════════ */
+
+.card,
+.widget,
+.health-section,
+.health-box,
+.enhanced-card,
+.storage-overview,
+.report-generation,
+.report-chart-card,
+.camera-health-center {
+  border-radius: 16px;
+  border-color: var(--border-light);
+  box-shadow: var(--shadow-sm);
+}
+
+.health-item,
+.event-row-item,
+.bandwidth-item-row {
+  border-radius: 12px;
+}
+
+/* Icon chips: flat pastel tint instead of gradient + inset shadow */
+.icon {
+  border-radius: 12px;
+  background: var(--brand-tint);
+  box-shadow: none;
+  border: none;
+}
+
+/* Top stat-row icons: distinct accent per card instead of one flat
+   teal tint everywhere — Total Cameras (blue), Active Streams (teal/
+   brand), Alarms Today (red), Recording Cameras (purple). Scoped to
+   .cards .card so it doesn't touch .icon usage elsewhere (health
+   boxes, widgets, etc). :root above is the dark-theme baseline per
+   this file's existing convention, with a lighter alpha override
+   under [data-theme='light']. */
+.cards .card:nth-child(1) .icon { background: rgba(59, 130, 246, 0.14); color: var(--blue); }
+.cards .card:nth-child(2) .icon { background: var(--brand-tint); color: var(--brand); }
+.cards .card:nth-child(3) .icon { background: rgba(239, 68, 68, 0.14); color: var(--red); }
+.cards .card:nth-child(4) .icon { background: rgba(139, 92, 246, 0.14); color: var(--purple); }
+
+[data-theme='light'] .cards .card:nth-child(1) .icon { background: rgba(59, 130, 246, 0.1); }
+[data-theme='light'] .cards .card:nth-child(3) .icon { background: rgba(239, 68, 68, 0.1); }
+[data-theme='light'] .cards .card:nth-child(4) .icon { background: rgba(139, 92, 246, 0.1); }
+
+/* Badges / tags → soft rounded pills, sentence case instead of
+   small uppercase tags (several already render their own text in
+   uppercase from JS, so this only affects ones that don't). */
+.badge,
+.count-pill,
+.event-type-badge,
+.report-tag-type,
+.report-event-tag {
+  border-radius: 9999px;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-weight: 600;
+  padding: 4px 12px;
+}
+
+.report-toggle-pill,
+.chart-filter-btn {
+  text-transform: none;
+  letter-spacing: 0.01em;
+}
+
+.storage-overview h3,
+.health-section h3 {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Bigger, bolder headline numbers on the primary stat tiles */
+.card-content h3,
+.health-box h2 {
+  font-size: calc(22px * var(--fs, 1));
+  letter-spacing: -0.01em;
+}
+
+/* ── Light-mode fixes: these were hardcoded white-on-dark overlays
+   that go nearly invisible on a white card, now theme-token-driven ── */
+[data-theme='light'] .chart-filter-btn {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+}
+
+[data-theme='light'] .chart-filter-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+[data-theme='light'] .report-pag-btn {
+  background: var(--bg-elevated);
+}
+
+[data-theme='light'] .report-view-toggle {
+  background: var(--bg-elevated);
+}
+
+[data-theme='light'] .report-toggle-pill.inactive:hover {
+  background: var(--bg-hover);
+}
+
+[data-theme='light'] .empty-chart-state {
+  border-color: var(--border-light);
+}
+
+[data-theme='light'] .chart-card-leaderboard-list::-webkit-scrollbar-track {
+  background: var(--bg-elevated);
+}
+
+[data-theme='light'] .chart-card-leaderboard-list::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+}
+
+[data-theme='light'] .chart-card-leaderboard-list::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+
 /* ── Colourful accents (dark + light) ───────────────────────────
    Appended block; purely additive. Palette is theme-aware. */
 .dashboard {
@@ -1723,7 +1855,7 @@
 }
 
 .dashboard-page-title {
-  background: linear-gradient(90deg, var(--dc1), var(--dc2) 55%, var(--dc4));
+  background: var(--title-gradient);
   -webkit-background-clip: text;
   background-clip: text;
 }
@@ -1928,7 +2060,7 @@
 [data-theme='light'] .enhanced-card .enhanced-card-header h4 { color: var(--text-primary); }
 [data-theme='light'] .report-chart-card .chart-card-title { color: var(--text-primary); }
 [data-theme='light'] .dashboard-update-badge { color: var(--text-secondary); border-color: var(--border-light); background: transparent; }
-[data-theme='light'] .dashboard-page-title { background: linear-gradient(90deg, var(--text-primary), var(--dc2)); -webkit-background-clip: text; background-clip: text; }
+[data-theme='light'] .dashboard-page-title { background: var(--title-gradient); -webkit-background-clip: text; background-clip: text; }
 
 /* system health tiles */
 [data-theme='light'] .health-grid.sys-grid .health-box.sys-tile {
@@ -1998,14 +2130,14 @@
 .dashboard .health-grid.sys-grid .health-box.sys-tile:hover,
 .dashboard .enhanced-card:hover,
 .dashboard .report-chart-card:hover {
-  border-color: var(--teal) !important;
-  box-shadow: 0 6px 18px var(--teal-glow, rgba(16,185,129,.18)) !important;
+  border-color: var(--brand) !important;
+  box-shadow: 0 6px 18px var(--brand-glow) !important;
 }
 .dashboard .cards .card:hover,
 .dashboard .health-grid .health-box:hover,
 .dashboard .enhanced-card:hover,
 .dashboard .report-chart-card:hover {
-  border-top-color: var(--teal) !important;
+  border-top-color: var(--brand) !important;
 }
 
 /* Hover border = brand colour (cyan) */

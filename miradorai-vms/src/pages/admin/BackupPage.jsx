@@ -37,7 +37,7 @@ const SectionCard = ({ icon, title, enabled, onToggle, badge, children }) => (
   <div className="backup-section-card">
     <div className="card-header">
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
-        <span style={{ color: 'var(--teal)', fontSize: 22 }}>{icon}</span>
+        <span style={{ color: 'var(--brand)', fontSize: 22 }}>{icon}</span>
         <h2>{title}</h2>
         {badge && <span className="card-badge">{badge}</span>}
       </div>
@@ -76,7 +76,7 @@ const DestinationModal = ({ onConfirm, onCancel }) => {
     <div className="modal-overlay">
       <div className="modal-content" style={{ maxWidth: '580px' }}>
         <h2 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <FaDownload style={{ color: 'var(--teal)' }} /> Select Export Destination
+          <FaDownload style={{ color: 'var(--brand)' }} /> Select Export Destination
         </h2>
         <p style={{ fontSize: 16, color: 'var(--text-secondary)', margin: '0 0 20px' }}>
           Choose where to export your recordings from MinIO.
@@ -98,10 +98,10 @@ const DestinationModal = ({ onConfirm, onCancel }) => {
                 cursor: 'pointer',
                 transition: 'all 0.2s',
                 backgroundColor: exportType === opt.key ? 'rgba(20, 184, 166, 0.05)' : 'transparent',
-                borderColor: exportType === opt.key ? 'var(--teal)' : 'var(--border-color)'
+                borderColor: exportType === opt.key ? 'var(--button-bg)' : 'var(--border-color)'
               }}
             >
-              <span style={{ fontSize: 24, color: exportType === opt.key ? 'var(--teal)' : 'var(--text-muted)' }}>{opt.icon}</span>
+              <span style={{ fontSize: 24, color: exportType === opt.key ? 'var(--brand)' : 'var(--text-muted)' }}>{opt.icon}</span>
               <div style={{ textAlign: 'left' }}>
                 <div className="dest-label" style={{ fontWeight: 600, fontSize: 16, color: 'var(--text-primary)' }}>{opt.label}</div>
                 <div className="dest-sub" style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>{opt.sub}</div>
@@ -111,7 +111,7 @@ const DestinationModal = ({ onConfirm, onCancel }) => {
         </div>
 
         {exportType === 'network' && (
-          <div className="help-box info" style={{ marginBottom: 20, padding: '12px 16px', background: 'rgba(20, 184, 166, 0.06)', borderLeft: '4px solid var(--teal)', borderRadius: 4, fontSize: 14, color: 'var(--text-primary)' }}>
+          <div className="help-box info" style={{ marginBottom: 20, padding: '12px 16px', background: 'rgba(20, 184, 166, 0.06)', borderLeft: '4px solid var(--button-bg)', borderRadius: 4, fontSize: 14, color: 'var(--text-primary)' }}>
             Files will be transferred from MinIO to the configured network storage path.
           </div>
         )}
@@ -146,9 +146,9 @@ const DestinationModal = ({ onConfirm, onCancel }) => {
                   className={`btn-secondary ${localDrive === drive ? 'active' : ''}`}
                   style={{
                     flex: 1,
-                    background: localDrive === drive ? 'var(--teal)' : 'transparent',
+                    background: localDrive === drive ? 'var(--button-bg)' : 'transparent',
                     color: localDrive === drive ? '#fff' : 'var(--text-primary)',
-                    borderColor: localDrive === drive ? 'var(--teal)' : 'var(--border-color)',
+                    borderColor: localDrive === drive ? 'var(--button-bg)' : 'var(--border-color)',
                   }}
                   onClick={() => setLocalDrive(drive)}
                 >
@@ -578,7 +578,7 @@ export default function BackupPage() {
           </div>
           <div className="stat-pill">
             <label>Auto Backup</label>
-            <div className="stat-value" style={{ color: status.auto_active ? 'var(--teal)' : 'var(--text-muted)' }}>
+            <div className="stat-value" style={{ color: status.auto_active ? 'var(--brand)' : 'var(--text-muted)' }}>
               {status.auto_active ? 'Active' : 'Offline'}
             </div>
           </div>
@@ -805,15 +805,15 @@ export default function BackupPage() {
             </div>
 
             {retentionPreview && (
-              <div className="help-box success" style={{ marginTop: 14, background: 'rgba(20, 184, 166, 0.08)', borderColor: 'var(--teal)' }}>
-                <strong style={{ color: 'var(--teal)' }}>Preview Results:</strong> {retentionPreview.count} file(s) found exceeding group retention periods.
+              <div className="help-box success" style={{ marginTop: 14, background: 'rgba(20, 184, 166, 0.08)', borderColor: 'var(--button-bg)' }}>
+                <strong style={{ color: 'var(--brand)' }}>Preview Results:</strong> {retentionPreview.count} file(s) found exceeding group retention periods.
                 {retentionPreview.count > 0 && (
                   <ul style={{ margin: '8px 0 0 16px', padding: 0, fontSize: '15px', color: 'var(--text-secondary)' }}>
                     {retentionPreview.files.map((f, idx) => (
                       <li key={idx} style={{ marginBottom: '4px' }}>
                         {f.file} ({f.camera}) - Modified: {f.modified}
                         {f.backed_up ? (
-                          <span style={{ color: 'var(--teal)', marginLeft: 8, fontWeight: 600 }}>✓ Verified in Backup</span>
+                          <span style={{ color: 'var(--brand)', marginLeft: 8, fontWeight: 600 }}>✓ Verified in Backup</span>
                         ) : (
                           <span style={{ color: 'var(--red)', marginLeft: 8, fontWeight: 600 }}>⚠️ Missing from Backup</span>
                         )}
@@ -842,7 +842,7 @@ export default function BackupPage() {
                 </div>
                 <button 
                   className="btn-primary" 
-                  style={{ background: 'var(--teal)', borderColor: 'var(--teal)', alignSelf: 'flex-start', padding: '6px 14px', fontSize: '14px', marginTop: 4 }}
+                  style={{ background: 'var(--button-bg)', borderColor: 'var(--button-bg)', alignSelf: 'flex-start', padding: '6px 14px', fontSize: '14px', marginTop: 4 }}
                   onClick={() => handleApplyRetention(true)}
                   disabled={loading.saveRetain}
                 >

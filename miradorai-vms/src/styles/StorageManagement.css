@@ -99,8 +99,8 @@
 }
 
 .status-badge.healthy {
-  background-color: rgba(16, 185, 129, 0.1);
-  color: #10b981;
+  background-color: rgba(var(--brand-rgb), 0.1);
+  color: var(--brand);
 }
 
 .status-badge.warning {
@@ -153,7 +153,7 @@
 
 .log-viewer {
   background-color: #0f172a;
-  color: #10b981;
+  color: var(--brand);
   font-family: monospace;
   padding: 16px;
   border-radius: 8px;

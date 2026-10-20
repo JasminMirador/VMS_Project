@@ -384,3 +384,20 @@
 .dn-hb:not(.colr) li:nth-child(n+3) .dn-track i{background:linear-gradient(90deg,var(--dn-c3),var(--dn-c2))}
 .dn-al .dn-ai.warn{background:color-mix(in srgb,var(--dn-warn) 16%,transparent)}
 .dn-al .dn-ai.crit{background:color-mix(in srgb,var(--dn-crit) 16%,transparent)}
+.dn-al li{cursor:pointer;transition:background .15s}
+.dn-al li:hover{background:var(--dn-elev);border-radius:calc(8 * var(--u))}
+
+/* Modal overlay and card for alert details */
+.dn-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);z-index:9999;display:grid;place-items:center;padding:calc(16 * var(--u))}
+.dn-modal{background:var(--dn-panel);border:1px solid var(--dn-line2);border-radius:calc(16 * var(--u));width:100%;max-width:calc(540 * var(--u));box-shadow:0 16px 40px rgba(0,0,0,.45);overflow:hidden;display:flex;flex-direction:column;animation:dnModalIn .2s cubic-bezier(0.16,1,0.3,1)}
+@keyframes dnModalIn{from{opacity:0;transform:scale(0.96)}to{opacity:1;transform:none}}
+.dn-modal-h{display:flex;justify-content:space-between;align-items:center;padding:calc(16 * var(--u)) calc(20 * var(--u));border-bottom:1px solid var(--dn-line)}
+.dn-modal-h h3{font-size:calc(16 * var(--u));font-weight:600;margin:0}
+.dn-modal-close{background:none;border:0;color:var(--dn-muted);cursor:pointer;font-size:calc(20 * var(--u));line-height:1;padding:calc(4 * var(--u))}
+.dn-modal-close:hover{color:var(--dn-text)}
+.dn-modal-b{padding:calc(20 * var(--u));display:flex;flex-direction:column;gap:calc(14 * var(--u))}
+.dn-modal-thumb{width:100%;height:calc(240 * var(--u));background:var(--dn-elev);border-radius:calc(10 * var(--u));overflow:hidden;display:grid;place-items:center;border:1px solid var(--dn-line)}
+.dn-modal-thumb img{width:100%;height:100%;object-fit:contain}
+.dn-modal-f{display:flex;justify-content:flex-end;gap:calc(10 * var(--u));padding:calc(14 * var(--u)) calc(20 * var(--u));border-top:1px solid var(--dn-line);background:var(--dn-elev)}
+.dn-btn.warn{background:var(--dn-warn);color:#1c1000;border-color:var(--dn-warn);font-weight:600}
+.dn-btn.good{background:var(--dn-ok);color:#021e0a;border-color:var(--dn-ok);font-weight:600}

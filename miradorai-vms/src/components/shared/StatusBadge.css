@@ -4,8 +4,8 @@
   font-size: 11px; font-weight: 500;
 }
 .m-badge__dot { width: 6px; height: 6px; border-radius: 50%; }
-.m-badge--green { background: rgba(0,200,160,0.12); color: var(--teal); }
-.m-badge--green .m-badge__dot { background: var(--teal); }
+.m-badge--green { background: rgba(var(--brand-rgb), 0.12); color: var(--brand); }
+.m-badge--green .m-badge__dot { background: var(--button-bg); }
 .m-badge--red { background: rgba(255,77,106,0.12); color: var(--red); }
 .m-badge--red .m-badge__dot { background: var(--red); }
 .m-badge--yellow { background: rgba(255,179,64,0.12); color: var(--yellow); }

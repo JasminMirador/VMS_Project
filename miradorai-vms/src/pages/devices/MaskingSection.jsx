@@ -92,7 +92,8 @@ export const MASKING_CSS = `
 
 .cfp-mask-tool-btn.active {
   background: var(--bg-active);
-  color: var(--teal);
+  color: var(--brand);
+
   box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
 
@@ -100,10 +101,10 @@ export const MASKING_CSS = `
 .cfp-mask-tool-btn.danger:hover { background: rgba(255,77,106,0.1); }
 
 .cfp-mask-tool-btn.success {
-  background: var(--teal);
+  background: var(--button-bg);
   color: white;
 }
-.cfp-mask-tool-btn.success:hover { background: var(--teal-dim); }
+.cfp-mask-tool-btn.success:hover { background: var(--button-bg-hover); }
 .cfp-mask-tool-btn.success:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .cfp-mask-sep { width: 1px; height: 16px; background: var(--border); margin: 0 4px; }
@@ -159,7 +160,7 @@ export const MASKING_CSS = `
 }
 
 .cfp-mask-item.selected {
-  border-color: var(--teal);
+  border-color: var(--button-bg);
   background: var(--bg-elevated);
 }
 
@@ -188,7 +189,8 @@ export const MASKING_CSS = `
 }
 
 .cfp-mask-item-name-input:focus {
-  color: var(--teal);
+  color: var(--brand);
+
 }
 
 .cfp-mask-item-meta {
@@ -225,8 +227,8 @@ export const MASKING_CSS = `
 
 /* ── Instructions ── */
 .cfp-mask-info-card {
-  background: var(--teal-subtle);
-  border: 1px solid var(--teal-dim);
+  background: var(--brand-tint);
+  border: 1px solid var(--button-bg-hover);
   border-radius: var(--radius-md);
   padding: 16px 20px;
   margin-top: 24px;
@@ -238,7 +240,8 @@ export const MASKING_CSS = `
   gap: 8px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--teal);
+  color: var(--brand);
+
   margin-bottom: 8px;
 }
 
@@ -258,7 +261,8 @@ export const MASKING_CSS = `
 
 .cfp-mask-info-num {
   font-weight: 700;
-  color: var(--teal);
+  color: var(--brand);
+
   opacity: 0.6;
 }
 
@@ -267,8 +271,9 @@ export const MASKING_CSS = `
   top: 16px;
   right: 16px;
   background: var(--bg-surface);
-  border: 1px solid var(--teal);
-  color: var(--teal);
+  border: 1px solid var(--button-bg);
+  color: var(--brand);
+
   padding: 6px 12px;
   border-radius: 20px;
   font-size: 11px;
@@ -348,7 +353,8 @@ export const MASKING_CSS = `
 }
 
 .mp-modal-close:hover {
-  color: var(--teal);
+  color: var(--brand);
+
 }
 
 .mp-modal-body {
@@ -383,7 +389,7 @@ export const MASKING_CSS = `
 }
 
 .mp-form-input:focus {
-  border-color: var(--teal);
+  border-color: var(--button-bg);
   box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.15);
 }
 
@@ -414,7 +420,7 @@ export const MASKING_CSS = `
 }
 
 .mp-btn-save {
-  background: var(--teal);
+  background: var(--button-bg);
   border: none;
   color: #fff;
   font-size: 12px;
@@ -427,7 +433,7 @@ export const MASKING_CSS = `
 }
 
 .mp-btn-save:hover {
-  background: var(--teal-dim);
+  background: var(--button-bg-hover);
   box-shadow: 0 6px 16px rgba(20, 184, 166, 0.4);
 }
 `;

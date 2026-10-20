@@ -1,6 +1,7 @@
 import { useRef, useEffect } from 'react';
 import { Renderer, Program, Mesh, Triangle, Color } from 'ogl';
 import './SpecularButton.css';
+import { useTheme } from '../../context/ThemeContext';
 
 const PAD = 20;
 
@@ -66,6 +67,24 @@ void main() {
 }
 `;
 
+// Emerald colors that older call sites pass in are re-mapped to the Mirador
+// theme (brand) color so every glossy button follows the theme. Values mirror
+// --brand in styles/global.css (dark / light); kept in JS because the WebGL
+// layer needs concrete colors and can't read CSS vars during render.
+const BRAND_MAP = {
+  dark: {
+    '#10b981': '#22d3ee', '#059669': '#22d3ee', '#34d399': '#67e8f9', '#6ee7b7': '#67e8f9',
+    '#0d3326': '#0b3a45', '#064e3b': '#0b3a45', '#d1fae5': '#0b3a45',
+    '#f0fff8': '#ecfeff', '#065f46': '#ecfeff',
+  },
+  light: {
+    '#10b981': '#0e7490', '#059669': '#0e7490', '#34d399': '#0e7490', '#6ee7b7': '#a5f3fc',
+    '#0d3326': '#cffafe', '#064e3b': '#cffafe', '#d1fae5': '#cffafe',
+    '#f0fff8': '#ffffff', '#065f46': '#155e75',
+  },
+};
+const toBrand = (c, map) => (typeof c === 'string' && map[c.toLowerCase()]) || c;
+
 const SpecularButton = ({
   children = 'Get Started',
   size = 'lg',
@@ -94,6 +113,24 @@ const SpecularButton = ({
   const btnRef = useRef(null);
   const fxRef = useRef(null);
   const propsRef = useRef({});
+
+  const themeCtx = useTheme();
+  const isLight = themeCtx?.theme === 'light' ||
+    (themeCtx?.theme === 'system' && window.matchMedia('(prefers-color-scheme: light)').matches);
+  const bm = BRAND_MAP[isLight ? 'light' : 'dark'];
+  // Emerald call sites become the solid login-style button (--button-bg, white text).
+  if (typeof tint === 'string' && BRAND_MAP.dark[tint.toLowerCase()]) {
+    tint = '#0e7490';
+    tintOpacity = 1;
+    baseColor = '#0e7490';
+    textColor = '#ffffff';
+    lineColor = isLight ? '#a5f3fc' : '#67e8f9';
+  } else {
+    tint = toBrand(tint, bm);
+    textColor = toBrand(textColor, bm);
+    lineColor = toBrand(lineColor, bm);
+    baseColor = toBrand(baseColor, bm);
+  }
 
   propsRef.current = { radius, lineColor, baseColor, intensity, shineSize, shineFade, thickness, speed, followMouse, proximity, autoAnimate };
 

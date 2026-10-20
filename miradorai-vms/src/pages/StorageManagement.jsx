@@ -105,7 +105,7 @@ export default function StorageManagement() {
 
   const isConfigured = status && (status.capacity_tb > 0 || status.free_tb > 0 || status.used_tb > 0);
   const usedPct = status ? Math.min(Math.round((status.used_tb / status.capacity_tb) * 100), 100) : 0;
-  const usedColor = usedPct >= 90 ? "var(--red)" : usedPct >= 70 ? "var(--yellow)" : "var(--teal)";
+  const usedColor = usedPct >= 90 ? "var(--red)" : usedPct >= 70 ? "var(--yellow)" : "var(--brand)";
 
   const handleSelectDevice = (dev) => {
     setSelectedDevice(dev);
@@ -252,7 +252,7 @@ export default function StorageManagement() {
         <div className="sm-panel-title">Recording Storage</div>
         <div className="sm-field-row">
           <span style={{ color: "var(--text-secondary)", fontSize: 15 }}>Recording Path</span>
-          <strong style={{ marginLeft: "auto", color: "var(--teal)", fontSize: 15, fontFamily: "var(--font-mono)" }}>
+          <strong style={{ marginLeft: "auto", color: "var(--brand)", fontSize: 15, fontFamily: "var(--font-mono)" }}>
             {config?.recording_path || "Not Configured"}
           </strong>
         </div>
@@ -288,7 +288,7 @@ export default function StorageManagement() {
         <div className="sm-divider" />
         <div className="sm-field-row" style={{ marginTop: "auto" }}>
           <span style={{ color: "var(--text-secondary)", fontWeight: 600, fontSize: 17 }}>Total Capacity:</span>
-          <strong style={{ marginLeft: "auto", fontSize: 20, color: "var(--teal)" }}>{status?.capacity_tb} TB</strong>
+          <strong style={{ marginLeft: "auto", fontSize: 20, color: "var(--brand)" }}>{status?.capacity_tb} TB</strong>
         </div>
       </div>
 
@@ -376,13 +376,13 @@ export default function StorageManagement() {
         <div className="sm-divider" />
         <div className="sm-field-row">
           <span style={{ color: "var(--text-secondary)", fontSize: 15 }}>Sequential Write</span>
-          <strong style={{ marginLeft: "auto", color: "var(--teal)", fontFamily: "var(--font-mono)", fontSize: 18 }}>
+          <strong style={{ marginLeft: "auto", color: "var(--brand)", fontFamily: "var(--font-mono)", fontSize: 18 }}>
             {performance?.write_speed || "N/A"}
           </strong>
         </div>
         <div className="sm-field-row">
           <span style={{ color: "var(--text-secondary)", fontSize: 15 }}>Sequential Read</span>
-          <strong style={{ marginLeft: "auto", color: "var(--teal)", fontFamily: "var(--font-mono)", fontSize: 18 }}>
+          <strong style={{ marginLeft: "auto", color: "var(--brand)", fontFamily: "var(--font-mono)", fontSize: 18 }}>
             {performance?.read_speed || "N/A"}
           </strong>
         </div>

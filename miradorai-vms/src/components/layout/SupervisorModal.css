@@ -57,16 +57,16 @@
   height: 60px;
   margin: 0 auto 1.25rem;
   border-radius: 16px;
-  background: var(--teal-subtle, rgba(0,200,160,0.08));
-  border: 1px solid var(--teal-glow, rgba(0,200,160,0.15));
-  box-shadow: 0 0 20px var(--teal-glow, rgba(0,200,160,0.15));
+  background: var(--brand-tint);
+  border: 1px solid var(--brand-glow);
+  box-shadow: 0 0 20px var(--brand-glow);
 }
 
 .sv-lock-icon {
   width: 28px;
   height: 28px;
-  color: var(--teal, #00c8a0);
-  filter: drop-shadow(0 0 6px var(--teal-glow, rgba(0,200,160,0.3)));
+  color: var(--brand);
+  filter: drop-shadow(0 0 6px var(--brand-glow));
 }
 
 /* ---- Title ---- */
@@ -88,7 +88,7 @@
 }
 
 .sv-page-name {
-  color: var(--teal, #00c8a0);
+  color: var(--brand);
   font-weight: 600;
 }
 
@@ -136,8 +136,8 @@
 
 .sv-input-wrap input:focus {
   outline: none;
-  border-color: var(--teal, #00c8a0);
-  box-shadow: 0 0 0 3px var(--teal-glow, rgba(0,200,160,0.15)), 0 0 10px var(--teal-subtle, rgba(0,200,160,0.1));
+  background: var(--brand);
+
 }
 
 .sv-eye-btn,
@@ -232,12 +232,12 @@
   cursor: pointer;
   transition: all 0.2s;
   font-family: inherit;
-  box-shadow: 0 4px 15px var(--teal-glow, rgba(0,200,160,0.3));
+  box-shadow: 0 4px 15px var(--brand-glow);
 }
 
 .sv-btn-verify:hover:not(:disabled) {
-  background: var(--teal-dim, #00a882);
-  box-shadow: 0 6px 20px var(--teal-glow, rgba(0,200,160,0.4));
+  background: var(--brand-hover);
+  box-shadow: 0 6px 20px var(--brand-glow);
   transform: translateY(-1px);
 }
 

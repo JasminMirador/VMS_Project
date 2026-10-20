@@ -61,7 +61,7 @@
 }
 
 .es-icon-teal {
-  color: var(--teal, #2dd4bf);
+  color: var(--brand);
 }
 
 .es-form-field {
@@ -95,7 +95,7 @@
 
 .es-input:focus,
 .es-select:focus {
-  border-color: var(--teal, #2dd4bf);
+  border-color: var(--brand);
 }
 
 .es-input::placeholder {
@@ -140,7 +140,7 @@
 }
 
 .es-time-input:focus {
-  border-color: var(--teal, #2dd4bf);
+  border-color: var(--brand);
 }
 
 .es-checkbox-field {
@@ -154,7 +154,7 @@
   cursor: pointer;
   width: 16px;
   height: 16px;
-  accent-color: var(--teal, #2dd4bf);
+  accent-color: var(--brand);
 }
 
 .es-checkbox-field label {
@@ -169,7 +169,7 @@
   padding: 10px 20px;
   border-radius: 8px;
   border: none;
-  background: var(--teal, #2dd4bf);
+  background: var(--brand);
   color: #0f172a;
   font-size: 13px;
   font-weight: 700;
@@ -315,7 +315,7 @@
 }
 
 .es-highlight {
-  color: var(--teal, #2dd4bf);
+  color: var(--brand);
 }
 
 .es-item-recipients {
@@ -382,7 +382,7 @@
 [data-theme="light"] .es-select:focus,
 [data-theme="light"] .es-time-input:focus {
   background: var(--bg-surface);
-  border-color: var(--teal);
+  border-color: var(--brand);
 }
 
 [data-theme="light"] .es-checkbox-field label {
@@ -402,7 +402,7 @@
 
 [data-theme="light"] .es-list-item:hover {
   background: var(--bg-hover);
-  border-color: var(--teal);
+  border-color: var(--brand);
 }
 
 [data-theme="light"] .es-item-report-type {
@@ -465,7 +465,7 @@
 .es-tab-btn.active {
   background: var(--bg-elevated, #1e293b);
   border-color: var(--border-light, #334155);
-  color: var(--teal, #2dd4bf);
+  color: var(--brand);
 }
 
 /* Compose Email Panel */
@@ -603,7 +603,7 @@
   padding: 8px 24px;
   border-radius: 20px;
   border: none;
-  background: var(--teal, #2dd4bf);
+  background: var(--brand);
   color: #0f172a;
   font-size: 14px;
   font-weight: 600;
@@ -662,7 +662,7 @@
 [data-theme="light"] .es-tab-btn.active {
   background: #fff;
   border-color: var(--border-light);
-  color: var(--teal);
+  color: var(--brand);
 }
 
 [data-theme="light"] .es-compose-header {
@@ -777,7 +777,7 @@
 
 .es-history-subj {
   font-size: 13px;
-  color: var(--teal, #2dd4bf);
+  color: var(--brand);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -822,13 +822,13 @@
 
 /* Fix attach file hover */
 .es-btn-attach:hover {
-  color: var(--teal, #2dd4bf);
+  color: var(--brand);
   background: rgba(45, 212, 191, 0.1);
   border-radius: 6px;
 }
 
 [data-theme="light"] .es-btn-attach:hover {
-  color: var(--teal, #2dd4bf);
+  color: var(--brand);
   background: rgba(45, 212, 191, 0.1);
 }
 
@@ -962,7 +962,7 @@
 }
 
 .es-rte-container.focused {
-  border-color: var(--teal, #2dd4bf);
+  border-color: var(--brand);
   background: rgba(0, 0, 0, 0.2);
 }
 
@@ -1035,7 +1035,7 @@
   border-color: var(--border-light);
 }
 [data-theme="light"] .es-rte-container.focused {
-  border-color: var(--teal);
+  border-color: var(--brand);
   box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.1);
 }
 [data-theme="light"] .es-rte-toolbar {

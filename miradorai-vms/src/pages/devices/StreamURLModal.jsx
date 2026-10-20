@@ -29,7 +29,7 @@ const css = `
   }
   .sum-eyebrow {
     font-size: 13px; letter-spacing: .14em; text-transform: uppercase;
-    color: var(--teal); font-weight: 600; margin-bottom: 4px;
+    color: var(--brand); font-weight: 600; margin-bottom: 4px;
   }
   .sum-title {
     font-family: var(--font-ui);
@@ -39,7 +39,7 @@ const css = `
     background: none; border: none; cursor: pointer;
     color: var(--text-muted); padding: 2px; transition: color var(--transition);
   }
-  .sum-close:hover { color: var(--teal); }
+  .sum-close:hover { color: var(--brand); }
 
   .sum-body { padding: 24px; display: flex; flex-direction: column; gap: 16px; }
 
@@ -49,7 +49,7 @@ const css = `
     border-radius: var(--radius-sm); padding: 12px 14px;
     display: flex; gap: 10px; align-items: flex-start;
   }
-  .sum-desc svg { flex-shrink: 0; margin-top: 1px; color: var(--teal); }
+  .sum-desc svg { flex-shrink: 0; margin-top: 1px; color: var(--brand); }
 
   .sum-field { display: flex; flex-direction: column; gap: 6px; }
   .sum-label {
@@ -71,8 +71,8 @@ const css = `
   }
   .sum-input::placeholder { color: var(--text-muted); }
   .sum-input:focus {
-    border-color: var(--teal);
-    box-shadow: 0 0 0 3px var(--teal-glow);
+    border-color: var(--button-bg);
+    box-shadow: 0 0 0 3px var(--brand-glow);
   }
   .sum-input.error { border-color: var(--red); box-shadow: 0 0 0 3px rgba(220,38,38,.15); }
   .sum-error-msg { font-size: 14px; color: var(--red); }
@@ -85,7 +85,7 @@ const css = `
     display: flex; justify-content: space-between; align-items: center;
     cursor: pointer; transition: border-color var(--transition), box-shadow var(--transition);
   }
-  .sum-select-btn:focus { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-glow); }
+  .sum-select-btn:focus { border-color: var(--button-bg); box-shadow: 0 0 0 3px var(--brand-glow); }
   .sum-dropdown-menu {
     position: absolute; top: calc(100% + 4px); left: 0; right: 0;
     background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -102,7 +102,7 @@ const css = `
     border-radius: 4px; display: flex; align-items: center; transition: all var(--transition);
   }
   .sum-dropdown-item:hover { background: var(--bg-hover); color: var(--text-primary); }
-  .sum-dropdown-item.active { background: var(--teal-subtle); color: var(--teal); font-weight: 500; }
+  .sum-dropdown-item.active { background: var(--brand-tint); color: var(--brand); font-weight: 500; }
 
   /* URL list */
   .sum-url-list {
@@ -135,10 +135,10 @@ const css = `
   .sum-btn-add {
     font-family: var(--font-ui); font-size: var(--font-size-content); font-weight: 600;
     padding: 10px 16px; border-radius: var(--radius-sm); cursor: pointer;
-    border: 1px solid var(--teal); background: var(--teal-subtle); color: var(--teal);
+    border: 1px solid var(--button-bg); background: var(--brand-tint); color: var(--brand);
     white-space: nowrap; transition: all var(--transition); flex-shrink: 0;
   }
-  .sum-btn-add:hover { background: var(--teal-glow); }
+  .sum-btn-add:hover { background: var(--brand-glow); }
 
   /* footer */
   .sum-footer {
@@ -154,11 +154,11 @@ const css = `
   .sum-btn--ghost {
     background: transparent; border-color: var(--border-light); color: var(--text-primary);
   }
-  .sum-btn--ghost:hover { border-color: var(--teal); color: var(--teal); }
+  .sum-btn--ghost:hover { border-color: var(--button-bg); color: var(--brand); }
   .sum-btn--primary {
-    background: var(--teal); border-color: var(--teal); color: #fff;
+    background: var(--button-bg); border-color: var(--button-bg); color: #fff;
   }
-  .sum-btn--primary:hover:not(:disabled) { background: var(--teal-dim); }
+  .sum-btn--primary:hover:not(:disabled) { background: var(--button-bg-hover); }
   .sum-btn:disabled { opacity: .35; cursor: not-allowed; }
   .sum-ui-alert {
     background: rgba(239, 68, 68, 0.08);
@@ -236,8 +236,8 @@ export default function StreamURLModal({
     const trimmedUrl = input.trim();
     const trimmedName = cameraName.trim();
     
-    if (trimmedName && !/^[a-zA-Z0-9 _.\-()/#+:,]+$/.test(trimmedName)) {
-      setAlertMsg("Camera Name can only contain letters, numbers, spaces, and standard punctuation.");
+    if (trimmedName && !/^[a-zA-Z0-9 _-]+$/.test(trimmedName)) {
+      setAlertMsg("Camera Name can only contain alphanumeric characters, spaces, dashes, and underscores.");
       return;
     }
 

@@ -60,9 +60,9 @@
 }
 
 .integration-back-circle-btn:hover {
-  background: var(--teal-subtle);
-  border-color: var(--teal);
-  color: var(--teal);
+  background: var(--brand-tint);
+  border-color: var(--brand);
+  color: var(--brand);
   transform: translateX(-3px);
 }
 
@@ -70,28 +70,28 @@
   width: 44px;
   height: 44px;
   border-radius: 12px;
-  background: rgba(16, 185, 129, 0.14);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  color: #10b981;
+  background: rgba(var(--brand-rgb), 0.14);
+  border: 1px solid rgba(var(--brand-rgb), 0.3);
+  color: var(--brand);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.15);
+  box-shadow: 0 4px 12px rgba(var(--brand-rgb), 0.15);
 }
 
 [data-theme='light'] .integration-header-icon-badge {
-  background: rgba(16, 185, 129, 0.08);
-  color: #059669;
-  border-color: rgba(16, 185, 129, 0.25);
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.08);
+  background: rgba(var(--brand-rgb), 0.08);
+  color: var(--brand);
+  border-color: rgba(var(--brand-rgb), 0.25);
+  box-shadow: 0 4px 12px rgba(var(--brand-rgb), 0.08);
 }
 
 .integration-header-title {
   font-size: 26px;
   font-weight: 700;
   margin: 0;
-  background: linear-gradient(135deg, var(--text-primary) 0%, var(--teal) 100%);
+  background: linear-gradient(135deg, var(--text-primary) 0%, var(--button-bg) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   letter-spacing: -0.02em;
@@ -129,15 +129,15 @@
 }
 
 .integration-status-pill.is-connected {
-  background: rgba(16, 185, 129, 0.12);
-  border-color: rgba(16, 185, 129, 0.32);
-  color: #10b981;
+  background: rgba(var(--brand-rgb), 0.12);
+  border-color: rgba(var(--brand-rgb), 0.32);
+  color: var(--brand);
 }
 
 .integration-status-pill.is-active {
-  background: rgba(16, 185, 129, 0.12);
-  border-color: rgba(16, 185, 129, 0.32);
-  color: #10b981;
+  background: rgba(var(--brand-rgb), 0.12);
+  border-color: rgba(var(--brand-rgb), 0.32);
+  color: var(--brand);
 }
 
 .integration-status-pill.is-inactive {
@@ -151,7 +151,7 @@
   height: 7px;
   border-radius: 50%;
   background: currentColor;
-  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+  box-shadow: 0 0 0 3px rgba(var(--brand-rgb), 0.2);
 }
 
 .integration-status-pill.is-inactive .integration-status-dot {
@@ -229,9 +229,9 @@
 .integration-count-badge {
   padding: 3px 10px;
   border-radius: 999px;
-  background: var(--teal-subtle);
-  border: 1px solid var(--teal-glow);
-  color: var(--teal);
+  background: var(--brand-tint);
+  border: 1px solid var(--brand-glow);
+  color: var(--brand);
   font-size: 12.5px;
   font-weight: 700;
 }
@@ -327,14 +327,14 @@
 }
 
 .status-badge.active {
-  background-color: rgba(16, 185, 129, 0.12);
-  border-color: rgba(16, 185, 129, 0.3);
-  color: #10b981;
+  background-color: rgba(var(--brand-rgb), 0.12);
+  border-color: rgba(var(--brand-rgb), 0.3);
+  color: var(--brand);
 }
 
 .status-badge.active .status-badge__dot {
-  background-color: #10b981;
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.25);
+  background-color: var(--button-bg);
+  box-shadow: 0 0 0 2px rgba(var(--brand-rgb), 0.25);
 }
 
 .connection-action-btn {
@@ -351,9 +351,9 @@
 }
 
 .connection-action-btn.edit-btn:hover {
-  background: var(--teal-subtle);
-  border-color: var(--teal);
-  color: var(--teal);
+  background: var(--brand-tint);
+  border-color: var(--brand);
+  color: var(--brand);
 }
 
 .connection-action-btn.delete-btn:hover {
@@ -380,7 +380,7 @@
   justify-content: center;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  color: var(--teal);
+  color: var(--brand);
   margin-bottom: 10px;
 }
 
@@ -472,17 +472,17 @@
 .badge-blue,
 .badge-purple,
 .badge-teal {
-  background: rgba(16, 185, 129, 0.12);
-  color: #10b981;
-  border: 1px solid rgba(16, 185, 129, 0.25);
+  background: rgba(var(--brand-rgb), 0.12);
+  color: var(--brand);
+  border: 1px solid rgba(var(--brand-rgb), 0.25);
 }
 
 [data-theme='light'] .badge-blue,
 [data-theme='light'] .badge-purple,
 [data-theme='light'] .badge-teal {
-  background: rgba(16, 185, 129, 0.08);
-  color: #059669;
-  border-color: rgba(16, 185, 129, 0.22);
+  background: rgba(var(--brand-rgb), 0.08);
+  color: var(--brand);
+  border-color: rgba(var(--brand-rgb), 0.22);
 }
 
 .integration-card-title {
@@ -573,14 +573,14 @@
 
 .integration-input-modern:focus {
   outline: none;
-  border-color: var(--teal);
+  border-color: var(--brand);
   background-color: var(--bg-surface);
-  box-shadow: 0 0 0 3px var(--teal-glow);
+  box-shadow: 0 0 0 3px var(--brand-glow);
 }
 
 .integration-input-modern:focus + .integration-input-icon,
 .integration-input-box:focus-within .integration-input-icon {
-  color: var(--teal);
+  color: var(--brand);
 }
 
 .integration-input-modern.has-error {
@@ -649,9 +649,9 @@
 }
 
 .integration-ping-btn.is-connected {
-  background: rgba(16, 185, 129, 0.15);
-  border-color: rgba(16, 185, 129, 0.35);
-  color: var(--teal);
+  background: rgba(var(--brand-rgb), 0.15);
+  border-color: rgba(var(--brand-rgb), 0.35);
+  color: var(--brand);
 }
 
 .integration-status-row {
@@ -697,7 +697,7 @@
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: var(--teal);
+  color: var(--brand);
 }
 
 /* ── Topics / Streams Styling ───────────────────────────────────────────── */
@@ -706,9 +706,9 @@
   height: 34px;
   padding: 0 14px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--teal);
+  border: 1px solid var(--brand);
   background: transparent;
-  color: var(--teal);
+  color: var(--brand);
   font-size: 13.5px;
   font-weight: 600;
   cursor: pointer;
@@ -719,7 +719,7 @@
 }
 
 .integration-btn-outline-sm:hover {
-  background: var(--teal-glow);
+  background: var(--brand-glow);
   transform: translateY(-1px);
 }
 
@@ -814,9 +814,9 @@
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background: rgba(16, 185, 129, 0.2);
-  border: 1px solid rgba(16, 185, 129, 0.4);
-  color: var(--teal);
+  background: rgba(var(--brand-rgb), 0.2);
+  border: 1px solid rgba(var(--brand-rgb), 0.4);
+  color: var(--brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -919,8 +919,8 @@
 }
 
 .integration-overview-copy-btn:hover {
-  color: var(--teal);
-  background: var(--teal-subtle);
+  color: var(--brand);
+  background: var(--brand-tint);
 }
 
 /* ── Need Help Card ─────────────────────────────────────────────────────── */
@@ -973,7 +973,7 @@
 .integration-help-link {
   font-size: 13px;
   font-weight: 600;
-  color: var(--teal);
+  color: var(--brand);
   text-decoration: none;
   display: inline-flex;
   align-items: center;
@@ -999,7 +999,7 @@
   height: 48px;
   border-radius: var(--radius-md);
   border: none;
-  background: linear-gradient(135deg, #10b981, #059669);
+  background: linear-gradient(135deg, var(--brand), var(--brand));
   color: #ffffff;
   font-size: 15.5px;
   font-weight: 700;
@@ -1009,14 +1009,14 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+  box-shadow: 0 4px 14px rgba(var(--brand-rgb), 0.35);
   transition: all var(--transition);
 }
 
 .integration-btn-primary-large:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.45);
-  background: linear-gradient(135deg, #34d399, #059669);
+  box-shadow: 0 6px 20px rgba(var(--brand-rgb), 0.45);
+  background: linear-gradient(135deg, var(--brand-hover), var(--brand));
 }
 
 .integration-btn-primary-large:active {
@@ -1081,7 +1081,7 @@
 }
 
 .integration-toast--success {
-  border-left: 4px solid var(--teal);
+  border-left: 4px solid var(--button-bg);
 }
 
 .integration-toast--error {
@@ -1103,8 +1103,8 @@
 }
 
 .integration-toast--success .integration-toast__icon {
-  background: var(--teal-subtle);
-  color: var(--teal);
+  background: var(--brand-tint);
+  color: var(--brand);
 }
 
 .integration-toast--error .integration-toast__icon {

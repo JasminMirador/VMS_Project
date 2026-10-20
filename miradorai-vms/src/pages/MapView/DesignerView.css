@@ -2598,7 +2598,8 @@
 }
 
 [data-theme="light"] .dv-type-pill--active {
-  color: var(--teal);
+  color: var(--brand);
+
   border-color: var(--teal);
   background: var(--teal-subtle);
 }
@@ -3078,7 +3079,8 @@
 [data-theme="light"] .dv-export-option:hover {
   background: var(--teal-subtle);
   border-color: var(--teal);
-  color: var(--teal);
+  color: var(--brand);
+
 }
 [data-theme="light"] .dv-export-modal-footer {
   border-top: 1px solid var(--border);

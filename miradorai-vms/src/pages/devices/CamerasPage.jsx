@@ -197,7 +197,14 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
             "Authorization": "Bearer " + (token || ""),
             "Content-Type": "application/json"
           },
-          body: JSON.stringify({ rtsp_url: cam.rtsp_url })
+          body: JSON.stringify({
+            rtsp_url: cam.rtsp_url || cam.recording_rtsp || cam.source_rtsp || "",
+            stream_key: cam.stream_key,
+            camera_id: cam.camera_id,
+            edge_id: cam.edge_id,
+            ip: cam.ip || cam.ip_address,
+            id: cam.id || cam._id,
+          })
         });
         if (!res.ok) {
           let errMsg = "Failed to delete camera. Admin privileges required.";
@@ -418,7 +425,14 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
             "Authorization": "Bearer " + (token || ""),
             "Content-Type": "application/json"
           },
-          body: JSON.stringify({ rtsp_url: cam.rtsp_url })
+          body: JSON.stringify({
+            rtsp_url: cam.rtsp_url || cam.recording_rtsp || cam.source_rtsp || "",
+            stream_key: cam.stream_key,
+            camera_id: cam.camera_id,
+            edge_id: cam.edge_id,
+            ip: cam.ip || cam.ip_address,
+            id: cam.id || cam._id,
+          })
         });
         if (!res.ok) {
           let errMsg = "Failed to delete camera. Admin privileges required.";

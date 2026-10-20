@@ -116,7 +116,8 @@
 .mv-tbtn-new.active {
   background: var(--teal-subtle);
   border-color: var(--teal);
-  color: var(--teal);
+  color: var(--brand);
+
   box-shadow: 0 0 12px var(--teal-glow);
 }
 
@@ -137,7 +138,8 @@
 .mv-tbtn-new.secondary:hover {
   background: var(--bg-hover);
   border-color: var(--teal);
-  color: var(--teal);
+  color: var(--brand);
+
   box-shadow: 0 0 8px var(--teal-glow);
 }
 
@@ -145,7 +147,8 @@
 .mv-tbtn-new.success {
   background: rgba(16, 185, 129, 0.08);
   border-color: var(--teal);
-  color: var(--teal);
+  color: var(--brand);
+
 }
 
 .mv-tbtn-new.success:hover {
@@ -194,7 +197,8 @@
 .mv-saving {
   font-size: 13px;
   font-weight: 600;
-  color: var(--teal);
+  color: var(--brand);
+
   animation: mv-saving-fade 1.5s ease-in-out infinite;
 }
 
@@ -884,7 +888,8 @@
 }
 
 .mv-floor-btn--add:hover {
-  color: var(--teal);
+  color: var(--brand);
+
   border-color: var(--teal);
   background: var(--teal-subtle);
 }
@@ -899,7 +904,8 @@
 }
 
 .mv-floor-btn--add:hover .mv-floor-btn__num {
-  color: var(--teal);
+  color: var(--brand);
+
   border-color: var(--teal);
 }
 
@@ -2666,7 +2672,8 @@
 }
 .mv-inspector-content .mv-cam-badge {
   background: rgba(16, 185, 129, 0.1);
-  color: var(--teal);
+  color: var(--brand);
+
   border: 1px solid rgba(16, 185, 129, 0.35);
   border-radius: 99px;
   font-size: 11px;
@@ -2755,7 +2762,8 @@
   border-radius: 99px;
   padding: 1px 6px;
   background: var(--teal-subtle);
-  color: var(--teal);
+  color: var(--brand);
+
   border: 1px solid var(--teal-glow);
 }
 
@@ -3124,7 +3132,8 @@
 }
 
 .mv-floors-sidebar__toggle-btn:hover {
-  color: var(--teal);
+  color: var(--brand);
+
 }
 
 .mv-floors-sidebar__list {
@@ -3165,7 +3174,8 @@
 }
 
 .mv-floor-card-idx.active {
-  color: var(--teal);
+  color: var(--brand);
+
 }
 
 .mv-floor-card {
@@ -3263,7 +3273,8 @@
 }
 
 .mv-floor-card__name.active {
-  color: var(--teal);
+  color: var(--brand);
+
 }
 
 .mv-floor-card__input {
@@ -3318,7 +3329,8 @@
 }
 
 [data-theme="light"] .mv-floors-sidebar__toggle-btn:hover {
-  color: var(--teal);
+  color: var(--brand);
+
   background: rgba(5, 150, 105, 0.1);
 }
 
@@ -3351,7 +3363,8 @@
 }
 
 [data-theme="light"] .mv-floor-card__name.active {
-  color: var(--teal);
+  color: var(--brand);
+
 }
 
 [data-theme="light"] .mv-floor-card__meta {

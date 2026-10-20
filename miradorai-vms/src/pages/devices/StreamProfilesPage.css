@@ -575,7 +575,7 @@
   transform: none !important;
 }
 .sp-apply-btn--success {
-  background: linear-gradient(135deg, #16a34a 0%, #15803d 100%) !important;
+  background: linear-gradient(135deg, var(--brand) 0%, #15803d 100%) !important;
   border-color: rgba(74, 222, 128, 0.5) !important;
   box-shadow: 0 4px 14px rgba(22, 163, 74, 0.3) !important;
 }
@@ -836,8 +836,8 @@
   padding-bottom: 32px;
 }
 .page-shell .page-title span {
-  color: #3b82f6;
-  text-shadow: 0 0 30px rgba(59, 130, 246, 0.2);
+  color: var(--brand);
+  text-shadow: 0 0 30px rgba(var(--brand-rgb), 0.2);
 }
 
 /* ── Responsive ─────────────────────────────────────────────── */

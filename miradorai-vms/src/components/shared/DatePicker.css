@@ -7,13 +7,13 @@
   --dp-muted: var(--text-muted);
   --dp-day-text: var(--text-secondary);
   --dp-out-month: var(--text-muted);
-  --dp-selected-bg: var(--teal);
+  --dp-selected-bg: var(--brand);
   --dp-selected-text: #ffffff;
   --dp-hover-bg: var(--bg-hover);
   --dp-blue: var(--blue);
   --dp-btn-border: var(--border-light);
-  --dp-range-bg: var(--teal-glow);
-  --dp-range-hover-bg: var(--teal-subtle);
+  --dp-range-bg: var(--brand-glow);
+  --dp-range-hover-bg: var(--brand-tint);
 }
 
 .dp-popover-wrapper {

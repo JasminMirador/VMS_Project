@@ -240,14 +240,14 @@
   border-color: #ef4444;
 }
 .mgmt-action-btn--primary {
-  background: var(--teal);
+  background: var(--brand);
   color: #000;
-  border-color: var(--teal);
+  border-color: var(--brand);
   font-weight: 600;
 }
 .mgmt-action-btn--primary:hover {
-  background: var(--teal-dim);
-  border-color: var(--teal-dim);
+  background: var(--brand-hover);
+  border-color: var(--brand-hover);
   color: #000;
 }
 .mgmt-action-btn:disabled {
@@ -326,14 +326,15 @@
   outline: none;
   transition: border-color 0.15s;
 }
-.mgmt-input:focus { border-color: var(--teal); }
+.mgmt-input:focus { border-color: var(--brand); }
 .mgmt-form__status {
   padding: 8px 12px;
-  background: rgba(0,200,160,0.08);
-  border: 1px solid rgba(0,200,160,0.2);
+  background: rgba(var(--brand-rgb), 0.08);
+  border: 1px solid rgba(var(--brand-rgb), 0.2);
   border-radius: var(--radius-sm);
   font-size: 12px;
-  color: var(--teal);
+  color: var(--brand);
+
 }
 .mgmt-form__status--error {
   background: rgba(239,68,68,0.08);
@@ -385,7 +386,7 @@
 }
 .mgmt-progress__bar {
   height: 100%;
-  background: var(--teal);
+  background: var(--brand);
   border-radius: 2px;
   animation: progressAnim 1.5s ease-in-out infinite;
 }
@@ -405,7 +406,8 @@
   color: var(--text-muted);
 }
 .mgmt-identify-pulse--active {
-  color: var(--teal);
+  color: var(--brand);
+
   animation: identifyPulse 0.6s ease-in-out infinite alternate;
 }
 @keyframes identifyPulse {
@@ -434,8 +436,9 @@
 }
 .mgmt-tab:hover { color: var(--text-primary); }
 .mgmt-tab--active {
-  color: var(--teal);
-  border-bottom-color: var(--teal);
+  color: var(--brand);
+
+  border-bottom-color: var(--brand);
   font-weight: 500;
 }
 .mgmt-tab-content { min-height: 160px; }

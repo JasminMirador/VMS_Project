@@ -660,7 +660,7 @@ export default function IntegrationPage() {
                       title="Copy Connection ID"
                     >
                       {copiedId ? (
-                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--teal)" strokeWidth="2.5">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="var(--brand)" strokeWidth="2.5">
                           <polyline points="20 6 9 17 4 12" />
                         </svg>
                       ) : (

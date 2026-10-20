@@ -138,7 +138,7 @@
 }
 
 .toast-success {
-  border-left-color: var(--teal); /* Green/Teal for recovery */
+  border-left-color: var(--button-bg); /* Green/Teal for recovery */
 }
 
 .toast-neutral {

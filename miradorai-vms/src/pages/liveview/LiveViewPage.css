@@ -55,9 +55,9 @@
   --text-primary: #F1F4F7;
   --text-secondary: #94A3B8;
   --text-muted: #64748B;
-  --teal: #10B981;
-  --teal-dark: #059669;
-  --teal-subtle: rgba(16, 185, 129, 0.15);
+  --teal: var(--brand);
+  --teal-dark: var(--brand);
+  --teal-subtle: rgba(var(--brand-rgb), 0.15);
   background: linear-gradient(135deg, #0f111a 0%, #151A24 100%);
   color-scheme: dark; /* Ensures native elements like dropdown options match the dark theme */
 }
@@ -104,9 +104,10 @@
   font-family: var(--font-heading);
   font-weight: 700;
   margin: 0;
-  color: var(--text-primary);
-  background: none;
-  -webkit-text-fill-color: var(--text-primary);
+  background: var(--title-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
   letter-spacing: -0.02em;
 }
 
@@ -123,7 +124,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--teal);
+  background: var(--button-bg);
   position: relative;
   box-shadow: none;
 }
@@ -132,7 +133,7 @@
   position: absolute;
   inset: -2px;
   border-radius: 50%;
-  border: 2px solid var(--teal);
+  border: 2px solid var(--button-bg);
   animation: expandingRing 2s ease-out infinite;
 }
 @keyframes expandingRing {
@@ -276,8 +277,8 @@
 }
 
 .lv-filter-dropdown-item.selected {
-  background: var(--teal-subtle);
-  color: var(--teal);
+  background: var(--brand-tint);
+  color: var(--brand);
 }
 
 .lv-station-name-input {
@@ -334,7 +335,7 @@
   justify-content: center;
 }
 .lv-layout-btn:hover   { background: var(--bg-hover); color: var(--text-primary); }
-.lv-layout-btn--active { background: var(--teal-subtle); color: var(--teal); }
+.lv-layout-btn--active { background: var(--brand-tint); color: var(--brand); }
 
 .lv-btn {
   padding: 5px 12px;
@@ -531,14 +532,14 @@
   z-index: 15;
   transition: all 0.2s;
   background: 
-    linear-gradient(to right, var(--teal) 2px, transparent 2px) 0 0,
-    linear-gradient(to bottom, var(--teal) 2px, transparent 2px) 0 0,
-    linear-gradient(to left, var(--teal) 2px, transparent 2px) 100% 0,
-    linear-gradient(to bottom, var(--teal) 2px, transparent 2px) 100% 0,
-    linear-gradient(to right, var(--teal) 2px, transparent 2px) 0 100%,
-    linear-gradient(to top, var(--teal) 2px, transparent 2px) 0 100%,
-    linear-gradient(to left, var(--teal) 2px, transparent 2px) 100% 100%,
-    linear-gradient(to top, var(--teal) 2px, transparent 2px) 100% 100%;
+    linear-gradient(to right, var(--brand) 2px, transparent 2px) 0 0,
+    linear-gradient(to bottom, var(--brand) 2px, transparent 2px) 0 0,
+    linear-gradient(to left, var(--brand) 2px, transparent 2px) 100% 0,
+    linear-gradient(to bottom, var(--brand) 2px, transparent 2px) 100% 0,
+    linear-gradient(to right, var(--brand) 2px, transparent 2px) 0 100%,
+    linear-gradient(to top, var(--brand) 2px, transparent 2px) 0 100%,
+    linear-gradient(to left, var(--brand) 2px, transparent 2px) 100% 100%,
+    linear-gradient(to top, var(--brand) 2px, transparent 2px) 100% 100%;
   background-repeat: no-repeat;
   background-size: 16px 16px;
   opacity: 0;
@@ -547,8 +548,8 @@
   opacity: 1;
 }
 .lv-cell--selected {
-  border-color: var(--teal) !important;
-  box-shadow: 0 0 0 2px var(--teal), 0 8px 32px var(--teal-glow) !important;
+  border-color: var(--brand) !important;
+  box-shadow: 0 0 0 2px var(--brand), 0 8px 32px var(--brand-glow) !important;
 }
 .lv-cell:hover .lv-cell__header { opacity: 1; }
 
@@ -569,8 +570,8 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--teal);
-  box-shadow: 0 0 6px var(--teal);
+  background: var(--button-bg);
+  box-shadow: 0 0 6px var(--button-bg);
   flex-shrink: 0;
   animation: livePulse 2s ease-in-out infinite;
 }
@@ -718,7 +719,7 @@
   font-size: 16px;
   color: var(--text-secondary);
 }
-.lv-empty strong { color: var(--teal); }
+.lv-empty strong { color: var(--brand); }
 
 /* ═══════════════════════════════════════════════════
    NATIVE FULLSCREEN OVERLAY
@@ -878,8 +879,8 @@
 }
 
 .lv-alerts-search:focus-within {
-  border-color: var(--teal);
-  box-shadow: 0 0 0 3px var(--teal-glow), 0 2px 8px rgba(0, 0, 0, 0.05);
+  border-color: var(--button-bg);
+  box-shadow: 0 0 0 3px var(--brand-glow), 0 2px 8px rgba(0, 0, 0, 0.05);
   background: var(--bg-surface);
 }
 
@@ -890,7 +891,7 @@
 }
 
 .lv-alerts-search:focus-within svg.lv-search-icon {
-  color: var(--teal);
+  color: var(--brand);
   transform: scale(1.1);
 }
 
@@ -956,9 +957,9 @@
 }
 
 .lv-select-wrapper.is-active {
-  border-color: var(--teal);
-  background: var(--teal-subtle);
-  box-shadow: 0 0 0 1px var(--teal), 0 2px 8px var(--teal-glow);
+  border-color: var(--brand);
+  background: var(--brand-tint);
+  box-shadow: 0 0 0 1px var(--brand), 0 2px 8px var(--brand-glow);
 }
 
 .lv-select-icon {
@@ -974,7 +975,7 @@
 
 .lv-select-wrapper.is-active .lv-select-icon,
 .lv-select-wrapper:hover .lv-select-icon {
-  color: var(--teal);
+  color: var(--brand);
   transform: scale(1.05);
 }
 
@@ -1021,7 +1022,7 @@
 }
 
 .lv-select-wrapper.is-active .lv-alerts-filter-select {
-  color: var(--teal);
+  color: var(--brand);
   font-weight: 700;
 }
 
@@ -1077,15 +1078,15 @@
 }
 
 .lv-source-btn.active {
-  background: rgba(16, 185, 129, 0.16);
-  border: 1px solid rgba(16, 185, 129, 0.42);
-  color: #34d399;
+  background: rgba(var(--brand-rgb), 0.16);
+  border: 1px solid rgba(var(--brand-rgb), 0.42);
+  color: var(--brand-hover);
   font-weight: 600;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .lv-source-btn.active svg {
-  color: #34d399;
+  color: var(--brand-hover);
 }
 
 /* ── Alert Source Filter Segmented Control (All, Builtin, AI Analytics) ── */
@@ -1141,15 +1142,15 @@
 }
 
 .lv-source-btn.active {
-  background: rgba(16, 185, 129, 0.16);
-  border: 1px solid rgba(16, 185, 129, 0.42);
-  color: #34d399;
+  background: rgba(var(--brand-rgb), 0.16);
+  border: 1px solid rgba(var(--brand-rgb), 0.42);
+  color: var(--brand-hover);
   font-weight: 600;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .lv-source-btn.active svg {
-  color: #34d399;
+  color: var(--brand-hover);
 }
 
 /* ── Time Filter Segmented Control ── */
@@ -1203,15 +1204,15 @@
 }
 
 .lv-time-btn.active {
-  background: rgba(16, 185, 129, 0.16);
-  border: 1px solid rgba(16, 185, 129, 0.42);
-  color: #34d399;
+  background: rgba(var(--brand-rgb), 0.16);
+  border: 1px solid rgba(var(--brand-rgb), 0.42);
+  color: var(--brand-hover);
   font-weight: 600;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .lv-time-btn.active svg {
-  color: #34d399;
+  color: var(--brand-hover);
 }
 
 /* ── Reset Filters Button ── */
@@ -1264,7 +1265,7 @@
   color: var(--text-primary);
 }
 .lv-source-btn.active {
-  background: linear-gradient(135deg, var(--teal) 0%, #0d9488 100%);
+  background: linear-gradient(135deg, var(--brand) 0%, #0d9488 100%);
   color: #ffffff;
   box-shadow: 0 0 10px rgba(13, 148, 136, 0.4);
 }
@@ -1285,15 +1286,15 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--teal);
-  box-shadow: 0 0 5px var(--teal);
+  background: var(--button-bg);
+  box-shadow: 0 0 5px var(--button-bg);
   animation: livePulse 2s ease-in-out infinite;
   flex-shrink: 0;
 }
 .lv-alerts-panel__count {
   font-size: 14px;
-  background: var(--teal-subtle);
-  color: var(--teal);
+  background: var(--brand-tint);
+  color: var(--brand);
   padding: 1px 6px;
   border-radius: 10px;
 }
@@ -1313,7 +1314,7 @@
 .lv-alerts-panel__toggle:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
-  border-color: var(--teal);
+  border-color: var(--button-bg);
 }
 
 /* List */
@@ -1367,11 +1368,11 @@
   transform: translateY(-1px);
 }
 
-.lv-alert-card--cam235 { border-left-color: var(--teal); color: var(--teal); }
+.lv-alert-card--cam235 { border-left-color: var(--button-bg); color: var(--brand); }
 .lv-alert-card--cam238 { border-left-color: var(--amber); color: var(--amber); }
 .lv-alert-card--cam236 { border-left-color: var(--red); color: var(--red); }
 .lv-alert-card--cam240 { border-left-color: var(--red); color: var(--red); }
-.lv-alert-card--other  { border-left-color: var(--teal); color: var(--teal); }
+.lv-alert-card--other  { border-left-color: var(--button-bg); color: var(--brand); }
 
 .lv-alert-card__info {
   color: var(--text-primary);
@@ -1408,7 +1409,7 @@
   border-radius: 8px;
   flex-shrink: 0;
 }
-.lv-alert-card__badge--on  { background: var(--teal-subtle); color: var(--teal); }
+.lv-alert-card__badge--on  { background: var(--brand-tint); color: var(--brand); }
 .lv-alert-card__badge--off { background: var(--bg-elevated); color: var(--text-secondary); }
 
 .lv-cam__bottom-right-controls {
@@ -1556,12 +1557,12 @@
 }
 
 .lv-alert-card__value--date {
-  color: var(--teal);
+  color: var(--brand);
   font-family: var(--font-mono);
   font-weight: 600;
 }
 .lv-alert-card__value--time  { color: var(--text-primary); font-family: var(--font-mono); }
-.lv-alert-card__value--date  { color: var(--teal); font-family: var(--font-mono); font-weight: 600; }
+.lv-alert-card__value--date  { color: var(--brand); font-family: var(--font-mono); font-weight: 600; }
 .lv-alert-card__value--human { color: #f0a500; }
 
 .lv-alert-card__time {
@@ -1833,9 +1834,9 @@
   gap: 6px;
   font-size: 14px;
   font-weight: 500;
-  color: var(--teal);
-  background: rgba(16, 185, 129, 0.1);
-  border: 1px solid rgba(16, 185, 129, 0.2);
+  color: var(--brand);
+  background: rgba(var(--brand-rgb), 0.1);
+  border: 1px solid rgba(var(--brand-rgb), 0.2);
   padding: 4px 12px;
   border-radius: 6px;
   text-decoration: none;
@@ -1843,8 +1844,8 @@
   margin-left: 12px;
 }
 .alp-download-btn:hover {
-  background: rgba(16, 185, 129, 0.2);
-  border-color: rgba(16, 185, 129, 0.4);
+  background: rgba(var(--brand-rgb), 0.2);
+  border-color: rgba(var(--brand-rgb), 0.4);
   color: #fff;
 }
 
@@ -1923,7 +1924,7 @@
 
 .lv-grid-dropdown-trigger:hover .lv-grid-icon,
 .lv-grid-dropdown-trigger.active .lv-grid-icon {
-  color: var(--teal);
+  color: var(--brand);
 }
 
 .lv-chevron-icon {
@@ -1985,7 +1986,7 @@
 
 .lv-grid-dropdown-item.selected {
   background: var(--bg-active);
-  color: var(--teal);
+  color: var(--brand);
 }
 
 .lv-check-icon {
@@ -2016,9 +2017,9 @@
 }
 
 .lv-fullscreen-toggle-btn.active {
-  background: var(--teal-subtle);
-  color: var(--teal);
-  border-color: var(--teal-dim);
+  background: var(--brand-tint);
+  color: var(--brand);
+  border-color: var(--brand-hover);
 }
 
 /* ── Pagination Bar Styles ── */
@@ -2146,9 +2147,9 @@
 }
 
 .lv-alerts-toggle-btn.active {
-  background: var(--teal-subtle);
-  color: var(--teal);
-  border-color: var(--teal-dim);
+  background: var(--brand-tint);
+  color: var(--brand);
+  border-color: var(--brand-hover);
 }
 
 .lv-alerts-bell-badge {
@@ -2356,12 +2357,12 @@
 }
 
 .lv-toolbar__station-badge svg {
-  color: var(--teal, #14b8a6);
+  color: var(--brand);
 }
 
 .lv-toolbar__station-badge:hover {
   background: var(--bg-hover);
-  border-color: var(--teal);
+  border-color: var(--button-bg);
 }
 
 .lv-station-name-text {
@@ -2381,7 +2382,7 @@
   font-weight: inherit;
   width: 120px;
   padding: 0;
-  border-bottom: 1px dashed var(--teal, #14b8a6);
+  border-bottom: 1px dashed var(--brand);
 }
 
 /* ── Sequence Manager Modal Styles ── */
@@ -2390,7 +2391,7 @@
   align-items: center;
   gap: 6px;
   padding: 6px 14px;
-  background: linear-gradient(135deg, var(--teal, #14b8a6) 0%, #0d9488 100%);
+  background: linear-gradient(135deg, var(--brand) 0%, #0d9488 100%);
   border: 1px solid rgba(20, 184, 166, 0.2);
   border-radius: 6px;
   color: #ffffff;
@@ -2521,7 +2522,7 @@
   backdrop-filter: none;
 }
 [data-theme="light"] .lv-grid-dropdown-trigger.active {
-  box-shadow: 0 0 10px var(--teal-glow);
+  box-shadow: 0 0 10px var(--brand-glow);
 }
 
 /* ── Alert thumbnail container ── */
@@ -2788,9 +2789,9 @@
   100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
 }
 @keyframes pulse-teal {
-  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-  70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  0% { box-shadow: 0 0 0 0 rgba(var(--brand-rgb), 0.7); }
+  70% { box-shadow: 0 0 0 10px rgba(var(--brand-rgb), 0); }
+  100% { box-shadow: 0 0 0 0 rgba(var(--brand-rgb), 0); }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -2820,7 +2821,7 @@
 }
 
 .lv-cam__dock-pill:hover {
-  border-color: rgba(16, 185, 129, 0.45);
+  border-color: rgba(var(--brand-rgb), 0.45);
   background: rgba(8, 20, 28, 0.95);
 }
 
@@ -2896,7 +2897,7 @@
 }
 
 .lv-dock-item--audio.is-active {
-  color: #10b981;
+  color: var(--brand);
 }
 
 .lv-dock-item--audio.is-muted {
@@ -2905,7 +2906,7 @@
 
 .lv-dock-item--audio:hover {
   color: #ffffff;
-  background: rgba(16, 185, 129, 0.2);
+  background: rgba(var(--brand-rgb), 0.2);
 }
 
 .lv-dock-item__icon {
@@ -2931,18 +2932,18 @@
 
 /* 2. AI Sparkle Item (Greenish / Emerald Theme) */
 .lv-dock-item--ai {
-  color: #10b981;
+  color: var(--brand);
   font-weight: 700;
   padding: 4px 9px;
   gap: 5px;
-  background: rgba(16, 185, 129, 0.14);
+  background: rgba(var(--brand-rgb), 0.14);
   border-radius: 9999px;
 }
 
 .lv-dock-sparkle {
   width: 13px;
   height: 13px;
-  color: #10b981;
+  color: var(--brand);
   flex-shrink: 0;
   transition: transform 0.2s ease;
 }
@@ -2959,13 +2960,13 @@
 
 .lv-dock-item--ai:hover .lv-dock-sparkle {
   transform: scale(1.15) rotate(15deg);
-  color: #34d399;
+  color: var(--brand-hover);
 }
 
 .lv-dock-ai-text {
   font-size: 11.5px;
   font-weight: 800;
-  color: #10b981;
+  color: var(--brand);
   letter-spacing: 0.2px;
 }
 
@@ -2979,11 +2980,11 @@
 }
 
 .lv-dock-item--ai:hover {
-  background: rgba(16, 185, 129, 0.24);
+  background: rgba(var(--brand-rgb), 0.24);
 }
 
 .lv-dock-item--ai:hover .lv-dock-ai-text {
-  color: #34d399;
+  color: var(--brand-hover);
 }
 
 /* 3. Alert Count Item with Chevron (Continuous Alert Blinking) */
@@ -3076,12 +3077,12 @@
   bottom: calc(100% + 8px);
   right: 0;
   background-color: rgba(6, 20, 16, 0.96);
-  border: 1px solid rgba(16, 185, 129, 0.45);
+  border: 1px solid rgba(var(--brand-rgb), 0.45);
   border-radius: 10px;
   padding: 10px 14px;
   min-width: 170px;
   max-width: 240px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.75), 0 0 16px rgba(16, 185, 129, 0.2);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.75), 0 0 16px rgba(var(--brand-rgb), 0.2);
   backdrop-filter: blur(14px);
   display: flex;
   flex-direction: column;
@@ -3101,7 +3102,7 @@
 .lv-dock-tooltip__header {
   font-size: 11.5px;
   font-weight: 700;
-  color: #10b981;
+  color: var(--brand);
   margin-bottom: 2px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   padding-bottom: 5px;
@@ -3123,8 +3124,8 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background-color: #10b981;
-  box-shadow: 0 0 6px #10b981;
+  background-color: var(--button-bg);
+  box-shadow: 0 0 6px var(--button-bg);
   flex-shrink: 0;
 }
 
@@ -3164,7 +3165,7 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background-color: #34d399;
+  background-color: var(--button-bg-hover);
   flex-shrink: 0;
 }
 
@@ -3197,7 +3198,7 @@
 }
 
 [data-theme="light"] .lv-cam__dock-pill:hover {
-  border-color: #059669;
+  border-color: var(--brand);
   background: #ffffff;
   box-shadow: 0 6px 22px rgba(15, 23, 42, 0.28);
 }
@@ -3218,7 +3219,7 @@
 }
 
 [data-theme="light"] .lv-dock-item--audio.is-active {
-  color: #059669;
+  color: var(--brand);
 }
 
 [data-theme="light"] .lv-dock-item--audio.is-muted {
@@ -3226,36 +3227,36 @@
 }
 
 [data-theme="light"] .lv-dock-item--audio:hover {
-  background: rgba(16, 185, 129, 0.12);
-  color: #059669;
+  background: rgba(var(--brand-rgb), 0.12);
+  color: var(--brand);
 }
 
 /* Light Theme AI Badge (Emerald Green) */
 [data-theme="light"] .lv-dock-item--ai {
-  background: rgba(16, 185, 129, 0.12);
-  color: #059669;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: rgba(var(--brand-rgb), 0.12);
+  color: var(--brand);
+  border: 1px solid rgba(var(--brand-rgb), 0.3);
   border-radius: 9999px;
 }
 
 [data-theme="light"] .lv-dock-sparkle {
-  color: #059669;
+  color: var(--brand);
 }
 
 [data-theme="light"] .lv-dock-ai-text {
-  color: #059669;
+  color: var(--brand);
   font-weight: 800;
 }
 
 [data-theme="light"] .lv-dock-item--ai:hover {
-  background: rgba(16, 185, 129, 0.24);
-  color: #047857;
-  border-color: #059669;
+  background: rgba(var(--brand-rgb), 0.24);
+  color: var(--brand-hover);
+  border-color: var(--brand);
 }
 
 [data-theme="light"] .lv-dock-item--ai:hover .lv-dock-ai-text,
 [data-theme="light"] .lv-dock-item--ai:hover .lv-dock-sparkle {
-  color: #047857;
+  color: var(--brand-hover);
 }
 
 /* Light Theme Alerts Badge */
@@ -3287,20 +3288,20 @@
 [data-theme="light"] .lv-dock-tooltip {
   background-color: #ffffff;
   border: 1px solid #cbd5e1;
-  border-top: 3.5px solid #059669;
+  border-top: 3.5px solid var(--button-bg);
   border-radius: 10px;
   box-shadow: 0 14px 36px rgba(15, 23, 42, 0.18), 0 2px 8px rgba(15, 23, 42, 0.06);
 }
 
 [data-theme="light"] .lv-dock-tooltip__header {
-  color: #047857;
+  color: var(--brand-hover);
   font-weight: 700;
   border-bottom: 1px solid #f1f5f9;
 }
 
 [data-theme="light"] .lv-dock-tooltip__dot {
-  background-color: #059669;
-  box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+  background-color: var(--button-bg);
+  box-shadow: 0 0 6px rgba(var(--brand-rgb), 0.6);
 }
 
 [data-theme="light"] .lv-dock-tooltip__item {
@@ -3309,7 +3310,7 @@
 }
 
 [data-theme="light"] .lv-dock-tooltip__item-dot {
-  background-color: #059669;
+  background-color: var(--button-bg);
 }
 
 [data-theme="light"] .lv-alerts-source-filters .lv-source-btn.active,
@@ -3416,9 +3417,9 @@
 
 /* Active */
 .lv-alerts-source-filters .lv-source-btn.active {
-  background: rgba(16, 185, 129, 0.16);
-  border: 1px solid rgba(16, 185, 129, 0.42);
-  color: #34d399;
+  background: rgba(var(--brand-rgb), 0.16);
+  border: 1px solid rgba(var(--brand-rgb), 0.42);
+  color: var(--brand-hover);
   font-weight: 600;
   box-shadow:
     0 1px 4px rgba(0, 0, 0, 0.25),
@@ -3426,7 +3427,7 @@
 }
 
 .lv-alerts-source-filters .lv-source-btn.active svg {
-  color: #34d399;
+  color: var(--brand-hover);
 }
 
 /* Click */
@@ -3484,9 +3485,9 @@
 
 /* Active */
 .lv-alerts-source-filters .lv-source-btn.active {
-  background: rgba(16, 185, 129, 0.16);
-  border: 1px solid rgba(16, 185, 129, 0.42);
-  color: #34d399;
+  background: rgba(var(--brand-rgb), 0.16);
+  border: 1px solid rgba(var(--brand-rgb), 0.42);
+  color: var(--brand-hover);
   font-weight: 600;
 
   box-shadow:

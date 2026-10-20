@@ -54,7 +54,7 @@
 
 .cs-row__hint {
   font-size: 12px;
-  color: var(--teal);
+  color: var(--brand);
   cursor: help;
   opacity: 0.8;
   user-select: none;
@@ -111,7 +111,7 @@
   transition: color 0.15s;
 }
 .cs-theme-card--active .cs-theme-card__label {
-  color: var(--teal);
+  color: var(--brand);
   font-weight: 600;
 }
 
@@ -135,7 +135,7 @@
   cursor: pointer;
   transition: border-color 0.15s;
 }
-.cs-select:focus { border-color: var(--teal); }
+.cs-select:focus { border-color: var(--brand); }
 
 .cs-lang-hint {
   font-size: 11.5px;
@@ -156,7 +156,7 @@
   padding: 4px 0;
 }
 .cs-checkbox-row input[type="checkbox"] {
-  accent-color: var(--teal);
+  accent-color: var(--brand);
   margin-top: 3px;
   flex-shrink: 0;
   width: 14px;
@@ -166,15 +166,15 @@
 
 .cs-feedback-hint {
   font-size: 11.5px;
-  color: var(--teal);
+  color: var(--brand);
   margin: 6px 0 0 24px;
   font-style: italic;
   opacity: 0.8;
 }
 
 .cs-theme-card--active {
-  border-color: var(--teal) !important;
+  border-color: var(--brand) !important;
 }
 .cs-theme-card--active .cs-theme-card__icon {
-  box-shadow: 0 0 0 2px var(--teal);
+  box-shadow: 0 0 0 2px var(--brand);
 }

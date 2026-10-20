@@ -1,7 +1,7 @@
 /* ── Topbar ──────────────────────────────────────── */
 .topbar {
   position: relative;
-  z-index: 999999;
+  z-index: 2500;
   height: 52px;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border);
@@ -31,7 +31,7 @@
 .topbar__brand {
   font-size: 11px;
   font-weight: 700;
-  color: var(--teal);
+  color: var(--brand);
   letter-spacing: 1px;
   white-space: nowrap;
 }
@@ -202,7 +202,7 @@ html[dir="rtl"] .topbar__lang-dropdown {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--teal), #0099cc);
+  background: linear-gradient(135deg, var(--button-bg), #0099cc);
   color: #fff;
   font-size: 12px;
   font-weight: 700;
@@ -210,7 +210,7 @@ html[dir="rtl"] .topbar__lang-dropdown {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(0, 200, 160, 0.4);
+  box-shadow: 0 2px 8px rgba(var(--brand-rgb), 0.4);
 }
 .topbar__user-chevron {
   width: 14px;
@@ -330,8 +330,8 @@ html[dir="rtl"] .topbar__lang-dropdown {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.05em;
-  background: rgba(16, 185, 129, 0.1);
-  color: var(--teal);
+  background: rgba(var(--brand-rgb), 0.1);
+  color: var(--brand);
 }
 .topbar__user-badge.admin {
   background: rgba(245, 158, 11, 0.12);
@@ -563,8 +563,8 @@ html[dir="rtl"] .topbar__lang-dropdown {
 
 .topbar__ai-btn:hover {
   background: var(--bg-hover);
-  border-color: var(--teal);
-  box-shadow: 0 0 12px var(--teal-subtle);
+  border-color: var(--brand);
+  box-shadow: 0 0 12px var(--brand-tint);
 }
 
 .topbar__ai-logo-mark {
@@ -600,7 +600,7 @@ html[dir="rtl"] .topbar__lang-dropdown {
 
 .topbar__ai-logo-sub {
   font-size: 13px;
-  color: var(--teal);
+  color: var(--brand);
   font-weight: 500;
 }
 
@@ -747,8 +747,9 @@ html[dir="rtl"] .topbar__lang-dropdown {
 
 .topbar__history-btn:hover:not(:disabled) {
   background: var(--bg-active);
-  color: var(--teal);
-  border-color: var(--teal);
+  color: var(--brand);
+  border-color: var(--brand);
+
   transform: translateY(-1px);
 }
 
@@ -892,7 +893,7 @@ html[dir="rtl"] .topbar__lang-dropdown {
 
 .topbar__refresh-btn:hover {
   background: var(--bg-hover);
-  color: var(--teal);
+  color: var(--brand);
   transform: rotate(180deg);
 }
 
@@ -1054,7 +1055,8 @@ html[dir="rtl"] .topbar__lang-dropdown {
 
 [data-theme="light"] .topbar__ai-btn:hover {
   background: var(--bg-hover);
-  border-color: var(--teal);
+   border-color: var(--brand);
+
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
@@ -1111,7 +1113,7 @@ html[dir="rtl"] .topbar__lang-dropdown {
   max-height: 70vh;
   border-radius: 16px;
   overflow: hidden;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.65), 0 0 0 2px rgba(16, 185, 129, 0.8), 0 0 40px rgba(16, 185, 129, 0.4);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.65), 0 0 0 2px rgba(var(--brand-rgb), 0.8), 0 0 40px rgba(var(--brand-rgb), 0.4);
   animation: snapshotCardPop 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   display: flex;
   flex-direction: column;
@@ -1133,7 +1135,7 @@ html[dir="rtl"] .topbar__lang-dropdown {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(16, 185, 129, 0.95);
+  background: rgba(var(--brand-rgb), 0.95);
   backdrop-filter: blur(8px);
   color: #ffffff;
   padding: 6px 18px;
@@ -1191,7 +1193,7 @@ html[dir="rtl"] .topbar__lang-dropdown {
   transition: background var(--transition), color var(--transition);
 }
 .topbar__menu-btn:hover { background: var(--bg-hover); }
-.topbar__menu-btn:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+.topbar__menu-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 
 /* Panel icon points toward the sidebar edge: mirror it in RTL */
 [dir="rtl"] .topbar__menu-btn svg { transform: scaleX(-1); }
@@ -1435,7 +1437,7 @@ html[dir="rtl"] .topbar__lang-dropdown {
 /* Mega-menu: per-item icon colours (cycle of 8) */
 .topbar .topbar__settings-dropdown-item:nth-child(8n+1) span:first-child { background: #cffafe; color: #0e7490; }
 .topbar .topbar__settings-dropdown-item:nth-child(8n+2) span:first-child { background: #ede9fe; color: #7c3aed; }
-.topbar .topbar__settings-dropdown-item:nth-child(8n+3) span:first-child { background: #d1fae5; color: #059669; }
+.topbar .topbar__settings-dropdown-item:nth-child(8n+3) span:first-child { background: #d1fae5; color: var(--brand); }
 .topbar .topbar__settings-dropdown-item:nth-child(8n+4) span:first-child { background: #fef3c7; color: #d97706; }
 .topbar .topbar__settings-dropdown-item:nth-child(8n+5) span:first-child { background: #ffe4e6; color: #e11d48; }
 .topbar .topbar__settings-dropdown-item:nth-child(8n+6) span:first-child { background: #dbeafe; color: #2563eb; }
@@ -1505,8 +1507,8 @@ html[dir="rtl"] .topbar__lang-dropdown {
 [data-theme='light'] .topbar .topbar__settings-dropdown-item:nth-child(8n+1) span:first-child { --acc: #0e7490; background: #cffafe; color: #0e7490; }
 .topbar .topbar__settings-dropdown-item:nth-child(8n+2) span:first-child { --acc: #a78bfa; background: color-mix(in srgb, #a78bfa 18%, transparent); color: #a78bfa; }
 [data-theme='light'] .topbar .topbar__settings-dropdown-item:nth-child(8n+2) span:first-child { --acc: #7c3aed; background: #ede9fe; color: #7c3aed; }
-.topbar .topbar__settings-dropdown-item:nth-child(8n+3) span:first-child { --acc: #34d399; background: color-mix(in srgb, #34d399 18%, transparent); color: #34d399; }
-[data-theme='light'] .topbar .topbar__settings-dropdown-item:nth-child(8n+3) span:first-child { --acc: #059669; background: #d1fae5; color: #059669; }
+.topbar .topbar__settings-dropdown-item:nth-child(8n+3) span:first-child { --acc: var(--brand-hover); background: color-mix(in srgb, var(--button-bg-hover) 18%, transparent); color: var(--brand-hover); }
+[data-theme='light'] .topbar .topbar__settings-dropdown-item:nth-child(8n+3) span:first-child { --acc: var(--brand); background: #d1fae5; color: var(--brand); }
 .topbar .topbar__settings-dropdown-item:nth-child(8n+4) span:first-child { --acc: #fbbf24; background: color-mix(in srgb, #fbbf24 18%, transparent); color: #fbbf24; }
 [data-theme='light'] .topbar .topbar__settings-dropdown-item:nth-child(8n+4) span:first-child { --acc: #d97706; background: #fef3c7; color: #d97706; }
 .topbar .topbar__settings-dropdown-item:nth-child(8n+5) span:first-child { --acc: #fb7185; background: color-mix(in srgb, #fb7185 18%, transparent); color: #fb7185; }

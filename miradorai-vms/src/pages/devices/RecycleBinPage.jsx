@@ -212,7 +212,7 @@ function RecycleBinPage() {
                 {filtered.map(c => (
                   <tr key={c.ip} className="m-table__row">
                     <td style={{ color: "var(--text-primary)", fontWeight: "500" }}>{c.device_name || c.name || "Unknown"}</td>
-                    <td style={{ fontFamily: "monospace", color: "var(--teal)" }}>{c.ip}</td>
+                    <td style={{ fontFamily: "monospace", color: "var(--brand)" }}>{c.ip}</td>
                     <td>{formatIST(c.deleted_at)}</td>
                     <td>{c.deleted_by || (() => { try { return JSON.parse(localStorage.getItem("miradorai_user"))?.email || "admin@example.com"; } catch { return "admin@example.com"; } })()}</td>
                     <td style={{ textAlign: "right" }}>

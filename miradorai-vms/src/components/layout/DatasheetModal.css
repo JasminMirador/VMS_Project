@@ -397,9 +397,9 @@
   content: '';
   width: 8px;
   height: 8px;
-  background: #10b981;
+  background: var(--button-bg);
   border-radius: 50%;
-  box-shadow: 0 0 8px #10b981;
+  box-shadow: 0 0 8px var(--button-bg);
   animation: pulseLight 2s infinite;
 }
 @keyframes pulseLight {

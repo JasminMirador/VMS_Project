@@ -4,8 +4,8 @@
   --gap-between-tooltip-to-button: 14px;
   
   /* Theme-aware variables */
-  --button-color: var(--teal, #10b981);
-  --button-hover-color: var(--teal-dim, #059669);
+  --button-color: var(--brand);
+  --button-hover-color: var(--brand-hover);
   --tooltip-bg: var(--bg-elevated, #181c25);
   --tooltip-border: var(--border, #1e2533);
   --tooltip-text: var(--text-primary, #f8fafc);

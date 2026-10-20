@@ -84,6 +84,7 @@ const SysRing = ({ pct, color }) => {
     </svg>
   );
 };
+
 const CpuAreaChart = ({ data, value }) => {
   const height = 64;
   const width = 220;
@@ -329,7 +330,7 @@ const InteractiveLineChart = ({ data, xKey, yKey, height = 180 }) => {
         })}
 
         {/* Path line */}
-        <path d={pathD} fill="none" stroke="var(--teal)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d={pathD} fill="none" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
 
         {/* Hover points */}
         {points.map((pt, idx) => (
@@ -580,7 +581,7 @@ const ReportChartCard = ({
                         className="chart-leaderboard-bar-fill"
                         style={{
                           width: `${Math.min(100, Math.max(0, item.barPct))}%`,
-                          background: item.isHatched ? "repeating-linear-gradient(45deg, #475569, #475569 5px, #64748b 5px, #64748b 10px)" : item.barColor || "var(--teal)"
+                          background: item.isHatched ? "repeating-linear-gradient(45deg, #475569, #475569 5px, #64748b 5px, #64748b 10px)" : item.barColor || "var(--button-bg)"
                         }}
                       />
                     </div>
@@ -929,7 +930,7 @@ const AnalyticsAlertsCharts = ({ reportData, reportFromDate, reportToDate }) => 
     label: h.ip,
     valueStr: `${h.count} alerts`,
     barPct: (h.count / maxCount) * 100,
-    barColor: "var(--teal)"
+    barColor: "var(--brand)"
   }));
 
   const renderCustomTreemapContent = (props) => {
@@ -962,7 +963,7 @@ const AnalyticsAlertsCharts = ({ reportData, reportFromDate, reportToDate }) => 
           x={x + width / 2}
           y={y + height / 2 + 10}
           textAnchor="middle"
-          fill="var(--teal)"
+          fill="var(--brand)"
           fontSize={10}
           fontWeight="bold"
         >
@@ -1062,7 +1063,7 @@ const AnalyticsAlertsCharts = ({ reportData, reportFromDate, reportToDate }) => 
                       <div className="custom-chart-tooltip" style={{ pointerEvents: "none", opacity: 0.95, padding: "6px 10px" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", borderBottom: "1px dashed rgba(255,255,255,0.15)", paddingBottom: "3px", marginBottom: "4px" }}>
                           <span style={{ fontWeight: "bold", fontSize: "11px", color: "var(--text-primary)" }}>{label}</span>
-                          <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--teal)" }}>Total: {total}</span>
+                          <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--brand)" }}>Total: {total}</span>
                         </div>
                         <div style={{ display: "grid", gridTemplateColumns: displayItems.length > 3 ? "repeat(2, minmax(0, 1fr))" : "1fr", gap: "2px 10px", fontSize: "11px" }}>
                           {displayItems.map((p, idx) => (
@@ -1146,7 +1147,7 @@ const AnalyticsAlertsCharts = ({ reportData, reportFromDate, reportToDate }) => 
                         return (
                           <div className="custom-chart-tooltip">
                             <p style={{ margin: "0", fontWeight: "bold" }}>{data.name}</p>
-                            <p style={{ margin: "4px 0 0 0", color: "var(--teal)" }}><strong>Alerts:</strong> {data.size}</p>
+                            <p style={{ margin: "4px 0 0 0", color: "var(--brand)" }}><strong>Alerts:</strong> {data.size}</p>
                           </div>
                         );
                       }
@@ -1166,7 +1167,7 @@ const AnalyticsAlertsCharts = ({ reportData, reportFromDate, reportToDate }) => 
                         return (
                           <div className="custom-chart-tooltip">
                             <p style={{ margin: "0", fontWeight: "bold" }}>{payload[0].payload.ip}</p>
-                            <p style={{ margin: "4px 0 0 0", color: "var(--teal)" }}><strong>Alerts:</strong> {payload[0].value}</p>
+                            <p style={{ margin: "4px 0 0 0", color: "var(--brand)" }}><strong>Alerts:</strong> {payload[0].value}</p>
                           </div>
                         );
                       }
@@ -2102,7 +2103,6 @@ const DashboardPage = () => {
   const [actionsDropdownOpen, setActionsDropdownOpen] = useState(false);
   const actionsDropdownRef = useRef(null);
   const widgetsScrollRef = useRef(null);
-
   const [wEdge, setWEdge] = useState({ start: true, end: false });
   const updateWEdge = () => {
     const el = widgetsScrollRef.current;
@@ -2915,7 +2915,7 @@ const DashboardPage = () => {
             );
           })}
         </div>
-      </div>       
+      </div>
 
       <div className="enhanced-card bandwidth-card sys-bw">
               <div className="enhanced-card-header">
@@ -2966,13 +2966,12 @@ const DashboardPage = () => {
                 )}
               </div>
             </div>
-
       </div>
 
       {/* ── Enhanced Diagnostics & Service Status Section ── */}
       <div className="enhanced-widgets-section">
         <div className="widgets-carousel-wrapper">
-         {!wEdge.start && (
+          {!wEdge.start && (
             <button className="carousel-arrow carousel-arrow-left" onClick={() => scrollWidgets(-1)} aria-label="Previous widgets">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
             </button>
@@ -3173,7 +3172,7 @@ const DashboardPage = () => {
                       className="card-inline-bar-fill"
                       style={{
                         width: `${storageDiagnostics.usage_pct}%`,
-                        background: storageDiagnostics.warning_status ? "linear-gradient(90deg, #f59e0b, #ef4444)" : "linear-gradient(90deg, var(--teal), #00d2ff)"
+                        background: storageDiagnostics.warning_status ? "linear-gradient(90deg, #f59e0b, #ef4444)" : "linear-gradient(90deg, var(--button-bg), #00d2ff)"
                       }}
                     />
                   </div>
@@ -3200,7 +3199,7 @@ const DashboardPage = () => {
                         borderRadius: "4px",
                         border: "1px solid var(--border)",
                         background: bitrateFilter === f ? "rgba(16, 185, 129, 0.2)" : "rgba(255, 255, 255, 0.02)",
-                        color: bitrateFilter === f ? "var(--teal)" : "var(--text-secondary)",
+                        color: bitrateFilter === f ? "var(--brand)" : "var(--text-secondary)",
                         cursor: "pointer",
                         transition: "all 0.2s"
                       }}
@@ -3242,8 +3241,6 @@ const DashboardPage = () => {
               </div>
             </div>
             */}
-
-
 
           </div>{/* end widgets-scroll-track */}
 
@@ -3736,7 +3733,7 @@ const DashboardPage = () => {
                                 <td style={{ color: "#ef4444", fontWeight: "600" }}>{row.cam_down_hrs}</td>
                                 <td style={{ color: "#22c55e", fontWeight: "600" }}>{row.rec_up_hrs}</td>
                                 <td style={{ color: "#ef4444", fontWeight: "600" }}>{row.rec_down_hrs}</td>
-                                <td style={{ color: "var(--teal)", fontWeight: "600" }}>{row.storage_consumed}</td>
+                                <td style={{ color: "var(--brand)", fontWeight: "600" }}>{row.storage_consumed}</td>
                               </>
                             )}
                           </tr>
@@ -3938,7 +3935,7 @@ const DashboardPage = () => {
                               <button 
                                 onClick={() => handleRestartCamera(cam)}
                                 style={{
-                                  background: 'var(--teal)', color: '#fff', border: 'none',
+                                  background: 'var(--button-bg)', color: '#fff', border: 'none',
                                   padding: '6px 12px', borderRadius: '4px', cursor: 'pointer',
                                   fontSize: '12px', fontWeight: 'bold'
                                 }}

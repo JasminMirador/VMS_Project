@@ -50,7 +50,7 @@
 .alarms-tab:hover { color: var(--text-primary); }
 .alarms-tab--active {
   color: var(--text-primary);
-  border-bottom-color: var(--teal);
+  border-bottom-color: var(--brand);
   font-weight: 500;
 }
 
@@ -153,8 +153,8 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--teal);
-  box-shadow: 0 0 4px var(--teal);
+  background: var(--button-bg);
+  box-shadow: 0 0 4px var(--button-bg);
 }
 
 /* ── Cell styles ─────────────────────────────────── */
@@ -182,5 +182,5 @@
   padding: 2px 8px;
   border-radius: 4px;
 }
-.alarms-status--done    { background: rgba(0,200,160,0.12); color: var(--teal); }
+.alarms-status--done    { background: rgba(var(--brand-rgb), 0.12); color: var(--brand); }
 .alarms-status--pending { background: rgba(255,179,64,0.12); color: var(--yellow); }

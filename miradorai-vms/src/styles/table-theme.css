@@ -1,0 +1,122 @@
+/* ── Table theme ──────────────────────────────────────────────────────
+   Colourful tables in dark mode only (light mode keeps the original table look). Applies to every
+   .m-table (Cameras, Devices, Logs, ...). Loaded last, !important so page
+   CSS (e.g. the Cameras white-text rules) can't flatten it. */
+:root {
+  --tbl-head-bg:    rgba(34,211,238,.12);
+  --tbl-head-text:  #67e8f9;
+  --tbl-head-line:  rgba(34,211,238,.55);
+  --tbl-row-alt:    rgba(34,211,238,.025);
+  --tbl-row-hover:  rgba(34,211,238,.12);
+  --tbl-row-accent: #22d3ee;
+  --tbl-link:       #67e8f9;
+  --tbl-link-hover: #a5f3fc;
+}
+html:not([data-theme='light']) .m-table th,
+html:not([data-theme='light']) .cam-table-wrap .m-table th {
+  /* opaque base + tint on top, so rows don't show through the sticky header */
+  background-color: var(--bg-surface) !important;
+  background-image: linear-gradient(var(--tbl-head-bg), var(--tbl-head-bg)) !important;
+  z-index: 100 !important;
+  color: var(--tbl-head-text) !important;
+  border-bottom: 2px solid var(--tbl-head-line) !important;
+}
+
+html:not([data-theme='light']) .m-table tbody tr:nth-child(even) td {
+  background-color: var(--tbl-row-alt);
+}
+
+html:not([data-theme='light']) .m-table tbody tr:hover td,
+html:not([data-theme='light']) .m-table__row:hover td {
+  background-color: var(--tbl-row-hover) !important;
+}
+html:not([data-theme='light']) .m-table tbody tr:hover td:first-child,
+html:not([data-theme='light']) .m-table__row:hover td:first-child {
+  box-shadow: inset 3px 0 0 var(--tbl-row-accent);
+}
+
+html:not([data-theme='light']) .m-table__row--selected td {
+  background-color: var(--brand-tint) !important;
+  box-shadow: inset 0 1px 0 var(--brand-tint-border), inset 0 -1px 0 var(--brand-tint-border);
+}
+html:not([data-theme='light']) .m-table__row--selected td:first-child {
+  box-shadow: inset 3px 0 0 var(--tbl-row-accent), inset 0 1px 0 var(--brand-tint-border), inset 0 -1px 0 var(--brand-tint-border);
+}
+
+html:not([data-theme='light']) .m-table__primary { color: var(--tbl-link) !important; }
+
+html:not([data-theme='light']) .cam-ip-link,
+html:not([data-theme='light']) .cam-table-wrap .m-table td .cam-ip-link {
+  color: var(--tbl-link) !important;
+}
+html:not([data-theme='light']) .cam-ip-link:hover,
+html:not([data-theme='light']) .cam-table-wrap .m-table td .cam-ip-link:hover {
+  color: var(--tbl-link-hover) !important;
+}
+
+/* ── Light mode scrollbars ────────────────────────────────────────────
+   Light track + soft thumb (the Cameras table had a hard-coded dark track). */
+[data-theme='light'] ::-webkit-scrollbar-track { background: #f1f5f9; }
+[data-theme='light'] ::-webkit-scrollbar-thumb { background: #cbd5e1; }
+[data-theme='light'] ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+html[data-theme='light'] .cameras-page .cam-table-wrap::-webkit-scrollbar-track { background: #f1f5f9; }
+html[data-theme='light'] .cameras-page .cam-table-wrap::-webkit-scrollbar-thumb { background: #cbd5e1; }
+html[data-theme='light'] .cameras-page .cam-table-wrap::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* ── Modal header (dark mode) ─────────────────────────────────────────
+   Same look as the table header: opaque dark base + cyan tint, cyan
+   title text; no bottom border. */
+html:not([data-theme='light']) .m-modal__header,
+html:not([data-theme='light']) .modal-header,
+html:not([data-theme='light']) .success-modal-header,
+html:not([data-theme='light']) .mgmt-modal__header,
+html:not([data-theme='light']) .mp-modal-header,
+html:not([data-theme='light']) .mp-trim-modal-header,
+html:not([data-theme='light']) .mv-zone-name-modal__header,
+html:not([data-theme='light']) .ar-modal__header,
+html:not([data-theme='light']) .iop-modal__header,
+html:not([data-theme='light']) .raw-modal-header,
+html:not([data-theme='light']) .vms-modal-header,
+html:not([data-theme='light']) .dv-export-modal-header,
+html:not([data-theme='light']) .ec-titlebar {
+  background-color: var(--bg-surface) !important;
+  background-image: linear-gradient(var(--tbl-head-bg), var(--tbl-head-bg)) !important;
+  border-bottom: none !important;
+  border-radius: 12px 12px 0 0 !important;
+}
+html:not([data-theme='light']) .m-modal__header :is(h1,h2,h3,h4,[class*='title']),
+html:not([data-theme='light']) .modal-header :is(h1,h2,h3,h4,[class*='title']),
+html:not([data-theme='light']) .success-modal-header :is(h1,h2,h3,h4,[class*='title']),
+html:not([data-theme='light']) .mgmt-modal__header :is(h1,h2,h3,h4,[class*='title']),
+html:not([data-theme='light']) .mp-modal-header :is(h1,h2,h3,h4,[class*='title']),
+html:not([data-theme='light']) .mp-trim-modal-header :is(h1,h2,h3,h4,[class*='title']),
+html:not([data-theme='light']) .mv-zone-name-modal__header :is(h1,h2,h3,h4,[class*='title']),
+html:not([data-theme='light']) .ar-modal__header :is(h1,h2,h3,h4,[class*='title']),
+html:not([data-theme='light']) .iop-modal__header :is(h1,h2,h3,h4,[class*='title']),
+html:not([data-theme='light']) .raw-modal-header :is(h1,h2,h3,h4,[class*='title']),
+html:not([data-theme='light']) .vms-modal-header :is(h1,h2,h3,h4,[class*='title']),
+html:not([data-theme='light']) .dv-export-modal-header :is(h1,h2,h3,h4,[class*='title']),
+html:not([data-theme='light']) .ec-titlebar :is(h1,h2,h3,h4,[class*='title']) {
+  color: var(--tbl-head-text) !important;
+  -webkit-text-fill-color: var(--tbl-head-text) !important;
+}
+
+/* ── Cameras side panel card (dark mode) ──────────────────────────────
+   Same background as the table header (opaque base + cyan tint). */
+html:not([data-theme='light']) .cam-side-panel,
+html:not([data-theme='light']) .cam-side-panel.card {
+  background-color: var(--bg-surface) !important;
+  background-image: linear-gradient(var(--tbl-head-bg), var(--tbl-head-bg)) !important;
+  border-left: none !important;
+}
+
+/* Side panel body (dark mode): no own background, shows the panel's. */
+html:not([data-theme='light']) .cam-side-body,
+html:not([data-theme='light']) .cameras-page .cam-side-body {
+  background: transparent !important;
+}
+
+/* Cameras dialog title bar (dark mode): no bottom border */
+html:not([data-theme='light']) .ec-titlebar {
+  border-bottom: none !important;
+}

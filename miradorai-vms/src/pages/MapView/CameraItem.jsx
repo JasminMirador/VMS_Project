@@ -175,12 +175,12 @@ export default function CameraItem({ cam, isPlaced, isActive, onSelect, onDragSt
               </span>
             )}
           </div>
-          <div style={{ marginTop: "10px", fontStyle: "italic", color: "var(--teal)", fontSize: "10.5px", display: "flex", alignItems: "center", gap: "6px" }}>
-            <span style={{ display: "inline-block", width: "6px", height: "6px", borderRadius: "50%", background: "var(--teal)" }}></span>
+          <div style={{ marginTop: "10px", fontStyle: "italic", color: "var(--brand)", fontSize: "10.5px", display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ display: "inline-block", width: "6px", height: "6px", borderRadius: "50%", background: "var(--button-bg)" }}></span>
             {specs.isMatched ? "Beam matched to datasheet" : "Standard camera datasheet specifications"}
           </div>
         </div>
       )}
     </div>
   );
-}
+}

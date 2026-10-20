@@ -231,7 +231,7 @@ const NetworkHealthPage = () => {
           {/* 3. Mongo Database Sync Card */}
           <div className="metric-card span-4">
             <div className="card-header-styled">
-              <h3><Database size={16} className="header-icon" style={{ color: "var(--teal)" }} /> Mongo Replica Set</h3>
+              <h3><Database size={16} className="header-icon" style={{ color: "var(--brand)" }} /> Mongo Replica Set</h3>
               <span className="status-badge healthy">Syncing</span>
             </div>
             <div className="compact-val-row">
@@ -318,7 +318,7 @@ const NetworkHealthPage = () => {
           <div className="metric-card span-12">
             <div className="chart-controls">
               <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: "8px" }}>
-                <Clock size={16} style={{ color: "var(--teal)" }} /> Telemetry Trends
+                <Clock size={16} style={{ color: "var(--brand)" }} /> Telemetry Trends
               </h3>
               <div className="time-range-selectors">
                 <button className={`range-btn ${range === "1h" ? "active" : ""}`} onClick={() => setRange("1h")}>1H</button>
@@ -423,7 +423,7 @@ const NetworkHealthPage = () => {
 
             <g className="topo-node" transform="translate(400, 200)">
               <rect x="-60" y="-40" width="120" height="80" className="node-box primary" />
-              <Server size={24} x="-12" y="-24" style={{ color: "var(--teal)" }} />
+              <Server size={24} x="-12" y="-24" style={{ color: "var(--brand)" }} />
               <text y="15" textAnchor="middle" className="node-text-title">Primary VMS</text>
               <text y="30" textAnchor="middle" className="node-text-sub">Mongo Primary</text>
               <circle cx="50" cy="-30" r="6" className="node-badge" />
@@ -523,7 +523,7 @@ const NetworkHealthPage = () => {
                   </div>
                   <div className="result-box">
                     <p>IP Address: <strong>{diagResult.ip}</strong></p>
-                    <p>Connection: <strong style={{ color: diagResult.status === "Online" ? "var(--teal)" : "var(--red)" }}>{diagResult.status}</strong></p>
+                    <p>Connection: <strong style={{ color: diagResult.status === "Online" ? "var(--brand)" : "var(--red)" }}>{diagResult.status}</strong></p>
                     {diagResult.latency && <p>Roundtrip: <strong>{diagResult.latency}ms</strong></p>}
                     {diagResult.error && <p style={{ color: "var(--red)" }}>{diagResult.error}</p>}
                   </div>

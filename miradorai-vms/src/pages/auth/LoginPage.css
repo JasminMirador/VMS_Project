@@ -1062,9 +1062,9 @@
   --auth-red-border: rgba(239, 68, 68, 0.35);
   --auth-red-text:   #f87171;
 
-  --auth-green-bg:     rgba(16, 185, 129, 0.12);
-  --auth-green-border: rgba(16, 185, 129, 0.35);
-  --auth-green-text:   #34d399;
+  --auth-green-bg:     rgba(var(--brand-rgb), 0.12);
+  --auth-green-border: rgba(var(--brand-rgb), 0.35);
+  --auth-green-text:   var(--brand-hover);
 
   --auth-surface-alt:    #0a0c10; /* recessed relative to the card */
   --auth-surface-raised: #1e232e; /* raised relative to surface-alt */

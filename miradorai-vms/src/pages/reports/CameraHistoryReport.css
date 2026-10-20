@@ -36,11 +36,11 @@
 }
 
 .date-picker-group input:focus {
-  border-color: var(--teal);
+  border-color: var(--brand);
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--teal), #059669);
+  background: linear-gradient(135deg, var(--brand), var(--brand));
   color: #fff;
   border: none;
   padding: 0.6rem 1.5rem;
@@ -69,9 +69,9 @@
 }
 
 .btn-export:hover {
-  background: rgba(16, 185, 129, 0.1);
-  border-color: var(--teal);
-  color: var(--teal);
+  background: rgba(var(--brand-rgb), 0.1);
+  border-color: var(--brand);
+  color: var(--brand);
 }
 
 .header-actions {
@@ -112,15 +112,15 @@
   font-size: 0.95rem;
 }
 
-.text-success { color: var(--teal) !important; font-weight: 600; }
+.text-success { color: var(--brand) !important; font-weight: 600; }
 .text-danger { color: #ef4444 !important; font-weight: 600; }
 .text-center { text-align: center; }
 .text-muted { color: var(--text-secondary); font-size: 0.9rem; }
 
 .btn-details {
   background: transparent;
-  border: 1px solid var(--teal);
-  color: var(--teal);
+  border: 1px solid var(--brand);
+  color: var(--brand);
   padding: 0.3rem 0.8rem;
   border-radius: 4px;
   cursor: pointer;
@@ -129,7 +129,7 @@
 }
 
 .btn-details:hover {
-  background: rgba(16, 185, 129, 0.1);
+  background: rgba(var(--brand-rgb), 0.1);
 }
 
 .events-row td {
@@ -182,9 +182,9 @@
 }
 
 .event-badge.up {
-  background: rgba(16, 185, 129, 0.15);
-  color: var(--teal);
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: rgba(var(--brand-rgb), 0.15);
+  color: var(--brand);
+  border: 1px solid rgba(var(--brand-rgb), 0.3);
 }
 
 .event-badge.down {

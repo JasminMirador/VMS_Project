@@ -47,23 +47,23 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background-color: var(--teal);
-  box-shadow: 0 0 0 0 var(--teal-glow);
+  background-color: var(--button-bg);
+  box-shadow: 0 0 0 0 var(--brand-glow);
   animation: pulse-green 2s infinite;
 }
 
 @keyframes pulse-green {
   0% {
     transform: scale(0.95);
-    box-shadow: 0 0 0 0 var(--teal-glow);
+    box-shadow: 0 0 0 0 var(--brand-glow);
   }
   70% {
     transform: scale(1);
-    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+    box-shadow: 0 0 0 6px rgba(var(--brand-rgb), 0);
   }
   100% {
     transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+    box-shadow: 0 0 0 0 rgba(var(--brand-rgb), 0);
   }
 }
 
@@ -100,9 +100,9 @@
 }
 
 .tab-btn.active {
-  color: var(--teal);
-  background: var(--teal-subtle);
-  border: 1px solid var(--teal-glow);
+  color: var(--brand);
+  background: var(--brand-tint);
+  border: 1px solid var(--brand-glow);
 }
 
 /* Dashboard Content Grid */
@@ -152,7 +152,7 @@
 }
 
 .header-icon {
-  color: var(--teal);
+  color: var(--brand);
 }
 
 .status-badge {
@@ -165,9 +165,9 @@
 }
 
 .status-badge.healthy {
-  background-color: var(--teal-subtle);
-  color: var(--teal);
-  border: 1px solid var(--teal-glow);
+  background-color: var(--brand-tint);
+  color: var(--brand);
+  border: 1px solid var(--brand-glow);
 }
 
 .status-badge.warning {
@@ -243,7 +243,7 @@
 }
 
 .val-data.blue { color: var(--blue); }
-.val-data.green { color: var(--teal); }
+.val-data.green { color: var(--brand); }
 .val-data.red { color: var(--red); }
 .val-data.yellow { color: var(--yellow); }
 
@@ -265,7 +265,7 @@
 
 .fill-network { background: var(--blue); }
 .fill-repl { background: var(--purple); }
-.fill-lan { background: var(--teal); }
+.fill-lan { background: var(--button-bg); }
 
 /* Compact info list */
 .stats-info-list.compact {
@@ -326,9 +326,9 @@
 }
 
 .range-btn.active {
-  background: var(--teal-subtle);
-  color: var(--teal);
-  border-color: var(--teal);
+  background: var(--brand-tint);
+  color: var(--brand);
+  border-color: var(--brand);
 }
 
 .chart-wrapper {
@@ -403,8 +403,8 @@
 }
 
 .node-box.primary {
-  fill: var(--teal-subtle);
-  stroke: var(--teal);
+  fill: var(--brand-tint);
+  stroke: var(--brand);
   stroke-width: 2px;
 }
 
@@ -428,7 +428,7 @@
 }
 
 .node-badge {
-  fill: var(--teal);
+  fill: var(--brand);
 }
 
 .topo-link {
@@ -438,7 +438,7 @@
 }
 
 .topo-link-active {
-  stroke: var(--teal);
+  stroke: var(--brand);
   stroke-width: 3px;
   animation: dash 30s linear infinite;
 }
@@ -456,8 +456,8 @@
 }
 
 .traffic-particle {
-  fill: var(--teal);
-  filter: drop-shadow(0 0 3px var(--teal));
+  fill: var(--brand);
+  filter: drop-shadow(0 0 3px var(--button-bg));
 }
 
 .traffic-particle-repl {
@@ -503,7 +503,7 @@
   font-weight: 700;
 }
 
-.latency-indicator.low { background: var(--teal-subtle); color: var(--teal); }
+.latency-indicator.low { background: var(--brand-tint); color: var(--brand); }
 .latency-indicator.mid { background: rgba(245, 158, 11, 0.1); color: var(--yellow); }
 .latency-indicator.high { background: rgba(239, 68, 68, 0.1); color: var(--red); }
 
@@ -536,7 +536,7 @@
 }
 
 .search-box button {
-  background: var(--teal);
+  background: var(--brand);
   color: var(--bg-base);
   border: none;
   padding: 8px 12px;

@@ -782,7 +782,7 @@ function formatEventTimestamp(value) {
           <span className="side-playback-subtitle">
             {cameraIp}
             {playingAlert && eventTimestamp && (
-              <span style={{ marginLeft: "8px", fontWeight: "600", color: "var(--teal)" }}>
+              <span style={{ marginLeft: "8px", fontWeight: "600", color: "var(--brand)" }}>
                 {eventTimestamp}
               </span>
             )}

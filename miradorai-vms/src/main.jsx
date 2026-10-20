@@ -4,6 +4,8 @@ import App from "./App";
 import Toast from "./components/shared/Toast";
 import "./styles/global.css";
 import "./mobile.css";
+import "./styles/button-theme.css";
+import "./styles/table-theme.css";
  
 // Global Fetch Interceptor to attach JWT token
 const originalFetch = window.fetch;

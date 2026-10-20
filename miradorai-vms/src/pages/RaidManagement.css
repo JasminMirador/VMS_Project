@@ -83,8 +83,8 @@
 }
 
 .rm-device-item--selected {
-  border-color: var(--teal);
-  background: var(--teal-subtle);
+  border-color: var(--brand);
+  background: var(--brand-tint);
 }
 
 .rm-device-left {
@@ -141,7 +141,8 @@
   padding: 16px;
   font-family: var(--font-mono);
   font-size: 13px;
-  color: var(--teal);
+  color: var(--brand);
+
   line-height: 1.7;
   white-space: pre-wrap;
   min-height: 260px;

@@ -660,7 +660,8 @@
 }
 
 [data-theme="light"] .vt-expanded-tab.active {
-  color: var(--teal);
+  color: var(--brand);
+
   border-bottom-color: var(--teal);
 }
 
@@ -687,4 +688,4 @@
 [data-theme="light"] .vt-alerts-loading,
 [data-theme="light"] .vt-alerts-empty {
   color: var(--text-muted);
-}
+}
