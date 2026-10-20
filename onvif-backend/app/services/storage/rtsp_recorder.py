@@ -44,7 +44,7 @@ _last_motion_trigger_times: dict[str, float] = {}
 _recording_durations: dict[str, dict[str, float]] = {}
 
 # ── MongoDB (shared client for all recorder operations) ─────────────
-MONGO_URI    = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
+MONGO_URI    = os.environ["MONGO_URI"]
 _mongo       = mongo_client
 _db = _mongo[os.environ.get("MONGO_DB_NAME")] if _mongo else None
 _schedules = _db["schedules"] if _db is not None else None

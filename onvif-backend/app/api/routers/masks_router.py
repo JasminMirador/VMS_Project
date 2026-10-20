@@ -21,7 +21,7 @@ _masks_col = None
 try:
     import os
     from app.core.database import mongo_client
-    MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
+    MONGO_URI = os.environ["MONGO_URI"]
     _mongo    = mongo_client
     _mongo.server_info()
     _db_name = os.environ.get("MONGO_DB_NAME")

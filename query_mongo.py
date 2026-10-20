@@ -1,6 +1,6 @@
 import pymongo
 import os
-client = pymongo.MongoClient(os.environ.get("MONGO_URI", "mongodb://localhost:27017/"))
+client = pymongo.MongoClient(os.environ["MONGO_URI"])
 db = client[os.environ.get("MONGO_DB_NAME")]
 col = db['mqtt_logs']
 pipeline = [

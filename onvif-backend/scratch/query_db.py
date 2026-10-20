@@ -1,7 +1,7 @@
 import pymongo
 import os
 
-client = pymongo.MongoClient("mongodb://localhost:27017/")
+client = pymongo.MongoClient(os.environ["MONGO_URI"])
 db = client[os.environ.get("MONGO_DB_NAME")]
 collection = db["recordings"]
 

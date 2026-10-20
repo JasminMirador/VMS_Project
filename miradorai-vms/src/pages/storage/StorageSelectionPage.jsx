@@ -3,6 +3,9 @@ import DataTable from "../../components/shared/DataTable";
 import Button from "../../components/shared/Button";
 import Toggle from "../../components/shared/Toggle";
 import "./StorageSelectionPage.css";
+const BACKEND =
+  import.meta.env.VITE_API_URL ??
+  `http://${import.meta.env.VITE_API_HOST}:${import.meta.env.VITE_API_PORT}`;
 
 export default function StorageSelectionPage() {
   const [rows, setRows]         = useState([]);
@@ -17,7 +20,7 @@ export default function StorageSelectionPage() {
   const [failover, setFailover]   = useState(false);
 
   const fetchData = () => {
-    fetch("http://localhost:8000/api/storage/selection")
+    fetch(`${BACKEND}/api/storage/selection`)
       .then(r => r.json())
       .then(data => {
         setRows(data.map((cam, i) => ({
@@ -53,7 +56,7 @@ export default function StorageSelectionPage() {
     const sel = rows.find(r => r.id === selected)?.raw;
     if (!sel) return;
     setSaving(true);
-    await fetch("http://localhost:8000/api/storage/selection", {
+    await fetch(`${BACKEND}/api/storage/selection`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -88,7 +91,7 @@ export default function StorageSelectionPage() {
         <div className="ss-panel__title">
           Recording Storage Policy
           {selected !== null && (
-            <span style={{ fontSize: 11, color: "var(--teal)", marginLeft: 8 }}>
+            <span style={{ fontSize: 11, color: "var(--brand)", marginLeft: 8 }}>
               — {rows.find(r => r.id === selected)?.raw?.device}
             </span>
           )}

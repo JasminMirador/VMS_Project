@@ -7,7 +7,7 @@ import psutil
 from .email_alerts import alert_device_offline, alert_unexpected_reboot
 from .uptime_tracker import record_uptime_snapshot, get_uptime_report
 
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
+MONGO_URI = os.environ["MONGO_URI"]
 MONGO_DB_NAME = os.environ.get("MONGO_DB_NAME")
 client = mongo_client
 db = client[MONGO_DB_NAME] if client else None

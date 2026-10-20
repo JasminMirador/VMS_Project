@@ -15,7 +15,7 @@ from cryptography.hazmat.backends import default_backend
 from recorder.encrypt_service import MASTER_KEY
 
 # Configuration
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
+MONGO_URI = os.environ["MONGO_URI"]
 MONGO_DB_NAME = os.environ.get("MONGO_DB_NAME", "vms_db")
 MEDIAMTX_HOST = os.environ.get("MEDIAMTX_HOST", "127.0.0.1:8554")
 BUFFER_DIR = os.environ.get("BUFFER_DIR", "C:\\recording\\instant_buffer" if os.name == "nt" else "/recording/instant_buffer")

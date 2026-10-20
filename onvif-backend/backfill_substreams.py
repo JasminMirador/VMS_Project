@@ -1,12 +1,17 @@
-import urllib.parse
-from pymongo import MongoClient
-import requests
-
 import os
+import urllib.parse
+from pathlib import Path
+
+import requests
+from dotenv import load_dotenv
+from pymongo import MongoClient
+
+# Script lives in onvif-backend/, so parent.parent is VMS_Project (where .env is)
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 def backfill():
-    client = MongoClient(os.environ.get("MONGO_URI", "mongodb://localhost:27017/"))
-    db = client[os.environ.get("MONGO_DB_NAME")]
+    client = MongoClient(os.environ["MONGO_URI"])
+    db = client[os.environ["MONGO_DB_NAME"]]
     cameras = list(db.cameras.find({}))
     updated = 0
     for cam in cameras:
@@ -62,7 +67,7 @@ def backfill():
             }
             try:
                 sub_res = requests.post(
-                    f"http://localhost:9997/v3/config/paths/add/{sub_key}",
+                    f"{os.environ['MEDIAMTX_API_URL']}/v3/config/paths/add/{sub_key}",
                     json=payload,
                     timeout=5
                 )

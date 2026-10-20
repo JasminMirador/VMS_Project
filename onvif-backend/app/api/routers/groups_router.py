@@ -9,7 +9,6 @@ import time
 router = APIRouter(prefix="/api", tags=["groups"])
 
 @router.get("/groups", dependencies=[Depends(verify_token)])
-@limiter.limit("1/minute")
 async def get_groups(request: Request):
     if db is None:
         return JSONResponse({"error": "Database not connected"}, status_code=500)

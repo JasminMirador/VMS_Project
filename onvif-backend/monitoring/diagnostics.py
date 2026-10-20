@@ -7,7 +7,7 @@ import re
 from datetime import datetime
 from app.core.database import mongo_client
 
-MONGO_URI       = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
+MONGO_URI       = os.environ["MONGO_URI"]
 MONGO_DB_NAME   = os.environ.get("MONGO_DB_NAME", "vms_demo")
 
 

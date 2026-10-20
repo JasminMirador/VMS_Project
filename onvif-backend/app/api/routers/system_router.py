@@ -22,7 +22,7 @@ import os
 import sys
 STARTUP_ID = str(uuid.uuid4())
 
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
+MONGO_URI = os.environ["MONGO_URI"]
 
 CACHED_DISCOVERED_DEVICES = []
 _discovery_in_progress = False
@@ -87,7 +87,7 @@ async def run_discovery_pipeline():
                 status_code = 200 if status == "ok" else 0
  
             if status_code in (200, 201, 409):
-                device["ws_url"]        = f"http://localhost:8889/{stream_name}"
+                device["ws_url"]        = f"{os.environ['MEDIAMTX_PUBLIC_URL']}/{stream_name}"
                 device["stream_key"]    = stream_name
                 device["stream_status"] = "streaming"
  
@@ -146,7 +146,7 @@ def health():
     # 2. Mosquitto Check
     mosquitto_ok = False
     try:
-        mqtt_host = os.environ.get("MQTT_BROKER", "127.0.0.1")
+        mqtt_host = os.environ["MQTT_BROKER"]
         mqtt_port = int(os.environ.get("MQTT_PORT", 1883))
         with socket.create_connection((mqtt_host, mqtt_port), timeout=1):
             mosquitto_ok = True
@@ -156,7 +156,7 @@ def health():
     # 3. MinIO Check
     minio_ok = False
     try:
-        minio_endpoint = os.environ.get("MINIO_ENDPOINT", "127.0.0.1:9000")
+        minio_endpoint = os.environ["MINIO_ENDPOINT"]
         m_host = minio_endpoint.split(":")[0] if ":" in minio_endpoint else minio_endpoint
         m_port = int(minio_endpoint.split(":")[1]) if ":" in minio_endpoint else 9000
         with socket.create_connection((m_host, m_port), timeout=1):
@@ -167,7 +167,7 @@ def health():
     # 4. MediaMTX Check
     mediamtx_ok = False
     try:
-        mtx_base = os.environ.get("MEDIAMTX_API_URL", "http://127.0.0.1:9997").rstrip('/')
+        mtx_base = os.environ["MEDIAMTX_API_URL"].rstrip('/')
         if not mtx_base.endswith('/v3/paths/list'):
             mtx_url = f"{mtx_base}/v3/paths/list"
         else:
@@ -279,13 +279,41 @@ def get_camera_health():
         )
         
         # 3. Combine registered info with live health info
+        is_enabled = cam.get("enabled") is not False
+        stream_st = cam.get("stream_status") or cam.get("status")
+        prof = cam.get("stream_profiles", [{}])[0] if cam.get("stream_profiles") else {}
+        default_fps = prof.get("fps", 25)
+        default_bitrate = prof.get("bitrate", 4096)
+        
+        if latest and latest.get("status"):
+            st = latest.get("status")
+            fps = latest.get("fps", 0)
+            bitrate = latest.get("bitrate", 0)
+        else:
+            if not is_enabled:
+                st = "offline"
+                fps = 0
+                bitrate = 0
+            elif stream_st == "streaming":
+                st = "online"
+                fps = default_fps
+                bitrate = default_bitrate
+            elif stream_st == "error":
+                st = "error"
+                fps = 0
+                bitrate = 0
+            else:
+                st = "online" if is_enabled else "offline"
+                fps = default_fps if is_enabled else 0
+                bitrate = default_bitrate if is_enabled else 0
+
         health_entry = {
             "name": cam.get("name") or cam.get("device_name") or f"Camera @ {ip}",
             "model": cam.get("model", "ONVIF Camera"),
             "ip": ip,
-            "status": latest.get("status", "offline") if latest else "offline",
-            "bitrate": latest.get("bitrate", 0) if latest else 0,
-            "fps": latest.get("fps", 0) if latest else 0,
+            "status": st,
+            "bitrate": bitrate,
+            "fps": fps,
             "timestamp": latest.get("timestamp") if latest else None
         }
         result.append(health_entry)
