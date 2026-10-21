@@ -661,8 +661,7 @@
 
 [data-theme="light"] .vt-expanded-tab.active {
   color: var(--brand);
-
-  border-bottom-color: var(--teal);
+  border-bottom-color: var(--brand);
 }
 
 [data-theme="light"] .vt-expanded-offline,

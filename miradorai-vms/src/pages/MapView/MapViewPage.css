@@ -35,7 +35,7 @@
   font-size: 20px;
   font-weight: 700;
   margin: 0;
-  background: linear-gradient(135deg, var(--text-primary) 0%, var(--teal) 100%);
+  background: linear-gradient(135deg, var(--text-primary) 0%, var(--button-bg) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   letter-spacing: -0.02em;
@@ -114,11 +114,10 @@
 
 /* Active State */
 .mv-tbtn-new.active {
-  background: var(--teal-subtle);
-  border-color: var(--teal);
+  background: var(--brand-tint);
+  border-color: var(--brand);
   color: var(--brand);
-
-  box-shadow: 0 0 12px var(--teal-glow);
+  box-shadow: 0 0 12px var(--brand-glow);
 }
 
 .mv-tbtn-new.active-virtual {
@@ -137,23 +136,25 @@
 
 .mv-tbtn-new.secondary:hover {
   background: var(--bg-hover);
-  border-color: var(--teal);
+  border-color: var(--brand);
   color: var(--brand);
+  box-shadow: 0 0 8px var(--brand-glow);
 
-  box-shadow: 0 0 8px var(--teal-glow);
+  box-shadow: 0 0 8px var(--brand-glow);
 }
 
 /* Success Action */
 .mv-tbtn-new.success {
-  background: rgba(16, 185, 129, 0.08);
-  border-color: var(--teal);
+  background: rgba(var(--brand-rgb), 0.08);
+  border-color: var(--brand);
   color: var(--brand);
+  box-shadow: 0 0 8px var(--brand-glow);
 
 }
 
 .mv-tbtn-new.success:hover {
-  background: rgba(16, 185, 129, 0.16);
-  box-shadow: 0 0 8px var(--teal-glow);
+  background: rgba(var(--brand-rgb), 0.16);
+  box-shadow: 0 0 8px var(--brand-glow);
 }
 
 /* Danger Action */
@@ -286,14 +287,14 @@
 }
 
 .mv-icon-btn--active {
-  background: var(--teal-subtle, rgba(16, 185, 129, 0.08));
-  border-color: var(--teal, #10b981);
-  color: var(--teal, #10b981);
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.12);
+  background: var(--brand-tint);
+  border-color: var(--brand);
+  color: var(--brand);
+  box-shadow: 0 0 0 2px rgba(var(--brand-rgb), 0.12);
 }
 
 .mv-icon-btn--active svg {
-  stroke: var(--teal, #10b981);
+  stroke: var(--brand);
 }
 
 .mv-icon-btn__label {
@@ -307,7 +308,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--teal, #10b981);
+  background: var(--brand);
   flex-shrink: 0;
   margin-left: -2px;
 }
@@ -396,14 +397,14 @@
 
 /* Active / selected state */
 .mv-dropdown-card--active {
-  background: rgba(16, 185, 129, 0.09);
-  border-color: rgba(16, 185, 129, 0.35);
-  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.15) inset;
+  background: rgba(var(--brand-rgb), 0.09);
+  border-color: rgba(var(--brand-rgb), 0.35);
+  box-shadow: 0 0 0 1px rgba(var(--brand-rgb), 0.15) inset;
 }
 
 .mv-dropdown-card--active:hover {
-  background: rgba(16, 185, 129, 0.14);
-  border-color: rgba(16, 185, 129, 0.50);
+  background: rgba(var(--brand-rgb), 0.14);
+  border-color: rgba(var(--brand-rgb), 0.50);
 }
 
 /* Virtual layer active (purple accent) */
@@ -445,9 +446,9 @@
 }
 
 .mv-dropdown-card--active .mv-dropdown-card__icon {
-  background: rgba(16, 185, 129, 0.15);
-  border-color: rgba(16, 185, 129, 0.3);
-  color: var(--teal, #10b981);
+  background: rgba(var(--brand-rgb), 0.15);
+  border-color: rgba(var(--brand-rgb), 0.3);
+  color: var(--brand);
 }
 
 .mv-dropdown-card__icon--heatmap {
@@ -491,7 +492,7 @@
 }
 
 .mv-dropdown-card--active .mv-dropdown-card__label {
-  color: var(--teal, #10b981);
+  color: var(--brand);
 }
 
 .mv-dropdown-card--virtual .mv-dropdown-card__label {
@@ -510,7 +511,7 @@
 .mv-dropdown-card__check {
   font-size: 13px;
   font-weight: 700;
-  color: var(--teal, #10b981);
+  color: var(--brand);
   flex-shrink: 0;
   margin-left: auto;
   padding-left: 6px;
@@ -542,8 +543,8 @@
 }
 
 .mv-dropdown-card__toggle--on {
-  background: var(--teal, #10b981);
-  border-color: var(--teal, #10b981);
+  background: var(--brand);
+  border-color: var(--brand, #10b981);
 }
 
 .mv-dropdown-card__toggle--on::after {
@@ -574,7 +575,7 @@
   width: 16px;
   height: 16px;
   border: 2px solid var(--border);
-  border-top-color: var(--teal, #10b981);
+  border-top-color: var(--brand);
   border-radius: 50%;
   animation: mvSpin 0.7s linear infinite;
   flex-shrink: 0;
@@ -890,8 +891,8 @@
 .mv-floor-btn--add:hover {
   color: var(--brand);
 
-  border-color: var(--teal);
-  background: var(--teal-subtle);
+  border-color: var(--brand);
+  background: var(--brand-subtle);
 }
 
 .mv-floor-btn--add .mv-floor-btn__num {
@@ -906,7 +907,7 @@
 .mv-floor-btn--add:hover .mv-floor-btn__num {
   color: var(--brand);
 
-  border-color: var(--teal);
+  border-color: var(--brand);
 }
 
 /* ── Zone button specifics ── */
@@ -1870,7 +1871,7 @@
   transition: all 0.15s;
 }
 .mv-stream-tab:hover   { color: var(--text-primary); background: var(--bg-hover); }
-.mv-stream-tab--active { color: var(--teal); border-bottom-color: var(--teal); background: var(--teal-subtle); }
+.mv-stream-tab--active { color: var(--brand); border-bottom-color: var(--brand); background: var(--brand-tint); }
 
 .mv-stream-body {
   flex: 1;
@@ -2027,8 +2028,8 @@
 }
 
 .mv-export-item__icon--heatmap {
-  color: #10b981;
-  background: rgba(16, 185, 129, 0.1);
+  color: var(--brand);
+  background: rgba(var(--brand-rgb), 0.1);
 }
 
 .mv-export-item__label {
@@ -2049,12 +2050,12 @@
 }
 
 .mv-tbtn--export {
-  color: #10b981;
-  border-color: #10b98140;
+  color: var(--brand);
+  border-color: rgba(var(--brand-rgb), 0.25);
 }
 
 .mv-tbtn--export:hover {
-  background: #10b98114;
+  background: rgba(var(--brand-rgb), 0.08);
 }
  
 .mv-zone-sidebar-item--active {
@@ -2323,10 +2324,10 @@
 }
 
 .mv-tbtn--pill-active {
-  background: var(--teal-subtle) !important;
-  border: 1.5px solid var(--teal) !important;
-  color: var(--teal) !important;
-  box-shadow: 0 0 10px var(--teal-glow) !important;
+  background: var(--brand-tint) !important;
+  border: 1.5px solid var(--brand) !important;
+  color: var(--brand) !important;
+  box-shadow: 0 0 10px var(--brand-glow) !important;
 }
 
 .mv-toolbar .mv-tbtn.mv-tbtn--clear,
@@ -2340,9 +2341,9 @@
 }
 
 .mv-tbtn--success {
-  border-color: #10b98150 !important;
-  background: #10b98122 !important;
-  color: #10b981 !important;
+  border-color: rgba(var(--brand-rgb), 0.31) !important;
+  background: rgba(var(--brand-rgb), 0.13) !important;
+  color: var(--brand) !important;
 }
 
 .mv-toolbar .mv-tbtn.mv-tbtn--danger-outline,
@@ -2571,10 +2572,10 @@
 }
 
 .mv-inspector-tab--active {
-  background: var(--teal-subtle) !important;
-  border: 1px solid var(--teal) !important;
-  color: var(--teal) !important;
-  box-shadow: 0 0 8px var(--teal-glow) !important;
+  background: var(--brand-tint) !important;
+  border: 1px solid var(--brand) !important;
+  color: var(--brand) !important;
+  box-shadow: 0 0 8px var(--brand-glow) !important;
 }
 
 .mv-inspector-close-btn {
@@ -2657,14 +2658,15 @@
   opacity: 0.7;
 }
 .mv-inspector-content .mv-cam-item--active {
-  background: rgba(16, 185, 129, 0.08) !important;
-  border: 1px solid var(--teal) !important;
-  border-left: 3.5px solid var(--teal) !important;
-  box-shadow: 0 0 12px var(--teal-glow) !important;
+  background: rgba(var(--brand-rgb), 0.08) !important;
+  border: 1px solid var(--brand) !important;
+  border-left: 3.5px solid var(--brand) !important;
+  box-shadow: 0 0 12px var(--brand-glow) !important;
 }
 .mv-inspector-content .mv-cam-dot--online {
-  background: var(--teal);
-  box-shadow: 0 0 6px var(--teal-glow);
+  background: rgba(var(--brand-rgb), 0.1);
+  color: var(--brand);
+  border: 1px solid rgba(var(--brand-rgb), 0.35);
 }
 .mv-inspector-content .mv-cam-dot--offline {
   background: var(--text-muted);
@@ -2761,10 +2763,10 @@
   font-weight: 700;
   border-radius: 99px;
   padding: 1px 6px;
-  background: var(--teal-subtle);
+  background: var(--brand-subtle);
   color: var(--brand);
 
-  border: 1px solid var(--teal-glow);
+  border: 1px solid var(--brand-glow);
 }
 
 .mv-zone-cam-list {
@@ -2836,8 +2838,8 @@
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
-  background: var(--teal-subtle);
-  border: 1px dashed rgba(16, 185, 129, 0.25);
+  background: var(--brand-tint);
+  border: 1px dashed rgba(var(--brand-rgb), 0.25);
   border-radius: var(--radius-sm);
   font-size: 13.5px;
   color: var(--text-secondary);
@@ -2940,9 +2942,9 @@
 .mv-toolbar .mv-tbtn:hover,
 .mv-toolbar .mv-tbtn:active,
 .mv-toolbar .mv-tbtn:focus {
-  background: var(--teal-subtle) !important;
-  border: 1.5px solid var(--teal) !important;
-  color: var(--teal) !important;
+  background: var(--brand-tint) !important;
+  border: 1.5px solid var(--brand) !important;
+  color: var(--brand) !important;
   font-weight: 600 !important;
   outline: none !important;
 }
@@ -2970,11 +2972,11 @@
 .mv-tbtn--active:active,
 .mv-tbtn--pill-active:active,
 .mv-floor-hud-btn--active:active {
-  background: var(--teal-subtle) !important;
-  border: 1.5px solid var(--teal) !important;
-  color: var(--teal) !important;
+  background: var(--brand-tint) !important;
+  border: 1.5px solid var(--brand) !important;
+  color: var(--brand) !important;
   font-weight: 600 !important;
-  box-shadow: 0 0 10px var(--teal-glow) !important;
+  box-shadow: 0 0 10px var(--brand-glow) !important;
   outline: none !important;
 }
 
@@ -2985,15 +2987,15 @@
 
 .mv-inspector-toggle:hover,
 .mv-inspector-toggle:active {
-  background: var(--teal-subtle) !important;
-  border-color: var(--teal) !important;
+  background: var(--brand-tint) !important;
+  border-color: var(--brand) !important;
   border-right: none !important;
-  color: var(--teal) !important;
+  color: var(--brand) !important;
 }
 
 .mv-inspector-toggle:hover .mv-inspector-toggle__text,
 .mv-inspector-toggle:active .mv-inspector-toggle__text {
-  color: var(--teal) !important;
+  color: var(--brand) !important;
 }
 /* 7. Ensure zone name, counts, chevrons, and actions are visible inside the right inspector panel */
 .mv-inspector-content .mv-zone-header-btn__name {
@@ -3197,8 +3199,8 @@
 }
 
 .mv-floor-card.active {
-  border: 1.5px solid var(--teal) !important;
-  box-shadow: 0 0 10px rgba(16, 185, 129, 0.15) !important;
+  border: 1.5px solid var(--brand) !important;
+  box-shadow: 0 0 10px rgba(var(--brand-rgb), 0.15) !important;
   transform: translateY(-1px);
 }
 
@@ -3280,7 +3282,7 @@
 .mv-floor-card__input {
   font-size: 11px;
   background: var(--bg-base);
-  border: 1px solid var(--teal);
+  border: 1px solid var(--button-bg);
   border-radius: 3px;
   color: var(--text-primary);
   padding: 1px 4px;
@@ -3345,8 +3347,8 @@
 }
 
 [data-theme="light"] .mv-floor-card.active {
-  box-shadow: 0 0 12px rgba(5, 150, 105, 0.2) !important;
-  border-color: var(--teal) !important;
+  box-shadow: 0 0 12px rgba(var(--brand-rgb), 0.2) !important;
+  border-color: var(--brand) !important;
 }
 
 [data-theme="light"] .mv-floor-card__thumb {
@@ -3378,9 +3380,9 @@
 }
 
 [data-theme="light"] .mv-floor-hud-btn--active {
-  background: var(--teal-subtle) !important;
-  border-color: var(--teal) !important;
-  color: var(--teal) !important;
+  background: var(--brand-tint) !important;
+  border-color: var(--brand) !important;
+  color: var(--brand) !important;
 }
 
 /* ── Canvas & HUD Light Theme Adaptations ── */
@@ -3460,7 +3462,7 @@
 .mv-inspector-content .mv-cam-item--expanded {
   opacity: 1 !important;
   background: var(--bg-elevated) !important;
-  border-color: var(--teal) !important;
+  border-color: var(--button-bg) !important;
 }
 
 .mv-cam-specs {
@@ -3491,7 +3493,7 @@
 
 [data-theme="light"] .mv-inspector-content .mv-cam-item--expanded {
   background: #ffffff !important;
-  border-color: var(--teal) !important;
+  border-color: var(--button-bg) !important;
   box-shadow: 0 2px 8px rgba(16, 185, 129, 0.15) !important;
 }
 
@@ -3526,8 +3528,8 @@
 }
 
 .mv-parts-btn:hover {
-  background: var(--teal-subtle, rgba(16, 185, 129, 0.2));
-  border-color: var(--teal, #10b981);
+  background: var(--brand-tint);
+  border-color: var(--brand);
   color: #ffffff;
 }
 
@@ -3545,9 +3547,9 @@
 }
 
 [data-theme="light"] .mv-parts-btn:hover {
-  background: rgba(16, 185, 129, 0.12);
-  border-color: #10b981;
-  color: #059669;
+  background: rgba(var(--brand-rgb), 0.12);
+  border-color: var(--brand);
+  color: var(--brand);
 }
 
 /* ── Layout Calibration Control Panel (Theme Adaptive) ── */
@@ -3599,7 +3601,7 @@
 }
 
 .mv-calib-panel__icon {
-  color: var(--teal, #10b981);
+  color: var(--brand);
 }
 
 .mv-calib-panel__title {
@@ -3655,9 +3657,9 @@
 }
 
 .mv-calib-type-card--active {
-  background: var(--teal-subtle, rgba(16, 185, 129, 0.12)) !important;
-  border-color: var(--teal, #10b981) !important;
-  box-shadow: 0 0 10px var(--teal-glow, rgba(16, 185, 129, 0.2));
+  background: var(--brand-tint) !important;
+  border-color: var(--brand) !important;
+  box-shadow: 0 0 10px var(--brand-glow);
 }
 
 .mv-calib-type-card__radio {
@@ -3676,8 +3678,8 @@
 }
 
 .mv-radio-dot.active {
-  border-color: var(--teal, #10b981);
-  background: var(--teal, #10b981);
+  border-color: var(--brand, #10b981);
+  background: var(--brand);
   box-shadow: inset 0 0 0 2.5px var(--bg-surface, #0f172a);
 }
 
@@ -3692,7 +3694,7 @@
 }
 
 .mv-calib-type-card--active .mv-calib-type-card__label {
-  color: var(--teal, #10b981);
+  color: var(--brand);
 }
 
 .mv-calib-type-card__desc {
@@ -3744,7 +3746,7 @@
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: var(--teal, #10b981);
+  background: var(--brand);
   color: #ffffff;
   font-size: 11px;
   font-weight: 700;
@@ -3785,8 +3787,8 @@
 }
 
 .mv-calib-input:focus {
-  border-color: var(--teal, #10b981);
-  box-shadow: 0 0 0 2px var(--teal-subtle, rgba(16, 185, 129, 0.2));
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px var(--brand-tint);
 }
 
 .mv-calib-select {
@@ -3812,8 +3814,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--teal-subtle, rgba(16, 185, 129, 0.1));
-  border: 1px solid var(--teal, rgba(16, 185, 129, 0.3));
+  background: var(--brand-tint);
+  border: 1px solid var(--brand);
   border-radius: 6px;
   padding: 8px 12px;
   font-size: 11.5px;
@@ -3821,7 +3823,7 @@
 }
 
 .mv-calib-ppm-badge strong {
-  color: var(--teal, #10b981);
+  color: var(--brand);
   font-family: monospace;
   font-size: 12px;
 }
@@ -3841,7 +3843,7 @@
 }
 
 .mv-calib-helper-banner svg {
-  color: var(--teal, #10b981);
+  color: var(--brand);
   flex-shrink: 0;
 }
 
@@ -3863,10 +3865,9 @@
 }
 
 .mv-calib-btn-sm {
-  background: var(--teal-subtle, rgba(16, 185, 129, 0.15));
-  border: 1px solid var(--teal, rgba(16, 185, 129, 0.35));
-  color: var(--teal, #34d399);
-  font-size: 10.5px;
+  background: var(--brand-tint);
+  border: 1px solid var(--button-bg);
+  color: var(--brand);  font-size: 10.5px;
   font-weight: 700;
   padding: 3px 8px;
   border-radius: 5px;
@@ -3875,8 +3876,8 @@
 }
 
 .mv-calib-btn-sm:hover {
-  background: var(--teal-subtle, rgba(16, 185, 129, 0.28));
-  border-color: var(--teal, #10b981);
+  background: var(--brand-tint);
+  border-color: var(--brand);
 }
 
 .mv-calib-empty-hint {
@@ -3908,7 +3909,7 @@
 
 .mv-calib-ref-item--active {
   background: var(--bg-hover, rgba(255, 255, 255, 0.08));
-  border-color: var(--teal, #10b981) !important;
+  border-color: var(--brand) !important;
 }
 
 .mv-calib-ref-item__left {
@@ -3950,7 +3951,7 @@
 .mv-calib-ref-item__dist {
   font-size: 11.5px;
   font-weight: 700;
-  color: var(--teal, #34d399);
+  color: var(--brand);
   font-family: monospace;
 }
 
@@ -3989,7 +3990,7 @@
 .mv-calib-input-xs {
   width: 58px;
   background: var(--bg-input, #0f172a);
-  border: 1px solid var(--teal, #10b981);
+  border: 1px solid var(--brand);
   color: var(--text-primary, #f8fafc);
   padding: 2px 4px;
   border-radius: 4px;
@@ -4009,7 +4010,7 @@
 }
 
 .mv-calib-btn-xs {
-  background: var(--teal, #10b981);
+  background: var(--brand);
   color: #ffffff;
   border: none;
   border-radius: 4px;
@@ -4049,8 +4050,8 @@
 }
 
 .mv-calib-quality-tag.excellent {
-  background: rgba(16, 185, 129, 0.15);
-  color: #10b981;
+  background: rgba(var(--brand-rgb), 0.15);
+  color: var(--brand);
 }
 
 .mv-calib-quality-tag.good {
@@ -4085,7 +4086,7 @@
 }
 
 .mv-calib-checkbox-label input[type="checkbox"] {
-  accent-color: var(--teal, #10b981);
+  accent-color: var(--brand);
   width: 14px;
   height: 14px;
   cursor: pointer;
@@ -4128,15 +4129,15 @@
 }
 
 .mv-calib-btn--primary {
-  background: var(--teal, #10b981);
+  background: var(--brand);
   color: #ffffff;
   border: 1px solid transparent;
-  box-shadow: 0 2px 8px var(--teal-glow, rgba(16, 185, 129, 0.3));
+  box-shadow: 0 2px 8px var(--brand-glow);
 }
 
 .mv-calib-btn--primary:hover:not(:disabled) {
-  background: #059669;
-  box-shadow: 0 4px 12px var(--teal-glow, rgba(16, 185, 129, 0.45));
+  background: var(--brand);
+  box-shadow: 0 4px 12px var(--brand-glow);
 }
 
 .mv-calib-btn--primary:disabled {
@@ -4200,8 +4201,8 @@
 }
 
 [data-theme="light"] .mv-calib-type-card--active {
-  background: rgba(16, 185, 129, 0.08) !important;
-  border-color: #10b981 !important;
+  background: rgba(var(--brand-rgb), 0.08) !important;
+  border-color: var(--brand) !important;
 }
 
 [data-theme="light"] .mv-radio-dot {
@@ -4319,14 +4320,14 @@
   font-weight: 700;
   padding: 1px 6px;
   border-radius: 4px;
-  background: rgba(16, 185, 129, 0.12);
-  color: #10b981;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: rgba(var(--brand-rgb), 0.12);
+  color: var(--brand);
+  border: 1px solid rgba(var(--brand-rgb), 0.3);
   margin-top: 3px;
 }
 
 [data-theme="light"] .mv-cam-coords-badge {
-  background: rgba(16, 185, 129, 0.1);
-  color: #059669;
-  border: 1px solid rgba(16, 185, 129, 0.25);
+  background: rgba(var(--brand-rgb), 0.1);
+  color: var(--brand);
+  border: 1px solid rgba(var(--brand-rgb), 0.25);
 }
