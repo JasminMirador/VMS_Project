@@ -52,3 +52,45 @@
 [data-theme="light"] .toast-v2__sub { color: #64748b; }
 [data-theme="light"] .toast-v2__close { color: #64748b; }
 [data-theme="light"] .toast-v2__close:hover { color: #0f172a; }
+
+/* ── Spinner Icon Styles ── */
+.toast-v2__spinner-container {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.toast-v2__spinner {
+  position: absolute;
+  inset: 0;
+  width: 24px;
+  height: 24px;
+  border: 2.5px solid rgba(0, 212, 170, 0.25);
+  border-top-color: #00d4aa;
+  border-radius: 50%;
+  animation: toast-spin 0.8s linear infinite;
+  box-sizing: border-box;
+}
+
+.toast-v2__spinner-check {
+  position: relative;
+  z-index: 1;
+  color: #00d4aa;
+}
+
+@keyframes toast-spin {
+  to { transform: rotate(360deg); }
+}
+
+[data-theme="light"] .toast-v2__spinner {
+  border-color: rgba(16, 185, 129, 0.25);
+  border-top-color: #10b981;
+}
+
+[data-theme="light"] .toast-v2__spinner-check {
+  color: #10b981;
+}

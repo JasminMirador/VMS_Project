@@ -30,6 +30,8 @@ export default function DiscoveryModal({
   const [dropdownPos, setDropdownPos] = useState(null); // ← NEW: screen position for the portaled dropdown
   const [alertMsg, setAlertMsg] = useState("");
   const [collapsedBrands, setCollapsedBrands] = useState(new Set());
+  const [credErrors, setCredErrors] = useState({});
+
 
   const progressTimerRef = useRef(null);
   const dropdownRef = useRef(null);

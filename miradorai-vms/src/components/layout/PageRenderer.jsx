@@ -63,6 +63,7 @@ import FaceDetectionPage from "../../pages/analytics/FaceDetectionPage";
 
 
 // ✅ REPORTS
+import ReportsPage from "../../pages/reports/ReportsPage";
 import CameraHistoryReport from "../../pages/reports/CameraHistoryReport";
 import ReportsPlaceholderPage from "../../pages/reports/ReportsPlaceholderPage";
 import RecycleBinPage from "../../pages/devices/RecycleBinPage";
@@ -75,8 +76,9 @@ const AnalyticsReportPage = (props) => <ReportsPlaceholderPage {...props} report
 // ================= PAGE MAP =================
 const MAP = {
   // ✅ DASHBOARD (DEFAULT PAGE)
-  "dashboard": DashboardPage,
+  "dashboard": DashboardNewPage,
   "dashboard-new": DashboardNewPage,
+  "dashboard-old": DashboardPage,
 
   "video-synopsis":VideoSynopsis,
   "face-detection": FaceDetectionPage,
@@ -125,6 +127,7 @@ const MAP = {
   "forensic-search": ForensicSearchPage,
 
   // ================= REPORTS =================
+  "reports": ReportsPage,
   // "recording-report": RecordingReportPage,
   "recording-report": CameraHistoryReport,
 
@@ -224,6 +227,6 @@ export default function PageRenderer({ activePage, onNavigate }) {
   }
 
   // ✅ fallback to basePage or dashboard if page not found
-  const Component = MAP[activePage] || MAP[basePage] || DashboardPage;
+  const Component = MAP[activePage] || MAP[basePage] || DashboardNewPage;
   return <Component key={`${activePage}-${refreshKey}`} onNavigate={onNavigate || ((page) => navigate(`/${page}`))} />;
 }

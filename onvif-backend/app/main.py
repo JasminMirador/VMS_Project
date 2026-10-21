@@ -58,6 +58,9 @@ from app.api.routers.ai_alerts_router import router as ai_alerts_router, reader_
 from app.api.routers.integrations_router import router as integrations_router
 from app.api.storage.router import router as storage_management_router
 from app.api.routers.events_ws_router import router as events_ws_router
+from app.api.routers.edge_sync_router import router as edge_sync_router
+from app.api.routers.edge_config_router import router as edge_config_router
+
 import threading
 import queue
 
@@ -399,3 +402,5 @@ app.include_router(ai_alerts_router)
 app.include_router(reader_router)
 app.include_router(integrations_router)
 app.include_router(storage_management_router)
+app.include_router(edge_sync_router)
+app.include_router(edge_config_router)
