@@ -3,7 +3,7 @@ import os
 import asyncio
 from .websocket_manager import manager
 
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
+MONGO_URI = os.environ["MONGO_URI"]
 client = mongo_client
 db = client[os.environ.get("MONGO_DB_NAME")] if client else None
 

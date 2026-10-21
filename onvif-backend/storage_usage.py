@@ -2,7 +2,7 @@ import os
 
 import pymongo
 
-client = pymongo.MongoClient(os.environ.get("MONGO_URI", "mongodb://localhost:27017"))
+client = pymongo.MongoClient(os.environ["MONGO_URI"])
 db = client[os.environ.get("MONGO_DB_NAME")]  # Replace with your database name
 pipeline = [
     {'$group': {'_id': '$camera_id', 'total_bytes': {'$sum': '$file_size'}}},

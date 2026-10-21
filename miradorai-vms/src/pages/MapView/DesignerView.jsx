@@ -696,7 +696,7 @@ function PremiumPopup({ show, type, title, message, onConfirm, onCancel }) {
   return (
     <div className="mv-stream-overlay" style={{ zIndex: 99999 }}>
       <div className="mv-zone-name-modal" style={{ maxWidth: 400, border: "1px solid var(--border)", background: "var(--bg-elevated)", backdropFilter: "blur(8px)" }}>
-        <div className="mv-zone-name-modal__header" style={{ color: type === "confirm" ? "var(--teal)" : "var(--orange)" }}>
+        <div className="mv-zone-name-modal__header" style={{ color: type === "confirm" ? "var(--brand)" : "var(--orange)" }}>
           {type === "confirm" ? (
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
               <circle cx="12" cy="12" r="10" />
@@ -2273,7 +2273,7 @@ function DvZoneSidebarItem({
               autoFocus
               style={{
                 background: "var(--bg-input)",
-                border: "1px solid var(--teal)",
+                border: "1px solid var(--button-bg)",
                 borderRadius: "4px",
                 color: "var(--text-primary)",
                 fontSize: "15px",
@@ -8433,7 +8433,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                     style={{
                       fontSize: "11px",
                       fontWeight: "700",
-                      color: isActive ? "var(--teal)" : "var(--text-muted)",
+                      color: isActive ? "var(--brand)" : "var(--text-muted)",
                       width: "14px",
                       display: "flex",
                       alignItems: "center",
@@ -8451,7 +8451,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                       display: "flex",
                       flexDirection: "column",
                       background: "var(--bg-elevated)",
-                      border: isActive ? "1.5px solid var(--teal)" : "1px solid var(--border)",
+                      border: isActive ? "1.5px solid var(--button-bg)" : "1px solid var(--border)",
                       borderRadius: "6px",
                       overflow: "hidden",
                       transition: "all 0.15s ease",
@@ -8633,7 +8633,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                           autoFocus
                           style={{
                             background: "var(--bg-base)",
-                            border: "1px solid var(--teal)",
+                            border: "1px solid var(--button-bg)",
                             borderRadius: "3px",
                             color: "var(--text-primary)",
                             fontSize: "11px",
@@ -8652,7 +8652,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                           style={{
                             fontSize: "11px",
                             fontWeight: "600",
-                            color: isActive ? "var(--teal)" : "var(--text-primary)",
+                            color: isActive ? "var(--brand)" : "var(--text-primary)",
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                             whiteSpace: "nowrap",
@@ -8720,7 +8720,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                             border: "0.5px solid var(--border-light)",
                             transition: "all 0.15s"
                           }}
-                          onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.borderColor = "var(--teal)"; }}
+                          onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.borderColor = "var(--brand)"; }}
                           onMouseLeave={e => { e.currentTarget.style.background = "var(--bg-elevated)"; e.currentTarget.style.borderColor = "var(--border-light)"; }}
                           title={`Restore ${v.name}`}
                         >
@@ -8751,7 +8751,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                               onClick={e => e.stopPropagation()}
                               autoFocus
                               style={{
-                                background: "var(--bg-input)", border: "1px solid var(--teal)", borderRadius: "3px", color: "var(--text-primary)",
+                                background: "var(--bg-input)", border: "1px solid var(--button-bg)", borderRadius: "3px", color: "var(--text-primary)",
                                 fontSize: "12px", padding: "1px 4px", width: "100%", outline: "none"
                               }}
                             />
@@ -8997,8 +8997,8 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                                   key={b}
                                   className="dv-custom-dropdown-item"
                                   style={{
-                                    width: "100%", background: b === brandFilter ? "var(--teal-subtle)" : "none",
-                                    border: "none", color: b === brandFilter ? "var(--teal)" : "var(--text-secondary)",
+                                    width: "100%", background: b === brandFilter ? "var(--brand-tint)" : "none",
+                                    border: "none", color: b === brandFilter ? "var(--brand)" : "var(--text-secondary)",
                                     padding: "6px 8px", textAlign: "left", fontSize: "15px", cursor: "pointer",
                                     borderRadius: "4px", display: "block"
                                   }}
@@ -9045,8 +9045,8 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                                   key={t}
                                   className="dv-custom-dropdown-item"
                                   style={{
-                                    width: "100%", background: t === typeFilter ? "var(--teal-subtle)" : "none",
-                                    border: "none", color: t === typeFilter ? "var(--teal)" : "var(--text-secondary)",
+                                    width: "100%", background: t === typeFilter ? "var(--brand-tint)" : "none",
+                                    border: "none", color: t === typeFilter ? "var(--brand)" : "var(--text-secondary)",
                                     padding: "6px 8px", textAlign: "left", fontSize: "15px", cursor: "pointer",
                                     borderRadius: "4px", display: "block"
                                   }}
@@ -10328,8 +10328,8 @@ function ProjectStatsPanel({
               padding: "12px 18px",
               background: "transparent",
               border: "none",
-              borderBottom: activeTab === "layout" ? "2px solid var(--teal)" : "2px solid transparent",
-              color: activeTab === "layout" ? "var(--teal)" : "var(--text-secondary)",
+              borderBottom: activeTab === "layout" ? "2px solid var(--button-bg)" : "2px solid transparent",
+              color: activeTab === "layout" ? "var(--brand)" : "var(--text-secondary)",
               fontWeight: 700,
               fontSize: 16,
               cursor: "pointer",
@@ -10414,7 +10414,7 @@ function ProjectStatsPanel({
 
                         return (
                           <tr key={groupKey} style={{ borderBottom: "1px solid var(--border)", background: idx % 2 === 0 ? "var(--bg-base)" : "var(--bg-surface)" }}>
-                            <td style={{ padding: "10px 12px", textTransform: "uppercase", fontWeight: 700, fontSize: 13, color: "var(--teal)" }}>
+                            <td style={{ padding: "10px 12px", textTransform: "uppercase", fontWeight: 700, fontSize: 13, color: "var(--brand)" }}>
                               {p.camera.type}
                             </td>
                             <td style={{ padding: "10px 12px" }}>

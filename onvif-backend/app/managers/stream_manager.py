@@ -49,7 +49,7 @@ from recorder import rtsp_recorder as recorder
 DEVICES_FILE  = os.environ.get("DEVICES_FILE", os.path.join(os.path.dirname(__file__), "..", "..", "devices_data", "devices.json"))
 MEDIAMTX_API = os.environ.get(
     "MEDIAMTX_API_URL",
-    "http://localhost:9997"
+    os.environ["MEDIAMTX_API_URL"]
 )
 WATCHDOG_INTERVAL      = 5
 WATCHDOG_MAX_RETRIES   = 20
@@ -124,7 +124,7 @@ def load_devices():
                 print(f"[STARTUP] Loaded {len(docs)} cameras ({len(deduped)} unique IPs) from MongoDB")
                 
                 final_list = [{
-                    "id":             str(d.get("_id")) if d.get("_id") else d.get("id"),
+                    "id":             str(d.get("_id")) if d.get("_id") else (d.get("id") or d.get("stream_key") or f"{d.get('edge_id')}_{d.get('camera_id')}"),
                     "group_id":       d.get("group_id"),
                     "mac":            d.get("mac", "—"),
                     "status":         d.get("status"),
@@ -155,11 +155,22 @@ def load_devices():
                     "reader_id":            d.get("reader_id"),
                     "source":               d.get("source"),
                     "thumbnail":            d.get("thumbnail"),
+                    "edge_id":              d.get("edge_id"),
+                    "edge_name":            d.get("edge_name") or d.get("display_name"),
+                    "display_name":         d.get("display_name") or d.get("edge_name"),
+                    "edge_ip":              d.get("edge_ip"),
+                    "token":                d.get("token", ""),
+                    "camera_id":            d.get("camera_id"),
+                    "channel":              d.get("channel"),
+                    "source_rtsp":          d.get("source_rtsp"),
+                    "is_edge_camera":       d.get("is_edge_camera", d.get("source") == "edge"),
                     "stream_status":        (lambda s: "streaming" if isinstance(s, dict) and s.get("connected") else ("streaming" if s == "streaming" else (s if isinstance(s, str) else d.get("status"))))(d.get("stream_status", d.get("status"))),
                     "ws_url":               d.get("ws_url"),
                     "type":                 d.get("type", "entrance"),
                     "stream_count":         d.get("stream_count", 0),
                     "stream_profiles":      d.get("stream_profiles", []),
+                    "added_at":             d.get("added_at").isoformat() if hasattr(d.get("added_at"), "isoformat") else (str(d.get("added_at")) if d.get("added_at") else None),
+                    "updated_at":           d.get("updated_at").isoformat() if hasattr(d.get("updated_at"), "isoformat") else (str(d.get("updated_at")) if d.get("updated_at") else None),
                 } for d in deduped if (d.get("ip_address") or d.get("ip")) and d.get("rtsp_url")]
                 
                 save_devices(final_list)

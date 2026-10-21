@@ -5,12 +5,12 @@ import argparse
 import threading
 import psutil
 from datetime import datetime
-from pymongo import MongoClient
 
 # Add backend root directory to path so imports work correctly when running as script
 backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if backend_root not in sys.path:
     sys.path.insert(0, backend_root)
+from app.core.database import db, cameras_col, mongo_client
 
 # Import recorder and encrypt service
 from recorder import rtsp_recorder as recorder
@@ -47,9 +47,8 @@ def parse_args():
 
 def publish_heartbeat(mongo_uri: str, worker_id: str, active_cameras: list, status: str = "active"):
     try:
-        client = MongoClient(mongo_uri, serverSelectionTimeoutMS=3000)
-        db_name = os.environ.get("MONGO_DB_NAME")
-        db = client[db_name]
+        if db is None:
+            return
         heartbeats_col = db["worker_heartbeats"]
         
         cpu_percent = psutil.cpu_percent()
@@ -63,11 +62,10 @@ def publish_heartbeat(mongo_uri: str, worker_id: str, active_cameras: list, stat
         ]
         
         # Compute cumulative camera weight
-        cameras_col = db["cameras"]
         assigned_cams = list(cameras_col.find({
             "assigned_worker": worker_id,
             "enabled": {"$ne": False}
-        }))
+        })) if cameras_col is not None else []
         from app.managers.stream_manager import get_camera_weight
         cumulative_weight = sum(get_camera_weight(cam) for cam in assigned_cams)
         
@@ -122,7 +120,6 @@ def publish_heartbeat(mongo_uri: str, worker_id: str, active_cameras: list, stat
             },
             upsert=True
         )
-        client.close()
     except Exception as e:
         print(f"[WORKER-{worker_id}] Heartbeat update failed: {e}")
 
@@ -138,7 +135,7 @@ def main():
     # 2. (Removed) local encryption watcher is no longer needed in MinIO architecture
     
     # Mongo connection URI
-    mongo_uri = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
+    mongo_uri = os.environ["MONGO_URI"]
     
     # Main sync loop
     last_heartbeat_time = 0
@@ -165,18 +162,13 @@ def main():
                 
             # 3. Poll camera assignments periodically
             if now - last_db_poll_time >= db_poll_interval:
-                # Connect to DB and fetch camera assignments
-                client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
-                db_name = os.environ.get("MONGO_DB_NAME")
-                db = client[db_name]
-                cameras_col = db["cameras"]
                 
                 # Fetch all cameras assigned to this worker that are enabled
                 assigned_cameras = list(cameras_col.find({
                     "assigned_worker": worker_id,
                     "enabled": {"$ne": False}
-                }))
-                client.close()
+                })) if cameras_col is not None else []
+
                 
                 # Build current assignment map
                 assigned_map = {}
@@ -252,4 +244,9 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("[WORKER] KeyboardInterrupt received. Shutting down recorders...")
         recorder.stop_all()
+        if mongo_client:
+            mongo_client.close()
         sys.exit(0)
+    finally:
+        if mongo_client:
+            mongo_client.close()

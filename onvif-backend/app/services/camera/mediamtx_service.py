@@ -3,7 +3,7 @@ import os
 
 MEDIAMTX_API = os.environ.get(
     "MEDIAMTX_API_URL",
-    "http://localhost:9997"
+    os.environ["MEDIAMTX_API_URL"]
 )
 
 def register_stream(stream_name, rtsp_url, codec=None, sub_stream_rtsp=None):

@@ -1,7 +1,18 @@
 import os
 import torch
 from pathlib import Path
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
+
+# Load .env into os.environ BEFORE the Settings class is defined.
+# Nearest file first; load_dotenv never overwrites values already set.
+_SERVICE_DIR = Path(__file__).resolve().parent.parent   # synopsis-service/
+_ROOT_DIR    = _SERVICE_DIR.parent                      # VMS_Project/
+
+# Service-specific .env first (optional), then the shared project .env.
+# load_dotenv never overwrites values that are already set.
+load_dotenv(_SERVICE_DIR / ".env")
+load_dotenv(_ROOT_DIR / ".env")
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "MIRADOR Video Synopsis Microservice"
@@ -9,8 +20,8 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     
     # MongoDB Configuration
-    MONGO_URI: str = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-    DB_NAME: str = os.getenv("MONGO_DB_NAME", "vms_database")
+    MONGO_URI: str = os.environ["MONGO_URI"]
+    DB_NAME: str = os.environ["MONGO_DB_NAME"]
     
     # Hardware & Model Configuration
     DEVICE: str = os.getenv("CUDA_DEVICE", "cuda:0" if torch.cuda.is_available() else "cpu")

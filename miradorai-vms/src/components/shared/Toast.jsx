@@ -3,7 +3,7 @@ import "./Toast.css";
 
 const TOAST_DURATION = 4000;
 
-export default function Toast({ message, subtitle, type = "success", onClose }) {
+export default function Toast({ message, subtitle, type = "success", spinning = false, icon, onClose }) {
   const [exiting, setExiting] = useState(false);
 
   const dismiss = useCallback(() => {
@@ -49,10 +49,35 @@ export default function Toast({ message, subtitle, type = "success", onClose }) 
 
   const cfg = configs[type] || configs.success;
 
+  const renderIcon = () => {
+    if (icon) return icon;
+    if (spinning) {
+      return (
+        <div className="toast-v2__spinner-container">
+          <div className="toast-v2__spinner" />
+          <svg
+            className="toast-v2__spinner-check"
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        </div>
+      );
+    }
+    return cfg.icon;
+  };
+
   return (
     <div className={`toast-v2${exiting ? " toast-v2--exit" : ""}`}>
       <div className="toast-v2__accent" style={{ background: cfg.gradient }} />
-      <div className="toast-v2__icon">{cfg.icon}</div>
+      <div className="toast-v2__icon">{renderIcon()}</div>
       <div className="toast-v2__body">
         <span className="toast-v2__label">{cfg.label}</span>
         <span className="toast-v2__msg">{message}</span>

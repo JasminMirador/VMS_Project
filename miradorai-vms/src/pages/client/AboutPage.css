@@ -62,7 +62,7 @@
   align-items: center;
   justify-content: center;
   background: #000;
-  box-shadow: 0 0 20px var(--teal-glow);
+  box-shadow: 0 0 20px var(--brand-glow);
   flex-shrink: 0;
 }
 
@@ -97,11 +97,11 @@
 
   border-radius: 20px;
 
-  background: var(--teal-subtle);
+  background: var(--brand-tint);
 
-  color: var(--teal);
+  color: var(--brand);
 
-  border: 1px solid rgba(0, 200, 160, 0.3);
+  border: 1px solid rgba(var(--brand-rgb), 0.3);
 
   font-size: 14px;
 
@@ -176,7 +176,7 @@
 }
 
 .about-detail-item span {
-  color: var(--teal);
+  color: var(--brand);
 ;
 
   font-size: 15px;
@@ -199,8 +199,8 @@
 }
 
 .about-platform-card:hover {
-  border-color: var(--teal);
-  box-shadow: 0 0 16px var(--teal-glow);
+  border-color: var(--brand);
+  box-shadow: 0 0 16px var(--brand-glow);
 }
 
 

@@ -35,7 +35,7 @@ from datetime import datetime, timedelta
 from pymongo import UpdateOne
 from app.core.database import mongo_client
 
-MONGO_URI    = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
+MONGO_URI    = os.environ["MONGO_URI"]
 _client      = mongo_client
 _db = _client[os.environ.get("MONGO_DB_NAME")] if _client else None
 forensic_col = _db["forensic_index"] if _db is not None else None

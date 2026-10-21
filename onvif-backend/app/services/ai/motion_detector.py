@@ -13,7 +13,7 @@ from app.core.database import mongo_client
 # We will import recorder inside methods to avoid circular import issues
 # if recorder imports motion_detector
 
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
+MONGO_URI = os.environ["MONGO_URI"]
 
 # Shared MongoDB client — reused across all motion detector threads
 _shared_mongo = mongo_client

@@ -40,7 +40,7 @@
   transition: background 0.1s;
 }
 .iop-table tbody tr:hover       { background: var(--bg-elevated); }
-.iop-row--selected              { background: rgba(0, 200, 160, 0.08) !important; }
+.iop-row--selected              { background: rgba(var(--brand-rgb), 0.08) !important; }
 
 .iop-table td {
   padding: 8px 14px;
@@ -171,7 +171,7 @@
   transition: border-color 0.15s;
 }
 .iop-select:focus,
-.iop-input:focus { border-color: var(--teal); }
+.iop-input:focus { border-color: var(--brand); }
 
 .iop-modal__footer {
   display: flex;
@@ -187,8 +187,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  background: rgba(0, 200, 160, 0.08);
-  border: 1px solid rgba(0, 200, 160, 0.15);
+  background: rgba(var(--brand-rgb), 0.08);
+  border: 1px solid rgba(var(--brand-rgb), 0.15);
   border-radius: var(--radius-sm);
   margin-bottom: 12px;
   font-size: 13px;
@@ -197,7 +197,7 @@
 }
 
 .iop-filter-info strong {
-  color: var(--teal);
+  color: var(--brand);
 }
 
 .iop-filter-clear {

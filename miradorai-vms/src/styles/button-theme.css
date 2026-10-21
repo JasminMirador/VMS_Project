@@ -1,0 +1,79 @@
+/* ── Primary button theme ─────────────────────────────────────────────
+   Same look as the login screen's .auth-btn (LoginPage.css): solid teal
+   (--auth-button-bg) with a white label. Values are the same in both themes
+   because the pair was chosen for >=4.5:1 contrast against white.
+   Loaded last + !important so page-level CSS cannot re-tint these. */
+:root {
+  --button-bg:       #0e7490;
+  --button-bg-hover: #0b5b73;
+  --button-text:     #ffffff;
+}
+
+html[data-theme] .m-btn--primary,
+html[data-theme] .ec-btn--primary,
+html[data-theme] .btn-primary,
+html[data-theme] .mgmt-action-btn--primary,
+html[data-theme] .sm-btn--primary,
+html[data-theme] .dm-btn--primary,
+html[data-theme] .report-btn-primary,
+html[data-theme] .mv-calib-btn--primary,
+html[data-theme] .es-btn-primary,
+html[data-theme] .integration-btn-primary-large,
+html[data-theme] .modal-btn--save,
+html[data-theme] .mp-btn-save,
+html[data-theme] .ptz2-btn-save,
+html[data-theme] .topo-btn--primary,
+html[data-theme] .log-btn-primary,
+html[data-theme] .vms-proc-btn-primary,
+html[data-theme] .cem-btn-save,
+html[data-theme] .sp-apply-btn,
+html[data-theme] .mv-modal__btn--confirm {
+  background: var(--button-bg) !important;
+  background-image: none !important;
+  color: var(--button-text) !important;
+  border-color: var(--button-bg) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme] .m-btn--primary:hover:not(:disabled):not(.m-btn--disabled),
+html[data-theme] .ec-btn--primary:hover:not(:disabled):not(.m-btn--disabled),
+html[data-theme] .btn-primary:hover:not(:disabled):not(.m-btn--disabled),
+html[data-theme] .mgmt-action-btn--primary:hover:not(:disabled):not(.m-btn--disabled),
+html[data-theme] .sm-btn--primary:hover:not(:disabled):not(.m-btn--disabled),
+html[data-theme] .dm-btn--primary:hover:not(:disabled):not(.m-btn--disabled),
+html[data-theme] .report-btn-primary:hover:not(:disabled):not(.m-btn--disabled),
+html[data-theme] .mv-calib-btn--primary:hover:not(:disabled):not(.m-btn--disabled),
+html[data-theme] .es-btn-primary:hover:not(:disabled):not(.m-btn--disabled),
+html[data-theme] .integration-btn-primary-large:hover:not(:disabled):not(.m-btn--disabled),
+html[data-theme] .modal-btn--save:hover:not(:disabled):not(.m-btn--disabled),
+html[data-theme] .mp-btn-save:hover:not(:disabled):not(.m-btn--disabled),
+html[data-theme] .ptz2-btn-save:hover:not(:disabled):not(.m-btn--disabled),
+html[data-theme] .topo-btn--primary:hover:not(:disabled):not(.m-btn--disabled),
+html[data-theme] .log-btn-primary:hover:not(:disabled):not(.m-btn--disabled),
+html[data-theme] .vms-proc-btn-primary:hover:not(:disabled):not(.m-btn--disabled),
+html[data-theme] .cem-btn-save:hover:not(:disabled):not(.m-btn--disabled),
+html[data-theme] .sp-apply-btn:hover:not(:disabled):not(.m-btn--disabled),
+html[data-theme] .mv-modal__btn--confirm:hover:not(:disabled):not(.m-btn--disabled) {
+  background: var(--button-bg-hover) !important;
+  background-image: none !important;
+  color: var(--button-text) !important;
+  border-color: var(--button-bg-hover) !important;
+}
+
+/* "View All Cameras" (plain button, not a primary class) */
+html[data-theme] .group-view-btn,
+html[data-theme] .cam-table-wrap .group-view-btn {
+  background: var(--button-bg) !important;
+  background-color: var(--button-bg) !important;
+  color: var(--button-text) !important;
+  border-color: var(--button-bg) !important;
+}
+html[data-theme] .group-view-btn:hover,
+html[data-theme] .cam-table-wrap .group-view-btn:hover {
+  background: var(--button-bg-hover) !important;
+  background-color: var(--button-bg-hover) !important;
+  border-color: var(--button-bg-hover) !important;
+}
+html[data-theme] .group-view-btn:active {
+  background: var(--button-bg-hover) !important;
+}

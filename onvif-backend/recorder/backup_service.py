@@ -5,13 +5,15 @@ from typing import Optional
 import asyncio, shutil, os, json
 import httpx
 from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 from datetime import datetime, timedelta
 from . import rtsp_recorder as recorder
 from app.core.database import recordings_col
 from app.utils.minio_client import minio_client, MINIO_BUCKET
 
 backup_router = APIRouter(prefix="/api/backup", tags=["backup"], dependencies=[Depends(verify_token)])
-HOST_AGENT = "http://localhost:9500"
+HOST_AGENT = os.environ["HOST_AGENT_URL"]
 
 async def _agent(path: str):
     try:

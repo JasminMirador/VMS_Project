@@ -13,7 +13,7 @@
   cursor: pointer; transition: background 0.1s;
 }
 .ts-table tbody tr:hover { background: var(--bg-elevated); }
-.ts-row--selected { background: rgba(0,200,160,0.08) !important; }
+.ts-row--selected { background: rgba(var(--brand-rgb), 0.08) !important; }
 .ts-table td { padding: 8px 14px; color: var(--text-primary); vertical-align: middle; }
 .ts-table__empty { text-align: center; color: var(--text-muted); padding: 24px !important; font-size: 12px; }
 .ts-td-center { text-align: center; }
@@ -42,7 +42,7 @@
   font-size: 13px; font-weight: 500;
   color: var(--text-primary); cursor: pointer;
 }
-.ts-enable-row input { accent-color: var(--teal); width: 14px; height: 14px; }
+.ts-enable-row input { accent-color: var(--brand); width: 14px; height: 14px; }
 
 /* Body */
 .ts-body { display: flex; flex-direction: column; gap: 12px; padding-left: 4px; }
@@ -57,7 +57,7 @@
   color: var(--text-primary); font-size: 12px;
   font-family: var(--font-ui); outline: none;
 }
-.ts-select:focus { border-color: var(--teal); }
+.ts-select:focus { border-color: var(--brand); }
 .ts-select--sm { width: 160px; }
 .ts-select--inline { margin-left: 8px; flex: 1; min-width: 0; }
 
@@ -70,7 +70,7 @@
   font-size: 12px; color: var(--text-secondary); cursor: pointer;
 }
 .ts-radio--bold { font-weight: 600; font-size: 13px; color: var(--text-primary); }
-.ts-radio input { accent-color: var(--teal); flex-shrink: 0; }
+.ts-radio input { accent-color: var(--brand); flex-shrink: 0; }
 .ts-sub--disabled { opacity: 0.4; pointer-events: none; }
 
 /* Alarm */
@@ -78,7 +78,7 @@
   display: flex; align-items: flex-start; gap: 8px;
   font-size: 12px; color: var(--text-secondary); cursor: pointer;
 }
-.ts-alarm-row input { accent-color: var(--teal); margin-top: 2px; flex-shrink: 0; }
+.ts-alarm-row input { accent-color: var(--brand); margin-top: 2px; flex-shrink: 0; }
 
 .ts-apply { display: flex; justify-content: flex-end; }
 

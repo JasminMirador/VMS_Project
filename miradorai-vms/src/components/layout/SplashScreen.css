@@ -59,7 +59,7 @@
   background:
     radial-gradient(
       circle,
-      #00c8a0,
+      var(--brand),
       transparent 70%
     );
 
@@ -457,7 +457,7 @@
     linear-gradient(
       90deg,
       transparent,
-      #00c8a0,
+      var(--brand),
       transparent
     );
 
@@ -494,7 +494,7 @@
   background:
     radial-gradient(
       circle,
-      #10b981,
+      var(--brand),
       transparent 70%
     );
 
@@ -539,7 +539,7 @@
     linear-gradient(
       105deg,
       transparent 30%,
-      rgba(16, 185, 129, 0.25) 50%,
+      rgba(var(--brand-rgb), 0.25) 50%,
       transparent 70%
     );
 }
@@ -554,7 +554,7 @@
     linear-gradient(
       135deg,
       #0f172a 30%,
-      #059669 100%
+      var(--brand) 100%
     );
 
   -webkit-background-clip: text;
@@ -571,7 +571,7 @@
     linear-gradient(
       135deg,
       #0f172a 30%,
-      #059669 100%
+      var(--brand) 100%
     );
 
   -webkit-background-clip: text;
@@ -597,7 +597,7 @@
     linear-gradient(
       90deg,
       transparent,
-      #059669,
+      var(--brand),
       transparent
     );
 }

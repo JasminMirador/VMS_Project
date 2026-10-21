@@ -35,7 +35,7 @@ const css = `
   }
   .msm-eyebrow {
     font-size: 13px; letter-spacing: .14em; text-transform: uppercase;
-    color: var(--teal); font-weight: 600; margin-bottom: 4px;
+    color: var(--brand); font-weight: 600; margin-bottom: 4px;
   }
   .msm-title {
     font-size: var(--font-size-subheading); font-weight: 700; color: var(--text-primary); margin: 0;
@@ -44,7 +44,7 @@ const css = `
     background: none; border: none; cursor: pointer;
     color: var(--text-muted); padding: 2px; transition: color var(--transition);
   }
-  .msm-close:hover { color: var(--teal); }
+  .msm-close:hover { color: var(--brand); }
 
   .msm-body {
     padding: 24px;
@@ -74,7 +74,7 @@ const css = `
     width: 100%; box-sizing: border-box;
   }
   .msm-input::placeholder { color: var(--text-muted); }
-  .msm-input:focus { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-glow); }
+  .msm-input:focus { border-color: var(--button-bg); box-shadow: 0 0 0 3px var(--brand-glow); }
   .msm-input.error { border-color: var(--red); box-shadow: 0 0 0 3px rgba(239,68,68,.15); }
 
   .msm-custom-select { position: relative; width: 100%; }
@@ -85,7 +85,7 @@ const css = `
     display: flex; justify-content: space-between; align-items: center;
     cursor: pointer; transition: border-color var(--transition), box-shadow var(--transition);
   }
-  .msm-select-btn:focus { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-glow); }
+  .msm-select-btn:focus { border-color: var(--button-bg); box-shadow: 0 0 0 3px var(--brand-glow); }
   .msm-dropdown-menu {
     position: absolute; top: calc(100% + 4px); left: 0; right: 0;
     background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -102,7 +102,7 @@ const css = `
     border-radius: 4px; display: flex; align-items: center; transition: all var(--transition);
   }
   .msm-dropdown-item:hover { background: var(--bg-hover); color: var(--text-primary); }
-  .msm-dropdown-item.active { background: var(--teal-subtle); color: var(--teal); font-weight: 500; }
+  .msm-dropdown-item.active { background: var(--brand-tint); color: var(--brand); font-weight: 500; }
 
   .msm-password-wrapper {
     position: relative;
@@ -115,7 +115,7 @@ const css = `
     background: none; border: none; cursor: pointer;
     color: var(--text-muted); padding: 2px; transition: color var(--transition);
   }
-  .msm-eye-btn:hover { color: var(--teal); }
+  .msm-eye-btn:hover { color: var(--brand); }
 
   .msm-divider {
     display: flex; align-items: center; gap: 10px;
@@ -131,13 +131,13 @@ const css = `
     display: flex; align-items: center; gap: 10px;
     font-size: var(--font-size-content); color: var(--text-secondary); min-height: 44px;
   }
-  .msm-probe.probing { color: var(--teal); border-color: var(--teal); }
-  .msm-probe.success { color: var(--teal); border-color: var(--teal); background: var(--teal-subtle); }
+  .msm-probe.probing { color: var(--brand); border-color: var(--button-bg); }
+  .msm-probe.success { color: var(--brand); border-color: var(--button-bg); background: var(--brand-tint); }
   .msm-probe.fail    { color: var(--red); border-color: var(--red); background: rgba(239, 68, 68, 0.05); }
 
   .msm-spinner {
     width: 14px; height: 14px; border: 2px solid var(--border-light);
-    border-top-color: var(--teal); border-radius: 50%;
+    border-top-color: var(--button-bg); border-radius: 50%;
     animation: spin .7s linear infinite; flex-shrink: 0;
   }
   @keyframes spin { to { transform: rotate(360deg) } }
@@ -152,7 +152,7 @@ const css = `
   .msm-info-item { display: flex; flex-direction: column; gap: 2px; }
   .msm-info-key  { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-muted); }
   .msm-info-val  { font-size: var(--font-size-content); color: var(--text-primary); }
-  .msm-info-val--highlight { color: var(--teal); font-weight: 600; }
+  .msm-info-val--highlight { color: var(--brand); font-weight: 600; }
 
   .msm-profiles { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; display: flex; flex-direction: column; }
   .msm-profiles-scroll {
@@ -170,8 +170,8 @@ const css = `
     display: flex; justify-content: space-between; align-items: center;
   }
   .msm-profiles-badge {
-    background: var(--teal-subtle); color: var(--teal);
-    border: 1px solid var(--teal-glow); border-radius: 4px;
+    background: var(--brand-tint); color: var(--brand);
+    border: 1px solid var(--brand-glow); border-radius: 4px;
     padding: 2px 7px; font-size: 13px; font-weight: 600; letter-spacing: .05em;
   }
   .msm-profile-row {
@@ -189,18 +189,18 @@ const css = `
     text-align: center; font-weight: 600;
     letter-spacing: .04em; text-transform: uppercase;
   }
-  .msm-profile-tag--main  { background: var(--teal-subtle); color: var(--teal); border: 1px solid var(--teal-glow); }
+  .msm-profile-tag--main  { background: var(--brand-tint); color: var(--brand); border: 1px solid var(--brand-glow); }
   .msm-profile-tag--sub   { background: rgba(139, 92, 246, 0.15); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.2); }
   .msm-profile-tag--extra { background: rgba(255, 255, 255, 0.05); color: var(--text-secondary); border: 1px solid var(--border-light); }
 
   .msm-routing-hint {
     background: var(--bg-base); border: 1px solid var(--border);
-    border-left: 2px solid var(--teal);
+    border-left: 2px solid var(--button-bg);
     border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
     padding: 8px 12px; font-size: 14px;
     color: var(--text-secondary); line-height: 1.5;
   }
-  .msm-routing-hint span { color: var(--teal); font-weight: 600; }
+  .msm-routing-hint span { color: var(--brand); font-weight: 600; }
 
   .msm-footer {
     padding: 16px 24px 20px; border-top: 1px solid var(--border);
@@ -220,11 +220,11 @@ const css = `
     border: 1px solid transparent; transition: all var(--transition);
   }
   .msm-btn--ghost  { background: transparent; border-color: var(--border-light); color: var(--text-primary); }
-  .msm-btn--ghost:hover { border-color: var(--teal); color: var(--teal); }
-  .msm-btn--probe  { background: var(--teal-subtle); border-color: var(--teal); color: var(--teal); }
-  .msm-btn--probe:hover:not(:disabled) { background: var(--teal-glow); }
-  .msm-btn--enroll { background: var(--teal); border-color: var(--teal); color: #fff; }
-  .msm-btn--enroll:hover:not(:disabled) { background: var(--teal-dim); }
+  .msm-btn--ghost:hover { border-color: var(--brand); color: var(--brand); }
+  .msm-btn--probe  { background: var(--brand-tint); border-color: var(--brand); color: var(--brand); }
+  .msm-btn--probe:hover:not(:disabled) { background: var(--brand-glow); }
+  .msm-btn--enroll { background: var(--button-bg); border-color: var(--button-bg); color: var(--button-text); }
+  .msm-btn--enroll:hover:not(:disabled) { background: var(--button-bg-hover); border-color: var(--button-bg-hover); }
   .msm-btn:disabled { opacity: .35; cursor: not-allowed; }
 
   /* Channel picker */
@@ -239,18 +239,18 @@ const css = `
     border-radius: var(--radius-sm); padding: 10px 14px;
     cursor: pointer; transition: all var(--transition);
   }
-  .msm-channel-row:hover { border-color: var(--teal); background: var(--bg-hover); }
-  .msm-channel-row.selected { border-color: var(--teal); background: var(--teal-subtle); }
+  .msm-channel-row:hover { border-color: var(--button-bg); background: var(--bg-hover); }
+  .msm-channel-row.selected { border-color: var(--button-bg); background: var(--brand-tint); }
   .msm-channel-left { display: flex; align-items: center; gap: 10px; }
-  .msm-channel-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--teal); flex-shrink: 0; }
+  .msm-channel-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--button-bg); flex-shrink: 0; }
   .msm-channel-name { color: var(--text-primary); font-size: var(--font-size-content); font-weight: 600; }
   .msm-channel-sub { color: var(--text-secondary); font-size: 13px; margin-top: 2px; }
   .msm-channel-check {
     width: 18px; height: 18px; border-radius: 50%;
-    border: 2px solid var(--teal); display: flex; align-items: center; justify-content: center;
+    border: 2px solid var(--button-bg); display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
   }
-  .msm-channel-check.filled { background: var(--teal); }
+  .msm-channel-check.filled { background: var(--button-bg); }
   .msm-channel-check svg { display: none; }
   .msm-channel-check.filled svg { display: block; }
 
@@ -394,8 +394,8 @@ export default function ManualSearchModal({
     if (!user.trim()) e.user = "Please enter the username.";
     if (!pass.trim()) e.pass = "Please enter the password.";
     if (port && (isNaN(port) || +port < 1 || +port > 65535)) e.port = "1–65535";
-    if (cameraName && !/^[a-zA-Z0-9 _.\-()/#+:,]+$/.test(cameraName.trim())) {
-      e.cameraName = "Camera Name can only contain letters, numbers, spaces, and standard punctuation.";
+    if (cameraName && !/^[a-zA-Z0-9 _-]+$/.test(cameraName.trim())) {
+      e.cameraName = "Camera Name can only contain alphanumeric characters, spaces, dashes, and underscores.";
     }
     return e;
   };
@@ -404,8 +404,8 @@ export default function ManualSearchModal({
     const e = {};
     if (!rtspUrl.trim()) e.rtspUrl = "RTSP URL is required";
     else if (!rtspUrl.toLowerCase().startsWith("rtsp://")) e.rtspUrl = "URL must start with rtsp://";
-    if (cameraName && !/^[a-zA-Z0-9 _.\-()/#+:,]+$/.test(cameraName.trim())) {
-      e.cameraName = "Camera Name can only contain letters, numbers, spaces, and standard punctuation.";
+    if (cameraName && !/^[a-zA-Z0-9 _-]+$/.test(cameraName.trim())) {
+      e.cameraName = "Camera Name can only contain alphanumeric characters, spaces, dashes, and underscores.";
     }
     return e;
   };
@@ -446,9 +446,9 @@ export default function ManualSearchModal({
 
       const json = await res.json();
       if (!res.ok) {
-        setAlertMsg((typeof json.detail === "string" ? json.detail : (Array.isArray(json.detail) ? json.detail.map(d => d.msg || "Invalid input").join(", ") : ("Camera limit exceeded"))));
+        setAlertMsg(json.detail || "Camera limit exceeded");
         setProbe("fail");
-        setErrors({ ip: (typeof json.detail === "string" ? json.detail : (Array.isArray(json.detail) ? json.detail.map(d => d.msg || "Invalid input").join(", ") : ("Camera limit exceeded" )))});
+        setErrors({ ip: json.detail || "Camera limit exceeded" });
         return;
       }
       if (json.success) {
@@ -851,7 +851,7 @@ export default function ManualSearchModal({
                     <div className="msm-channel-header" style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span>Select Cameras to Add</span>
                       <span 
-                        style={{ cursor: 'pointer', color: 'var(--teal)' }}
+                        style={{ cursor: 'pointer', color: 'var(--brand)' }}
                         onClick={() => {
                           if (selectedChannels.length === channelList.length) {
                             setSelectedChannels([]);

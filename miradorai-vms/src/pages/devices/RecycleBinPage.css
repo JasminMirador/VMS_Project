@@ -21,8 +21,8 @@
 }
 
 .rb-toast--success {
-  border-color: rgba(16, 185, 129, 0.4);
-  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(var(--brand-rgb), 0.4);
+  background: rgba(var(--brand-rgb), 0.1);
   color: #a7f3d0;
 }
 

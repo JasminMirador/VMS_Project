@@ -18,7 +18,7 @@
 
 .dtp-container-box.active {
   border-color: var(--blue);
-  box-shadow: 0 0 0 2px var(--teal-glow);
+  box-shadow: 0 0 0 2px var(--brand-glow);
 }
 
 .dtp-segment {

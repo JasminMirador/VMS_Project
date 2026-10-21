@@ -30,7 +30,7 @@
   font-weight: 700;
   margin: 0;
   color: var(--text-primary);
-  background: linear-gradient(135deg, #fff 0%, var(--teal) 100%);
+  background: var(--title-gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   letter-spacing: -0.02em;
@@ -787,7 +787,7 @@
 }
 
 [data-theme="light"] .schedules-page .page-title {
-  background: linear-gradient(135deg, #0f172a 0%, var(--teal) 100%);
+  background: var(--title-gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }

@@ -126,12 +126,12 @@
 }
 
 .dv-tbtn--export {
-  color: #10b981;
-  border-color: #10b98140;
+  color: var(--brand);
+  border-color: rgba(var(--brand-rgb), 0.25);
 }
 
 .dv-tbtn--export:hover {
-  background: #10b98114;
+  background: rgba(var(--brand-rgb), 0.08);
 }
 
 .dv-tbtn:disabled {
@@ -810,10 +810,10 @@
 
 /* ── Heatmap toolbar button (adds to existing dv-tbtn styles) ──────────────── */
 .dv-tbtn--heatmap.dv-tbtn--active {
-  background: rgba(16, 185, 129, 0.15);
-  border-color: #10b981;
-  color: #10b981;
-  box-shadow: 0 0 0 1px #10b98133, 0 0 8px #10b98133;
+  background: rgba(var(--brand-rgb), 0.15);
+  border-color: var(--brand);
+  color: var(--brand);
+  box-shadow: 0 0 0 1px rgba(var(--brand-rgb), 0.2), 0 0 8px rgba(var(--brand-rgb), 0.2);
 }
 
 /* Disabled state for heatmap btn when no cameras placed */
@@ -903,8 +903,9 @@
 }
 
 .dv-export-item__icon--heatmap {
-  color: #10b981;
-  background: rgba(16, 185, 129, 0.1);
+  color: var(--brand);
+  background: rgba(var(--brand-rgb), 0.1);
+
 }
 
 .dv-export-item__label {
@@ -1631,12 +1632,12 @@
 .dv-zbtn:hover,
 .dv-zbtn:active,
 .dv-zbtn:focus {
-  background: var(--teal-subtle) !important;
-  border: 1.5px solid var(--teal) !important;
-  color: var(--teal) !important;
+  background: var(--brand-tint) !important;
+  border: 1.5px solid var(--brand) !important;
+  color: var(--brand) !important;
   font-weight: 600 !important;
   outline: none !important;
-  box-shadow: 0 0 8px var(--teal-glow) !important;
+  box-shadow: 0 0 8px var(--brand-glow) !important;
 }
 
 /* Premium Danger Red Button styles */
@@ -1659,11 +1660,11 @@
 .dv-tbtn--active,
 .dv-tbtn--active:active,
 .dv-tbtn--heatmap.dv-tbtn--active {
-  background: var(--teal-subtle) !important;
-  border: 1.5px solid var(--teal) !important;
-  color: var(--teal) !important;
+  background: var(--brand-tint) !important;
+  border: 1.5px solid var(--brand) !important;
+  color: var(--brand) !important;
   font-weight: 600 !important;
-  box-shadow: 0 0 10px var(--teal-glow) !important;
+  box-shadow: 0 0 10px var(--brand-glow) !important;
   outline: none !important;
 }
 
@@ -1862,11 +1863,11 @@
 }
 
 .dv-inspector-tab--active {
-  background: var(--teal-subtle) !important;
-  border-color: var(--teal) !important;
-  color: var(--teal) !important;
-  border: 1px solid var(--teal) !important;
-  box-shadow: 0 0 8px var(--teal-glow) !important;
+  background: var(--brand-tint) !important;
+  border-color: var(--brand) !important;
+  color: var(--brand) !important;
+  border: 1px solid var(--brand) !important;
+  box-shadow: 0 0 8px var(--brand-glow) !important;
 }
 
 .dv-inspector-content {
@@ -2001,14 +2002,14 @@
 }
 
 .dv-icon-btn--active {
-  background: rgba(16, 185, 129, 0.08);
-  border-color: #10b981;
-  color: #10b981;
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.12);
+  background: rgba(var(--brand-rgb), 0.08);
+  border-color: var(--brand);
+  color: var(--brand);
+  box-shadow: 0 0 0 2px rgba(var(--brand-rgb), 0.12);
 }
 
 .dv-icon-btn--active svg {
-  stroke: #10b981;
+  stroke: var(--brand);
 }
 
 .dv-icon-btn--danger {
@@ -2034,8 +2035,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #10b981;
-  flex-shrink: 0;
+  background: var(--brand);
   margin-left: -2px;
 }
 
@@ -2134,19 +2134,19 @@
 
 /* Active / selected state */
 .dv-dropdown-card--active {
-  background: rgba(16, 185, 129, 0.09) !important;
-  border-color: rgba(16, 185, 129, 0.35) !important;
-  box-shadow: 0 0 16px rgba(16, 185, 129, 0.04);
+  background: rgba(var(--brand-rgb), 0.09) !important;
+  border-color: rgba(var(--brand-rgb), 0.35) !important;
+  box-shadow: 0 0 16px rgba(var(--brand-rgb), 0.04);
 }
 
 .dv-dropdown-card--active .dv-dropdown-card__icon {
-  background: rgba(16, 185, 129, 0.15);
-  border-color: rgba(16, 185, 129, 0.3);
-  color: #10b981;
+  background: rgba(var(--brand-rgb), 0.15);
+  border-color: rgba(var(--brand-rgb), 0.3);
+  color: var(--brand);
 }
 
 .dv-dropdown-card--active .dv-dropdown-card__icon svg {
-  stroke: #10b981;
+  stroke: var(--brand);
 }
 
 .dv-dropdown-card__icon {
@@ -2193,15 +2193,14 @@
 /* Small checkmark for active mode card */
 .dv-dropdown-card__check {
   font-size: 14px;
-  color: #10b981;
+  color: var(--brand);
   font-weight: 700;
   margin-left: auto;
 }
 
 /* Badge count for Auto-detect draft zones */
 .dv-dropdown-card__badge {
-  background: #10b981;
-  color: #0d1117;
+  background: var(--button-bg);
   font-size: 10px;
   font-weight: 800;
   padding: 2px 6px;
@@ -2214,8 +2213,7 @@
   width: 14px;
   height: 14px;
   border: 2px solid rgba(255, 255, 255, 0.1);
-  border-top-color: #10b981;
-  border-radius: 50%;
+  border-top-color: var(--button-bg);
   animation: dvSpin 0.8s linear infinite;
   margin-left: auto;
 }
@@ -2251,12 +2249,12 @@
 }
 
 .dv-dropdown-card__toggle--on {
-  background: rgba(16, 185, 129, 0.2);
-  border-color: rgba(16, 185, 129, 0.4);
+  background: rgba(var(--brand-rgb), 0.2);
+  border-color: rgba(var(--brand-rgb), 0.4);
 }
 
 .dv-dropdown-card__toggle--on::after {
-  background: #10b981;
+  background: var(--brand);
   transform: translateX(13px);
 }
 
@@ -2488,8 +2486,9 @@
 
 [data-theme="light"] .dv-topbar {
   background: rgba(255, 255, 255, 0.8) !important;
-  border-bottom: 1.5px solid rgba(5, 150, 105, 0.2) !important;
+  border-bottom: 1.5px solid rgba(var(--brand-rgb), 0.2) !important;
 }
+
 
 [data-theme="light"] .dv-back-btn {
   background: var(--bg-surface);
@@ -2499,7 +2498,7 @@
 
 [data-theme="light"] .dv-back-btn:hover {
   color: var(--text-primary);
-  border-color: var(--teal);
+  border-color: var(--brand);
   background: var(--bg-hover);
 }
 
@@ -2598,7 +2597,8 @@
 }
 
 [data-theme="light"] .dv-type-pill--active {
-  color: var(--teal);
+  color: var(--brand);
+
   border-color: var(--teal);
   background: var(--teal-subtle);
 }
@@ -2652,7 +2652,7 @@
 
 [data-theme="light"] .dv-selected-bar {
   background: rgba(255, 255, 255, 0.96);
-  border: 1px solid rgba(5, 150, 105, 0.25);
+  border: 1px solid rgba(var(--brand-rgb), 0.25);
   color: var(--text-primary);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
 }
@@ -3076,9 +3076,10 @@
   color: var(--text-primary);
 }
 [data-theme="light"] .dv-export-option:hover {
-  background: var(--teal-subtle);
-  border-color: var(--teal);
-  color: var(--teal);
+  background: var(--brand-tint);
+  border-color: var(--brand);
+  color: var(--brand);
+
 }
 [data-theme="light"] .dv-export-modal-footer {
   border-top: 1px solid var(--border);
@@ -3131,8 +3132,8 @@
   border-color: var(--border);
 }
 [data-theme="light"] .dv-slide-card.active {
-  box-shadow: 0 0 12px rgba(5, 150, 105, 0.2);
-  border-color: var(--teal);
+  box-shadow: 0 0 12px rgba(var(--brand-rgb), 0.2);
+  border-color: var(--brand);
 }
 
 /* ── Toolbar separators ── */
@@ -3191,8 +3192,8 @@
 }
 
 .mv-parts-btn:hover {
-  background: var(--teal-subtle, rgba(16, 185, 129, 0.2));
-  border-color: var(--teal, #10b981);
+  background: var(--brand-tint, rgba(var(--brand-rgb), 0.2));
+  border-color: var(--brand, var(--brand-rgb));
   color: #ffffff;
 }
 

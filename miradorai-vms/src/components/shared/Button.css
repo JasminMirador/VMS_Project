@@ -12,8 +12,8 @@
 }
 .m-btn:hover:not(.m-btn--disabled) { background: var(--bg-hover); color: var(--text-primary); border-color: var(--text-muted); }
 
-.m-btn--primary { background: rgba(0,200,160,0.1); color: var(--teal); border-color: rgba(0,200,160,0.35); font-weight: 600; }
-.m-btn--primary:hover:not(.m-btn--disabled) { background: rgba(0,200,160,0.18); border-color: rgba(0,200,160,0.5); }
+.m-btn--primary { background: rgba(var(--brand-rgb), 0.1); color: var(--brand); border-color: rgba(var(--brand-rgb), 0.35); font-weight: 600; }
+.m-btn--primary:hover:not(.m-btn--disabled) { background: rgba(var(--brand-rgb), 0.18); border-color: rgba(var(--brand-rgb), 0.5); }
 
 .m-btn--danger { background: transparent; color: rgba(255,77,106,0.8); border-color: rgba(255,77,106,0.3); }
 .m-btn--danger:hover:not(.m-btn--disabled) { background: rgba(255,77,106,0.08); border-color: rgba(255,77,106,0.5); color: var(--red); }

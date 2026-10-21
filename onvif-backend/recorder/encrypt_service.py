@@ -33,7 +33,7 @@ from pymongo import MongoClient
 # ── REMOVED hardcoded RECORDINGS_DIR — now always reads from rtsp_recorder ──
 from . import rtsp_recorder as recorder   # get_recordings_dir() gives the live path
 
-MONGO_URI      = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
+MONGO_URI      = os.environ["MONGO_URI"]
 KEY_FILE       = os.environ.get("VIDEO_KEY_FILE", "/app/data/video.key")  # Must match recording_api.py
 
 # On Windows host, map default container path to the actual devices_data folder in VMS_Project

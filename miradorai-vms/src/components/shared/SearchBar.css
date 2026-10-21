@@ -17,4 +17,4 @@
   box-sizing: border-box;
 }
 .m-searchbar input::placeholder { color: var(--text-muted); }
-.m-searchbar input:focus { border-color: var(--teal); }
+.m-searchbar input:focus { border-color: var(--brand); }

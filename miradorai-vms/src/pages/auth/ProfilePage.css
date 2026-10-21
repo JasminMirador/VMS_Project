@@ -36,7 +36,7 @@
 
 .security-section:hover {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
-  border-color: rgba(16, 185, 129, 0.3);
+  border-color: rgba(var(--brand-rgb), 0.3);
 }
 
 .security-section-title {
@@ -79,8 +79,8 @@
 
 .security-input:focus {
   outline: none;
-  border-color: var(--teal);
-  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(var(--brand-rgb), 0.15);
 }
 
 /* Password Input Wrapper */
@@ -116,7 +116,7 @@
 }
 
 .password-toggle:hover {
-  color: var(--teal, #10b981);
+  color: var(--brand);
 }
 
 .password-toggle:disabled {
@@ -128,7 +128,7 @@
   padding: 12px 24px;
   border-radius: 8px;
   border: none;
-  background: var(--teal);
+  background: var(--brand);
   color: #fff;
   font-weight: 600;
   font-size: 15px;
@@ -172,7 +172,7 @@
   border-radius: 16px;
   margin-bottom: 24px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-  border: 2px solid rgba(16, 185, 129, 0.1);
+  border: 2px solid rgba(var(--brand-rgb), 0.1);
   position: relative;
 }
 
@@ -181,7 +181,7 @@
   position: absolute;
   top: -2px; left: -2px; right: -2px; bottom: -2px;
   border-radius: 18px;
-  background: linear-gradient(45deg, #10b981, #3b82f6);
+  background: linear-gradient(45deg, var(--button-bg), #3b82f6);
   z-index: -1;
   opacity: 0.3;
   animation: pulseGlow 2s infinite alternate;
@@ -199,7 +199,7 @@
   padding: 8px 16px;
   border-radius: 6px;
   border: 1px solid var(--border);
-  color: var(--teal);
+  color: var(--brand);
   font-size: 16px;
 }
 
@@ -220,8 +220,8 @@
 
 .mfa-code-input:focus {
   outline: none;
-  border-color: var(--teal);
-  box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+  border-color: var(--brand);
+  box-shadow: 0 0 15px rgba(var(--brand-rgb), 0.2);
 }
 
 .verify-form {
@@ -241,9 +241,9 @@
 }
 
 .status-badge.success {
-  background: rgba(16, 185, 129, 0.1);
-  border: 1px solid rgba(16, 185, 129, 0.2);
-  color: #10b981;
+  background: rgba(var(--brand-rgb), 0.1);
+  border: 1px solid rgba(var(--brand-rgb), 0.2);
+  color: var(--brand);
 }
 
 .status-badge.error {
@@ -284,7 +284,7 @@
 }
 
 .step-number {
-  background: var(--teal);
+  background: var(--button-bg);
   color: white;
   width: 24px;
   height: 24px;

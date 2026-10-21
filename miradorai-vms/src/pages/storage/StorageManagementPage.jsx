@@ -115,7 +115,7 @@ export default function StorageManagementPage() {
   );
 
   const usedPct   = sel ? Math.min(Math.round((sel.used / sel.total) * 100), 100) : 0;
-  const usedColor = usedPct >= 90 ? "#ef4444" : usedPct >= 70 ? "#f59e0b" : "var(--teal)";
+  const usedColor = usedPct >= 90 ? "#ef4444" : usedPct >= 70 ? "#f59e0b" : "var(--brand)";
 
   const handleAllocChange = (newVal) => {
     if (!sel) return;
@@ -152,7 +152,8 @@ export default function StorageManagementPage() {
     }
   };
 
-  const handleAdd = async () => { if (!newPath.trim()) return; if (!/^[a-zA-Z0-9 _. \-]+$/.test(newPath.trim())) { alert("Folder name contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed."); return; }
+  const handleAdd = async () => {
+    if (!newPath.trim()) return;
     const containerPath = toContainerPath(newPath.trim());
     const display       = toDisplayPath(containerPath);
     
@@ -183,8 +184,7 @@ export default function StorageManagementPage() {
       alert("⚠️ Warning: Remaining free space under the allocation limit is less than 200 MB! Please increase the allocation to ensure uninterrupted recording.");
     }
 
-    const displayInput  = folder.trim(); if (displayInput && !/^[a-zA-Z0-9 _. \-]+$/.test(displayInput)) { setApplyMsg(" ?? Folder name contains invalid characters. Only letters, numbers, spaces, hyphens, underscores, and dots are allowed."); setTimeou
-  t(() => setApplyMsg(""), 4000); return; }
+    const displayInput  = folder.trim();
     const containerPath = toContainerPath(displayInput);
 
     if (!containerPath) {
@@ -234,7 +234,7 @@ export default function StorageManagementPage() {
           fetchStorage();
         }
       } else {
-        setApplyMsg(`❌ ${(typeof json.detail === "string" ? json.detail : (Array.isArray(json.detail) ? json.detail.map(d => d.msg || "Invalid input").join(", ") : ("Failed to apply settings.")))}`);
+        setApplyMsg(`❌ ${json.detail || "Failed to apply settings."}`);
       }
     } catch {
       setApplyMsg("❌ Could not reach backend. Is the server running?");
@@ -337,7 +337,7 @@ export default function StorageManagementPage() {
 
             <div className="sm-field-row" style={{ marginTop: 8 }}>
               <span className="sm-field-label sm-field-label--lg">Total Capacity:</span>
-              <strong style={{ marginLeft: "auto", fontSize: "20px", color: "var(--teal)" }}>{sel.total} GB</strong>
+              <strong style={{ marginLeft: "auto", fontSize: "20px", color: "var(--brand)" }}>{sel.total} GB</strong>
             </div>
           </div>
 

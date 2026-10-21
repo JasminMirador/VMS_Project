@@ -46,6 +46,7 @@ import asyncio
 import re
 import os
 import urllib.parse
+from pathlib import Path as FilePath
 from datetime import datetime
 from app.services.redis_stream_publisher import publish_event as _redis_publish
 
@@ -57,35 +58,180 @@ from app.managers.health_manager import analytics_poll_loop as _analytics_poll_l
 from app.core.database import analytics_col, analytics_subs_col
 from app.managers.stream_manager import load_devices, save_camera_to_db, _watchdog_failures
 
-OME_HOST_IP = os.environ.get("HOST_IP", "127.0.0.1")
+OME_HOST_IP = os.environ["HOST_IP"]
 
 router = APIRouter(prefix="/api", tags=["cameras"])
 features_router = APIRouter(prefix="/api/camera", tags=["camera-features"], dependencies=[Depends(verify_token)])
 
+
 @router.get("/cameras", dependencies=[Depends(verify_token)])
 async def get_all_cameras():
-    cameras = load_devices()
-    
-    # ── Redis Stream: camera.list_requested ───────────────────────────────────
+    # Existing regular-camera inventory.
+    cameras = list(load_devices())
+    existing_stream_keys = {
+        c.get("stream_key") for c in cameras if c.get("stream_key")
+    }
+
+    # Use the same configuration file as edge_config_router.py.
+    edge_config_file = FilePath(
+        os.getenv(
+            "EDGE_CAMERAS_FILE",
+            str(
+                FilePath(__file__).resolve().parents[3]
+                / "devices_data"
+                / "edge_cameras.json"
+            ),
+        )
+    )
+
+    try:
+        with edge_config_file.open("r", encoding="utf-8") as handle:
+            edge_document = json.load(handle)
+    except FileNotFoundError:
+        edge_document = {"edges": {}}
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Could not read Edge camera configuration",
+        ) from exc
+
+    edges = edge_document.get("edges", {})
+    if not isinstance(edges, dict):
+        raise HTTPException(
+            status_code=500,
+            detail="Invalid Edge camera configuration structure",
+        )
+
+    for edge_id, edge in edges.items():
+        if not isinstance(edge, dict):
+            continue
+
+        edge_cameras = edge.get("cameras", [])
+        if not isinstance(edge_cameras, list):
+            continue
+
+        for camera in edge_cameras:
+            if not isinstance(camera, dict):
+                continue
+
+            camera_id = str(camera.get("camera_id", "")).strip()
+            if not camera_id:
+                continue
+
+            # Match the channel naming convention used by edge_sync_router.
+            safe_camera_id = re.sub(r"[^A-Za-z0-9_.-]", "_", camera_id)
+            stream_key = camera.get("channel") or (
+                f"{edge_id}_camera_{safe_camera_id}"
+            )
+
+            if stream_key in existing_stream_keys:
+                continue
+
+            rtsp_url = str(camera.get("rtsp_url", "")).strip()
+            parsed_rtsp = urllib.parse.urlsplit(rtsp_url)
+
+            # Use the source camera's host for display metadata only.
+            # Never return the original credential-bearing URL.
+            camera_ip = parsed_rtsp.hostname or ""
+
+            # Check if this edge camera was marked deleted in MongoDB
+            if cameras_col is not None:
+                del_doc = cameras_col.find_one({
+                    "$or": [
+                        {"stream_key": stream_key},
+                        {"edge_id": edge_id, "camera_id": camera_id}
+                    ],
+                    "is_deleted": True
+                })
+                if del_doc:
+                    continue
+
+            cameras.append({
+                "id": f"{edge_id}_{camera_id}",
+                "stream_key": stream_key,
+                "live_stream": stream_key,
+                "ip": camera_ip,
+                "ip_address": camera_ip,
+                "device_name": camera.get("name") or camera_id,
+                "name": camera.get("name") or camera_id,
+                "manufacturer": "Edge",
+                "model": "",
+                "source": "edge",
+                "edge_id": edge_id,
+                "edge_name": (
+                    edge.get("display_name")
+                    or edge.get("name")
+                    or edge_id
+                ),
+                "camera_id": camera_id,
+                "rtsp_url": rtsp_url,
+                "username": camera.get("username", ""),
+                "password": camera.get("password", ""),
+                "enabled": camera.get("enabled", True),
+                "status": "unknown",
+                "is_edge_camera": True,
+                "added_at": camera.get("added_at"),
+                "updated_at": camera.get("updated_at"),
+            })
+
+            existing_stream_keys.add(stream_key)
+
+    # Preserve the existing Redis event behavior.
     formatted_cameras = [
         {
             "ip_address": c.get("ip_address") or c.get("ip"),
             "enabled": c.get("enabled", True),
-            "device_name": c.get("name") or c.get("device_name") or f"Camera @ {c.get('ip_address') or c.get('ip')}",
+            "device_name": (
+                c.get("name")
+                or c.get("device_name")
+                or f"Camera @ {c.get('ip_address') or c.get('ip')}"
+            ),
             "password": c.get("password", ""),
             "username": c.get("username", ""),
             "rtsp_url": c.get("rtsp_url", ""),
             "manufacturer": c.get("manufacturer", ""),
-            "model": c.get("model", "")
-        } for c in cameras
+            "model": c.get("model", ""),
+        }
+        for c in cameras
     ]
-    
-    asyncio.create_task(_redis_publish(
-        _CAM_STREAM(), "camera.list_requested",
-        {"count": len(formatted_cameras), "cameras": formatted_cameras}
-    ))
-    
+
+    asyncio.create_task(
+        _redis_publish(
+            _CAM_STREAM(),
+            "camera.list_requested",
+            {
+                "count": len(formatted_cameras),
+                "cameras": formatted_cameras,
+            },
+        )
+    )
+
     return cameras
+
+# @router.get("/cameras", dependencies=[Depends(verify_token)])
+# async def get_all_cameras():
+#     cameras = load_devices()
+    
+#     # ── Redis Stream: camera.list_requested ───────────────────────────────────
+#     formatted_cameras = [
+#         {
+#             "ip_address": c.get("ip_address") or c.get("ip"),
+#             "enabled": c.get("enabled", True),
+#             "device_name": c.get("name") or c.get("device_name") or f"Camera @ {c.get('ip_address') or c.get('ip')}",
+#             "password": c.get("password", ""),
+#             "username": c.get("username", ""),
+#             "rtsp_url": c.get("rtsp_url", ""),
+#             "manufacturer": c.get("manufacturer", ""),
+#             "model": c.get("model", "")
+#         } for c in cameras
+#     ]
+    
+#     asyncio.create_task(_redis_publish(
+#         _CAM_STREAM(), "camera.list_requested",
+#         {"count": len(formatted_cameras), "cameras": formatted_cameras}
+#     ))
+    
+#     return cameras
 
 @router.post("/cameras/by-ip/{ip}/enable", dependencies=[Depends(require_admin)])
 async def enable_camera_by_ip(ip: str = Path(..., max_length=255, pattern=r"^[a-zA-Z0-9.-]+$")):
@@ -250,35 +396,159 @@ async def delete_camera_by_rtsp(request: Request):
     global devices
     data = await request.json()
     rtsp_url = (data.get("rtsp_url") or "").strip()
-    if not rtsp_url:
-        raise HTTPException(status_code=400, detail="rtsp_url is required")
+    stream_key = (data.get("stream_key") or "").strip()
+    camera_id = (data.get("camera_id") or "").strip()
+    edge_id = (data.get("edge_id") or "").strip()
+    cam_id = str(data.get("id") or data.get("_id") or "").strip()
+    ip = (data.get("ip") or data.get("ip_address") or "").strip()
 
-    matched = [d for d in devices if d.get("rtsp_url") == rtsp_url]
+    if not any([rtsp_url, stream_key, camera_id, cam_id, ip]):
+        raise HTTPException(
+            status_code=400,
+            detail="At least one camera identifier (stream_key, rtsp_url, camera_id, id, or ip) is required"
+        )
+
+    matched = []
+    if stream_key:
+        matched = [d for d in devices if d.get("stream_key") == stream_key]
+    if not matched and camera_id:
+        matched = [d for d in devices if d.get("camera_id") == camera_id and (not edge_id or d.get("edge_id") == edge_id)]
+    if not matched and rtsp_url:
+        matched = [d for d in devices if d.get("rtsp_url") == rtsp_url]
+    if not matched and cam_id:
+        matched = [d for d in devices if str(d.get("id")) == cam_id or str(d.get("_id")) == cam_id]
+    if not matched and ip:
+        matched = [d for d in devices if d.get("ip") == ip or d.get("ip_address") == ip]
+
     if not matched and cameras_col is not None:
-        db_doc = cameras_col.find_one({"rtsp_url": rtsp_url, "is_deleted": {"$ne": True}})
-        if db_doc:
-            matched = [db_doc]
+        clauses = []
+        if stream_key:
+            clauses.append({"stream_key": stream_key})
+        if camera_id:
+            cam_q = {"camera_id": camera_id}
+            if edge_id:
+                cam_q["edge_id"] = edge_id
+            clauses.append(cam_q)
+        if rtsp_url:
+            clauses.append({"rtsp_url": rtsp_url})
+        if cam_id:
+            try:
+                from bson import ObjectId
+                clauses.append({"_id": ObjectId(cam_id)})
+            except Exception:
+                pass
+            clauses.append({"id": cam_id})
+        if ip:
+            clauses.append({"ip": ip})
+            clauses.append({"ip_address": ip})
+
+        if clauses:
+            db_docs = list(cameras_col.find({"$or": clauses, "is_deleted": {"$ne": True}}))
+            if not db_docs:
+                db_docs = list(cameras_col.find({"$or": clauses}))
+            if db_docs:
+                matched = db_docs
+
+    # Also clean up from devices_data/edge_cameras.json if this is an edge camera
+    edge_removed = []
+    try:
+        from app.api.routers.edge_config_router import _FILE_LOCK, _read_document, _atomic_write
+        with _FILE_LOCK:
+            doc_json = _read_document()
+            edges_dict = doc_json.get("edges", {})
+            file_changed = False
+            for e_id, e_val in edges_dict.items():
+                if edge_id and e_id.lower() != edge_id.lower():
+                    continue
+                cams = e_val.get("cameras", [])
+                initial_count = len(cams)
+                remaining_cams = []
+                for c in cams:
+                    c_cam_id = str(c.get("camera_id", "")).strip()
+                    c_stream_key = c.get("channel") or f"{e_id}_camera_{re.sub(r'[^A-Za-z0-9_.-]', '_', c_cam_id)}"
+                    c_rtsp = str(c.get("rtsp_url", "")).strip()
+                    should_remove = False
+
+                    if camera_id and c_cam_id == camera_id:
+                        should_remove = True
+                    elif stream_key and (c_stream_key == stream_key or c.get("channel") == stream_key):
+                        should_remove = True
+                    elif rtsp_url and c_rtsp == rtsp_url:
+                        should_remove = True
+                    elif cam_id and (f"{e_id}_{c_cam_id}" == cam_id or c_cam_id == cam_id):
+                        should_remove = True
+                    elif matched and any(
+                        (m.get("camera_id") and str(m.get("camera_id")) == c_cam_id) or
+                        (m.get("stream_key") and m.get("stream_key") == c_stream_key) or
+                        (m.get("rtsp_url") and m.get("rtsp_url") == c_rtsp)
+                        for m in matched
+                    ):
+                        should_remove = True
+
+                    if should_remove:
+                        edge_removed.append(c)
+                        print(f"[DELETE] Removed camera '{c_cam_id}' from edge '{e_id}' in edge_cameras.json")
+                    else:
+                        remaining_cams.append(c)
+
+                if len(remaining_cams) < initial_count:
+                    e_val["cameras"] = remaining_cams
+                    file_changed = True
+
+            if file_changed:
+                _atomic_write(doc_json)
+    except Exception as e:
+        print(f"[DELETE] Error checking/removing from edge_cameras.json: {e}")
+
+    if not matched and edge_removed:
+        matched = edge_removed
 
     if not matched:
-        raise HTTPException(status_code=404, detail=f"No camera found with rtsp_url: {rtsp_url}")
+        raise HTTPException(status_code=404, detail="No camera found matching the provided identifiers")
 
-    ip = matched[0].get("ip") or matched[0].get("ip_address") or ""
+    resolved_ip = ip or (matched[0].get("ip") if matched else "") or (matched[0].get("ip_address") if matched else "")
+    resolved_rtsp = rtsp_url or (matched[0].get("rtsp_url") if matched else "")
+
     stopped = []
     for device in matched:
-        stream_name = device.get("stream_key")
+        stream_name = device.get("stream_key") or stream_key
         if not stream_name:
             continue
-        recorder.stop_camera(stream_name)
-        stopped.append(stream_name)
-        print(f"[DELETE-RTSP] ⏹ Stopped recorder for {stream_name}")
+        try:
+            recorder.stop_camera(stream_name)
+            stopped.append(stream_name)
+            print(f"[DELETE] ⏹ Stopped recorder for {stream_name}")
+        except Exception as e:
+            print(f"[DELETE] Recorder stop error for {stream_name}: {e}")
         try:
             remove_stream(stream_name)
-            print(f"[DELETE-RTSP] MediaMTX unregister {stream_name}")
+            print(f"[DELETE] MediaMTX unregister {stream_name}")
         except Exception as e:
-            print(f"[DELETE-RTSP] OME unregister failed for {stream_name} (non-fatal): {e}")
+            print(f"[DELETE] MediaMTX unregister failed for {stream_name} (non-fatal): {e}")
         _watchdog_failures.pop(stream_name, None)
 
-    devices = [d for d in devices if d.get("rtsp_url") != rtsp_url]
+    # Clean in-memory devices
+    keys_to_remove = set()
+    for m in matched:
+        if m.get("stream_key"):
+            keys_to_remove.add(m.get("stream_key"))
+        if m.get("rtsp_url"):
+            keys_to_remove.add(m.get("rtsp_url"))
+        if m.get("camera_id"):
+            keys_to_remove.add(m.get("camera_id"))
+    if stream_key:
+        keys_to_remove.add(stream_key)
+    if rtsp_url:
+        keys_to_remove.add(rtsp_url)
+    if camera_id:
+        keys_to_remove.add(camera_id)
+
+    devices = [
+        d for d in devices
+        if d.get("stream_key") not in keys_to_remove
+        and (not d.get("rtsp_url") or d.get("rtsp_url") not in keys_to_remove)
+        and (not d.get("camera_id") or d.get("camera_id") not in keys_to_remove)
+    ]
     save_devices(devices)
 
     if cameras_col is not None:
@@ -289,25 +559,63 @@ async def delete_camera_by_rtsp(request: Request):
                 "deleted_at": now
             }
         }
-        result = cameras_col.update_many({"rtsp_url": rtsp_url}, update_doc)
-        print(f"[DELETE-RTSP] 🗑 MongoDB: soft-deleted {result.modified_count} camera(s) for rtsp_url {rtsp_url}")
+        mongo_delete_clauses = []
+        if stream_key:
+            mongo_delete_clauses.append({"stream_key": stream_key})
+        if camera_id:
+            cam_q = {"camera_id": camera_id}
+            if edge_id:
+                cam_q["edge_id"] = edge_id
+            mongo_delete_clauses.append(cam_q)
+        if rtsp_url:
+            mongo_delete_clauses.append({"rtsp_url": rtsp_url})
+        if cam_id:
+            try:
+                from bson import ObjectId
+                mongo_delete_clauses.append({"_id": ObjectId(cam_id)})
+            except Exception:
+                pass
+            mongo_delete_clauses.append({"id": cam_id})
+        for m in matched:
+            if m.get("stream_key"):
+                mongo_delete_clauses.append({"stream_key": m.get("stream_key")})
+            if m.get("camera_id"):
+                mq = {"camera_id": m.get("camera_id")}
+                if m.get("edge_id"):
+                    mq["edge_id"] = m.get("edge_id")
+                mongo_delete_clauses.append(mq)
+            if m.get("rtsp_url"):
+                mongo_delete_clauses.append({"rtsp_url": m.get("rtsp_url")})
+            if m.get("_id"):
+                mongo_delete_clauses.append({"_id": m.get("_id")})
 
-        if ip and recordings_col is not None:
-            rec_res = recordings_col.update_many({"camera_ip": ip}, update_doc)
-            print(f"[DELETE-RTSP] Cascade: soft-deleted {rec_res.modified_count} recordings for IP {ip}")
-        if ip and analytics_col is not None:
-            al_res = analytics_col.update_many({"ip": ip}, update_doc)
-            print(f"[DELETE-RTSP] Cascade: soft-deleted {al_res.modified_count} alerts for IP {ip}")
+        if mongo_delete_clauses:
+            result = cameras_col.update_many({"$or": mongo_delete_clauses}, update_doc)
+            print(f"[DELETE] 🗑 MongoDB: soft-deleted {result.modified_count} camera(s)")
+
+        if resolved_ip and recordings_col is not None:
+            rec_res = recordings_col.update_many({"camera_ip": resolved_ip}, update_doc)
+            print(f"[DELETE] Cascade: soft-deleted {rec_res.modified_count} recordings for IP {resolved_ip}")
+        if resolved_ip and analytics_col is not None:
+            al_res = analytics_col.update_many({"ip": resolved_ip}, update_doc)
+            print(f"[DELETE] Cascade: soft-deleted {al_res.modified_count} alerts for IP {resolved_ip}")
 
     # ── Redis Stream: camera.deleted ──────────────────────────────────────────
     asyncio.create_task(_redis_publish(
         _CAM_STREAM(), "camera.deleted",
         {
-            "ip_address": ip,
-            "rtsp_url": rtsp_url
+            "ip_address": resolved_ip,
+            "rtsp_url": resolved_rtsp,
+            "stream_key": stream_key or (matched[0].get("stream_key") if matched else "")
         },
     ))
-    return {"success": True, "rtsp_url": rtsp_url, "ip": ip, "streams_stopped": stopped}
+    return {
+        "success": True,
+        "rtsp_url": resolved_rtsp,
+        "ip": resolved_ip,
+        "stream_key": stream_key or (matched[0].get("stream_key") if matched else ""),
+        "streams_stopped": stopped
+    }
 @router.delete("/cameras/{ip}/hard", dependencies=[Depends(require_admin)])
 async def hard_delete_camera(ip: str = Path(..., max_length=255, pattern=r"^[a-zA-Z0-9.-]+$")):
     """
@@ -399,30 +707,86 @@ async def update_camera_by_ip(ip: str, request: Request):
     actual_updated_fields = []
     
     if cameras_col is not None:
-        allowed_keys = {"name", "device_name", "mac", "manufacturer", "model", "rtsp_url", "group_id", "thumbnail"}
+        allowed_keys = {
+            "name", "device_name", "mac", "manufacturer", "model", "rtsp_url",
+            "group_id", "thumbnail", "username", "password", "camera_id",
+            "enabled", "status", "source_rtsp", "recording_rtsp", "edge_id", "edge_name",
+            "added_at", "updated_at"
+        }
         update_data = {k: v for k, v in data.items() if k in allowed_keys}
         if update_data:
-            existing_doc = cameras_col.find_one({"$or": [{"ip": ip}, {"ip_address": ip}]}) or {}
+            edge_id = data.get("edge_id")
+            camera_id = data.get("camera_id")
+            if edge_id and camera_id:
+                query = {"edge_id": edge_id, "camera_id": camera_id}
+            else:
+                query = {"$or": [{"ip": ip}, {"ip_address": ip}]}
+
+            now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+            existing_doc = cameras_col.find_one(query) or {}
+            update_data["updated_at"] = now_str
+            if not existing_doc.get("added_at"):
+                update_data["added_at"] = now_str
+
             for k, v in update_data.items():
                 if existing_doc.get(k) != v:
                     actual_updated_fields.append(k)
                     
-            cameras_col.update_many({"$or": [{"ip": ip}, {"ip_address": ip}]}, {"$set": update_data})
-            print(f"[UPDATE] ✏️ MongoDB: updated document(s) for IP {ip}")
+            cameras_col.update_many(query, {"$set": update_data})
+            print(f"[UPDATE] ✏️ MongoDB: updated document(s) for query {query}")
+
+            # Sync update to devices_data/edge_cameras.json if this is an edge camera
+            target_edge_id = edge_id or existing_doc.get("edge_id")
+            target_camera_id = camera_id or existing_doc.get("camera_id")
+            if target_edge_id:
+                try:
+                    from app.api.routers.edge_config_router import _FILE_LOCK, _read_document, _atomic_write
+                    with _FILE_LOCK:
+                        doc_json = _read_document()
+                        edge_entry = doc_json.get("edges", {}).get(target_edge_id)
+                        if edge_entry and "cameras" in edge_entry:
+                            for c in edge_entry["cameras"]:
+                                if (target_camera_id and c.get("camera_id") == target_camera_id) or (
+                                    existing_doc.get("rtsp_url") and c.get("rtsp_url") == existing_doc.get("rtsp_url")
+                                ):
+                                    if "name" in update_data:
+                                        c["name"] = update_data["name"]
+                                    if "rtsp_url" in update_data:
+                                        c["rtsp_url"] = update_data["rtsp_url"]
+                                    if "username" in update_data:
+                                        c["username"] = update_data["username"]
+                                    if "password" in update_data:
+                                        c["password"] = update_data["password"]
+                                    if "enabled" in update_data:
+                                        c["enabled"] = bool(update_data["enabled"])
+                                    c["updated_at"] = now_str
+                                    if not c.get("added_at"):
+                                        c["added_at"] = existing_doc.get("added_at") or now_str
+                            _atomic_write(doc_json)
+                            print(f"[EDGE-CONFIG] Synced camera update for edge '{target_edge_id}' to edge_cameras.json")
+                except Exception as e:
+                    print(f"[EDGE-CONFIG] Error syncing camera to edge_cameras.json: {e}")
     else:
         actual_updated_fields = list(data.keys())
 
     global devices
     updated_device = None
     for d in devices:
-        if d.get("ip") == ip or d.get("ip_address") == ip:
+        match = False
+        if data.get("edge_id") and data.get("camera_id"):
+            match = (d.get("edge_id") == data["edge_id"] and d.get("camera_id") == data["camera_id"])
+        elif d.get("ip") == ip or d.get("ip_address") == ip:
+            match = True
+
+        if match:
             for k, v in data.items():
                 d[k] = v
             updated_device = d
     save_devices(devices)
     
     if cameras_col is not None:
-        updated_doc = cameras_col.find_one({"$or": [{"ip": ip}, {"ip_address": ip}]})
+        target_q = {"edge_id": data.get("edge_id"), "camera_id": data.get("camera_id")} if data.get("edge_id") and data.get("camera_id") else {"$or": [{"ip": ip}, {"ip_address": ip}]}
+        updated_doc = cameras_col.find_one(target_q) or {}
     else:
         updated_doc = updated_device or {}
 
@@ -659,7 +1023,7 @@ async def onvif_probe(req: ProbeRequest):
         result["stream_key"]      = stream_name
         result["ome_response"]    = ome_response
         live_key = live_stream if live_stream else stream_name
-        result["ws_url"]          = f"http://localhost:8889/{live_key}"
+        result["ws_url"]          = f"{os.environ['MEDIAMTX_PUBLIC_URL']}/{live_key}"
         result["stream_key"]      = live_key
         result["status"]          = "streaming"
         result["rtsp_url"]        = rtsp
@@ -766,7 +1130,7 @@ async def register_rtsp_stream(req: StreamRegisterRequest):
         return {
             "success":    True,
             "stream_key": stream_name,
-            "ws_url":     f"http://localhost:8889/{live_key}",
+            "ws_url":     f"{os.environ['MEDIAMTX_PUBLIC_URL']}/{live_key}",
             "stream_key": live_key,
             "status":     "streaming",
             "rtsp_url":   rtsp,
@@ -878,7 +1242,7 @@ async def register_rtsp_stream(req: StreamRegisterRequest):
     return {
         "success":    True,
         "stream_key": stream_name,
-        "ws_url":     f"http://localhost:8889/{live_key}",
+        "ws_url":     f"{os.environ['MEDIAMTX_PUBLIC_URL']}/{live_key}",
         "stream_key": live_key,
         "status":     "streaming",
         "rtsp_url":   rtsp,
@@ -1020,7 +1384,7 @@ async def assign_streams(req: StreamAssignRequest):
     return {
         "success":           True,
         "stream_key":        stream_name,
-        "ws_url":            f"http://localhost:8889/{live_key}",
+        "ws_url":            f"{os.environ['MEDIAMTX_PUBLIC_URL']}/{live_key}",
         "stream_key":        live_key,
         "live_rtsp":         req.live_rtsp,
         "recording_rtsp":    req.recording_rtsp,

@@ -11,7 +11,7 @@ from minio import Minio
 router = APIRouter()
 
 # Minio setup (replace with actual app config where available)
-MINIO_URL = os.environ.get("MINIO_URL", "localhost:9000")
+MINIO_URL = os.environ["MINIO_ENDPOINT"]
 MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "minioadmin")
 minio_client = Minio(MINIO_URL, access_key=MINIO_ACCESS_KEY, secret_key=MINIO_SECRET_KEY, secure=False)

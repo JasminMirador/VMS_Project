@@ -34,8 +34,8 @@
 .ar-card:last-child   { border-bottom: none; }
 .ar-card:hover        { background: var(--bg-elevated); }
 .ar-card--selected    {
-  background: var(--teal-subtle) !important;
-  border-left: 3px solid var(--teal);
+  background: var(--brand-tint) !important;
+  border-left: 3px solid var(--brand);
   padding-left: 15px;
 }
 
@@ -163,9 +163,9 @@
 }
 .ar-wizard__step-item:hover { background: var(--bg-hover); color: var(--text-primary); }
 .ar-wizard__step-item--active {
-  color: var(--teal);
-  background: var(--teal-subtle);
-  border-left-color: var(--teal);
+  color: var(--brand);
+  background: var(--brand-tint);
+  border-left-color: var(--brand);
   font-weight: 500;
 }
 .ar-wizard__step-item--done { color: var(--text-primary); }
@@ -314,9 +314,9 @@
 }
 .ar-sub-modal__item:hover { background: var(--bg-hover); color: var(--text-primary); }
 .ar-sub-modal__item--active {
-  background: var(--teal-subtle);
-  color: var(--teal);
-  border-left-color: var(--teal);
+  background: var(--brand-tint);
+  color: var(--brand);
+  border-left-color: var(--brand);
   font-weight: 500;
 }
 .ar-sub-modal__desc {
@@ -387,7 +387,7 @@
   box-sizing: border-box;
 }
 .ar-select:focus,
-.ar-input:focus  { border-color: var(--teal); }
+.ar-input:focus  { border-color: var(--brand); }
 .ar-select--sm,
 .ar-input--sm    { padding: 4px 8px; font-size: 11px; }
 
@@ -402,7 +402,7 @@
 }
 .ar-checkbox-row--sm { font-size: 11.5px; }
 .ar-checkbox-row input {
-  accent-color: var(--teal);
+  accent-color: var(--brand);
   margin-top: 2px;
   flex-shrink: 0;
 }
@@ -453,12 +453,12 @@
 }
 
 .ar-sub-modal__tab--active {
-  color: var(--teal);
-  border-bottom-color: var(--teal);
+  color: var(--brand);
+  border-bottom-color: var(--brand);
 }
 
 .ar-sub-modal__tab-badge {
-  background: var(--teal);
+  background: var(--button-bg);
   color: #fff;
   font-size: 10px;
   font-weight: 700;
@@ -472,7 +472,7 @@
   font-size: 9px;
   font-weight: 700;
   color: #fff;
-  background: var(--teal);
+  background: var(--button-bg);
   border-radius: 4px;
   padding: 1px 5px;
   margin-right: 6px;
@@ -519,7 +519,7 @@
   width: 20px;
   height: 20px;
   border: 2px solid var(--border);
-  border-top-color: var(--teal);
+  border-top-color: var(--button-bg);
   border-radius: 50%;
   animation: ar-spin 0.7s linear infinite;
 }
@@ -561,6 +561,6 @@
 
 /* ── Built-in analytics hint ─────────────────────────────── */
 .ar-card__hint--builtin {
-  color: var(--teal);
+  color: var(--brand);
   font-size: 11px;
 }

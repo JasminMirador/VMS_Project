@@ -32,7 +32,7 @@
 .tp-input-trigger:focus-visible,
 .tp-input-trigger.open {
   border-color: var(--blue);
-  box-shadow: 0 0 0 2px var(--teal-glow);
+  box-shadow: 0 0 0 2px var(--brand-glow);
 }
 
 .tp-trigger-text {
@@ -74,7 +74,7 @@
   font-size: 12px;
   font-weight: 600;
   color: var(--blue);
-  background: var(--teal-subtle);
+  background: var(--brand-tint);
   padding: 2px 8px;
   border-radius: 4px;
 }
@@ -136,7 +136,7 @@
 }
 
 .tp-item.active {
-  background: var(--teal) !important;
+  background: var(--brand) !important;
   color: #fff !important;
   font-weight: 700;
 }

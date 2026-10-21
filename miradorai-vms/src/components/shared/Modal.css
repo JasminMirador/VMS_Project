@@ -8,7 +8,7 @@
 
 .m-modal {
   border-radius: var(--radius-lg) !important;
-  box-shadow: var(--shadow-lg), 0 0 40px rgba(0,200,160,0.08);
+  box-shadow: var(--shadow-lg), 0 0 40px rgba(var(--brand-rgb), 0.08);
   animation: modalIn 0.18s ease;
 }
 @keyframes modalIn { from { opacity: 0; transform: scale(0.96) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
@@ -44,7 +44,7 @@
   transition: border-color var(--transition);
   box-sizing: border-box;
 }
-.m-field input:focus, .m-field select:focus { border-color: var(--teal); }
+.m-field input:focus, .m-field select:focus { border-color: var(--brand); }
 
 .m-info-row { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
 .m-info-row:last-child { border-bottom: none; }

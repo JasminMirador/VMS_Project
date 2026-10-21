@@ -13,20 +13,20 @@
   top: 0;
   z-index: 100 !important;
   color: #ffffff !important;
-  font-size: 13px !important;
+  font-size: clamp(10.66px, calc(9.1px + 0.27vw), 18.2px) !important;
   background: var(--bg-surface) !important;
 }
 
 .cam-table-wrap .m-table td {
   color: #ffffff !important;
-  font-size: 15px !important;
+  font-size: clamp(12.3px, calc(10.5px + 0.31vw), 21px) !important;
 }
 
 .cam-table-wrap .m-table td code,
 .cam-table-wrap .m-table td .cam-mono,
 .cam-table-wrap .m-table td .cam-ip-link {
   color: #ffffff !important;
-  font-size: 15px !important;
+  font-size: clamp(12.3px, calc(10.5px + 0.31vw), 21px) !important;
 }
 html, body, #root {
   height: 100%;
@@ -34,8 +34,8 @@ html, body, #root {
 .cam-side-panel > * {
   width: 100%;
 }
-.app-layout, 
-.page-container, 
+.app-layout,
+.page-container,
 .cameras-page {
   height: 100%;
   display: flex;
@@ -62,7 +62,7 @@ html, body, #root {
   background: transparent;   /* ❌ remove box */
   border: none;
   color: #ffffff;           /* white cross */
-  font-size: 18px;
+  font-size: clamp(14.76px, calc(12.6px + 0.37vw), 25.2px);
   cursor: pointer;
   padding: 4px;
   line-height: 1;
@@ -131,7 +131,7 @@ html, body, #root {
 .cam-ip-link {
   color: #1D9E75;
   font-family: "Consolas", "JetBrains Mono", monospace;
-  font-size: 16px;
+  font-size: clamp(13.12px, calc(11.2px + 0.33vw), 22.4px);
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -149,14 +149,14 @@ html, body, #root {
 /* ── Monospace cell ──────────────────────────────────────── */
 .cam-mono {
   font-family: "Consolas", "JetBrains Mono", monospace;
-  font-size: 11.5px;
+  font-size: clamp(9.43px, calc(8.05px + 0.24vw), 16.1px);
   letter-spacing: 0.03em;
   color: var(--text-secondary);
 }
 
 /* ── Footer count ────────────────────────────────────────── */
 .cameras-count {
-  font-size: 16px;
+  font-size: clamp(13.12px, calc(11.2px + 0.33vw), 22.4px);
   color: var(--text-muted);
 }
 
@@ -168,7 +168,7 @@ html, body, #root {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 3000; /* above the top bar (2500) */
 }
 
 .ec-modal {
@@ -180,8 +180,14 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   color: var(--text-primary, #e8eaf0);
-  font-size: 17px;
+  font-size: clamp(13.94px, calc(11.9px + 0.35vw), 23.8px);
+  height: auto;
+  /* Fit the screen: never taller than the viewport; the body scrolls */
+  max-height: calc(100vh - 48px);
+  max-width: 94vw;
+  overflow: hidden;
 }
+.ec-titlebar, .ec-footer { flex-shrink: 0; }
 
 /* Title bar */
 .ec-titlebar {
@@ -194,7 +200,7 @@ html, body, #root {
   border-radius: 12px 12px 0 0;
 }
 .ec-title {
-  font-size: 18px;
+  font-size: clamp(14.76px, calc(12.6px + 0.37vw), 25.2px);
   font-weight: 600;
   color: var(--text-primary, #e8eaf0);
 }
@@ -208,7 +214,7 @@ html, body, #root {
   border: none;
   background: transparent;
   border-radius: 4px;
-  font-size: 16px;
+  font-size: clamp(13.12px, calc(11.2px + 0.33vw), 22.4px);
   color: var(--text-secondary, #8892a4);
   cursor: pointer;
   display: flex;
@@ -216,7 +222,7 @@ html, body, #root {
   justify-content: center;
   transition: all 0.2s ease;
 }
-.ec-title-btn:hover { 
+.ec-title-btn:hover {
   background: var(--bg-hover, #1f2433);
   color: var(--text-primary, #e8eaf0);
 }
@@ -227,10 +233,14 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .ec-section-title {
-  font-size: 19px;
+  font-size: clamp(15.58px, calc(13.3px + 0.4vw), 26.6px);
   font-weight: 600;
   color: var(--text-primary, #e8eaf0);
   margin-bottom: 2px;
@@ -243,7 +253,7 @@ html, body, #root {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 17px;
+  font-size: clamp(13.94px, calc(11.9px + 0.35vw), 23.8px);
   color: var(--text-primary, #e8eaf0);
   cursor: pointer;
   margin-bottom: 2px;
@@ -251,7 +261,7 @@ html, body, #root {
 .ec-checkbox-row input[type="checkbox"] {
   width: 14px;
   height: 14px;
-  accent-color: var(--teal, #00c8a0);
+  accent-color: var(--brand);
   cursor: pointer;
 }
 
@@ -266,7 +276,7 @@ html, body, #root {
 .ec-field-label {
   width: 90px;
   flex-shrink: 0;
-  font-size: 17px;
+  font-size: clamp(13.94px, calc(11.9px + 0.35vw), 23.8px);
   color: var(--text-secondary, #8892a4);
   text-align: right;
 }
@@ -277,17 +287,17 @@ html, body, #root {
   border: 1px solid var(--border-light, #2e3548);
   border-radius: var(--radius-sm, 4px);
   background: var(--bg-base, #0d0f14);
-  font-size: 17px;
+  font-size: clamp(13.94px, calc(11.9px + 0.35vw), 23.8px);
   color: var(--text-primary, #e8eaf0);
   outline: none;
   transition: all 0.2s ease;
 }
 .ec-input:focus {
-  border-color: var(--teal, #00c8a0);
-  box-shadow: 0 0 0 2px var(--teal-subtle, rgba(0,200,160,0.08));
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px var(--brand-tint);
 }
 .ec-input--highlight {
-  border-color: var(--teal-dim, #00a882);
+  border-color: var(--brand-hover);
 }
 .ec-input--short {
   flex: 0 0 80px;
@@ -298,7 +308,7 @@ html, body, #root {
   border: 1px solid var(--border-light, #2e3548);
   border-radius: var(--radius-sm, 4px);
   background: var(--bg-base, #0d0f14);
-  font-size: 17px;
+  font-size: clamp(13.94px, calc(11.9px + 0.35vw), 23.8px);
   color: var(--text-primary, #e8eaf0);
   resize: vertical;
   outline: none;
@@ -307,8 +317,8 @@ html, body, #root {
   transition: all 0.2s ease;
 }
 .ec-textarea:focus {
-  border-color: var(--teal, #00c8a0);
-  box-shadow: 0 0 0 2px var(--teal-subtle, rgba(0,200,160,0.08));
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px var(--brand-tint);
 }
 
 /* Footer */
@@ -330,7 +340,7 @@ html, body, #root {
 
 /* Auth dialog description text */
 .ec-auth-desc {
-  font-size: 17px;
+  font-size: clamp(13.94px, calc(11.9px + 0.35vw), 23.8px);
   color: var(--text-secondary, #8892a4);
   margin: 0 0 12px 0;
   line-height: 1.5;
@@ -345,7 +355,7 @@ html, body, #root {
   min-height: 0;
   background: #11141b !important;
   color: #ffffff;
-  border-left: 1px solid #1e293b;
+  border-left: none;
   display: flex;
   flex-direction: column;
   position: relative;
@@ -367,7 +377,7 @@ html, body, #root {
 
 .cam-side-header h3 {
   margin: 0;
-  font-size: 19px;
+  font-size: clamp(15.58px, calc(13.3px + 0.4vw), 26.6px);
   font-weight: 700;
   color: #fff;
   flex: 1;
@@ -422,8 +432,8 @@ html, body, #root {
 }
 
 .cam-side-item.checked {
-  background: var(--teal-subtle);
-  border-color: var(--teal-glow);
+  background: var(--brand-tint);
+  border-color: var(--brand-glow);
 }
 
 .cam-item-info {
@@ -432,7 +442,7 @@ html, body, #root {
 }
 
 .cam-item-name {
-  font-size: 13.5px;
+  font-size: clamp(11.07px, calc(9.45px + 0.28vw), 18.9px);
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -441,7 +451,7 @@ html, body, #root {
 }
 
 .cam-item-ip {
-  font-size: 14px;
+  font-size: clamp(11.48px, calc(9.8px + 0.29vw), 19.6px);
   color: rgba(255, 255, 255, 0.8);
   font-family: var(--font-mono);
 }
@@ -456,7 +466,7 @@ html, body, #root {
 }
 
 .ec-panel__footer-left {
-  font-size: 16px;
+  font-size: clamp(13.12px, calc(11.2px + 0.33vw), 22.4px);
   color: var(--text-muted);
   font-weight: 500;
 }
@@ -485,7 +495,7 @@ html, body, #root {
   border: none;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 12.5px;
+  font-size: clamp(10.25px, calc(8.75px + 0.26vw), 17.5px);
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -513,7 +523,7 @@ html, body, #root {
   flex-shrink: 0;
 }
 .cam-side-feature-btn:hover .cam-side-feature-icon {
-  color: var(--teal);
+  color: var(--brand);
 }
 
 .cam-side-feature-label {
@@ -656,7 +666,7 @@ html, body, #root {
   gap: 5px;
   padding: 2px 8px;
   border-radius: 20px;
-  font-size: 15px;
+  font-size: clamp(12.3px, calc(10.5px + 0.31vw), 21px);
   font-weight: 500;
   letter-spacing: 0.02em;
   flex-shrink: 0;
@@ -709,7 +719,7 @@ html, body, #root {
 }
 
 .cam-side-panel__toggle-label {
-  font-size: 15px;
+  font-size: clamp(12.3px, calc(10.5px + 0.31vw), 21px);
   color: var(--color-text-secondary);
 }
 
@@ -737,7 +747,7 @@ html, body, #root {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 15px;
+  font-size: clamp(12.3px, calc(10.5px + 0.31vw), 21px);
   font-weight: 500;
   color: #1D9E75;
   text-transform: uppercase;
@@ -762,12 +772,12 @@ html, body, #root {
 }
 
 .cam-stream-paused span {
-  font-size: 15px;
+  font-size: clamp(12.3px, calc(10.5px + 0.31vw), 21px);
   font-weight: 500;
 }
 
 .cam-stream-paused-sub {
-  font-size: 14px !important;
+  font-size: clamp(11.48px, calc(9.8px + 0.29vw), 19.6px) !important;
   font-weight: 400 !important;
   opacity: 0.7;
 }
@@ -782,7 +792,7 @@ html, body, #root {
 /* ── Footer: active count ─────────────────────────────────── */
 .cameras-count-active {
   color: #1D9E75;
-  font-size: 16px;
+  font-size: clamp(13.12px, calc(11.2px + 0.33vw), 22.4px);
 }
 
 /* ── Edit modal: toggle row ──────────────────────────────── */
@@ -803,13 +813,13 @@ html, body, #root {
 }
 
 .ec-toggle-label {
-  font-size: 17px;
+  font-size: clamp(13.94px, calc(11.9px + 0.35vw), 23.8px);
   color: var(--color-text-primary);
   font-weight: 500;
 }
 
 .ec-toggle-sub {
-  font-size: 15px;
+  font-size: clamp(12.3px, calc(10.5px + 0.31vw), 21px);
   color: var(--color-text-secondary);
 }
 .m-table {
@@ -901,7 +911,7 @@ html, body, #root {
 }
 
 .group-total {
-  font-size: 17px;
+  font-size: clamp(13.94px, calc(11.9px + 0.35vw), 23.8px);
   color: #c9d4e8;
   font-weight: 500;
   display: block;
@@ -913,7 +923,7 @@ html, body, #root {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 15px;
+  font-size: clamp(12.3px, calc(10.5px + 0.31vw), 21px);
 }
 
 .group-active {
@@ -939,12 +949,12 @@ html, body, #root {
 /* ── 2. Right panel header ── */
 .group-panel-header h3 {
   color: #22c55e;
-  font-size: 20px;
+  font-size: clamp(16.4px, calc(14px + 0.42vw), 28px);
   margin: 0 0 4px 0;
 }
 
 .group-panel-meta {
-  font-size: 16px;
+  font-size: clamp(13.12px, calc(11.2px + 0.33vw), 22.4px);
   color: #64748b;
   display: flex;
   align-items: center;
@@ -982,7 +992,7 @@ html, body, #root {
 }
 
 .group-cam-name {
-  font-size: 17px;
+  font-size: clamp(13.94px, calc(11.9px + 0.35vw), 23.8px);
   color: #c9d4e8;
   white-space: nowrap;
   overflow: hidden;
@@ -990,7 +1000,7 @@ html, body, #root {
 }
 
 .group-cam-ip {
-  font-size: 15px;
+  font-size: clamp(12.3px, calc(10.5px + 0.31vw), 21px);
   color: #64748b;
 }
 
@@ -1167,6 +1177,7 @@ html, body, #root {
   height: 100%;
   overflow-y: auto !important;
   overflow-x: hidden;
+  padding-top: 0px;
 }
 
 .cameras-page .cam-table-wrap::-webkit-scrollbar {
@@ -1210,14 +1221,14 @@ html, body, #root {
   align-items: center;
   justify-content: center;
 
-  border: 1px solid rgba(16, 185, 129, 0.14);
+  border: 1px solid rgba(var(--brand-rgb), 0.14);
   border-radius: 8px;
 
-  background: #0d3326 !important;
-  color: #f0fff8 !important;
+  background: var(--brand-fill) !important;
+  color: var(--brand-on-fill) !important;
 
   font-family: inherit;
-  font-size: 13px;
+  font-size: clamp(10.66px, calc(9.1px + 0.27vw), 18.2px);
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
@@ -1236,16 +1247,16 @@ html, body, #root {
 }
 
 .group-view-btn:hover {
-  background: #104332 !important;
-  border-color: rgba(16, 185, 129, 0.28);
+  background: var(--brand-fill-hover) !important;
+  border-color: rgba(var(--brand-rgb), 0.28);
 }
 
 .group-view-btn:active {
-  background: #0a281e !important;
+  background: var(--brand-fill-active) !important;
 }
 
 .group-view-btn:focus-visible {
-  outline: 2px solid rgba(16, 185, 129, 0.45);
+  outline: 2px solid rgba(var(--brand-rgb), 0.45);
   outline-offset: 2px;
 }
 
@@ -1254,7 +1265,7 @@ html, body, #root {
 .cam-table-wrap .group-view-btn,
 .cam-table-wrap .group-view-btn::before,
 .cam-table-wrap .group-view-btn::after {
-  background-color: #0d3326 !important;
+  background-color: var(--brand-fill) !important;
   background-image: none !important;
 }
 

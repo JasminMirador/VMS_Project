@@ -764,7 +764,7 @@ function ZoneSidebarItem({
             autoFocus
             style={{
               background: "var(--bg-input)",
-              border: "1px solid var(--teal)",
+              border: "1px solid var(--button-bg)",
               borderRadius: "4px",
               color: "var(--text-primary)",
               fontSize: "15px",
@@ -4308,7 +4308,7 @@ export default function MapViewPage() {
                         style={{
                           fontSize: "11px",
                           fontWeight: "700",
-                          color: isActive ? "var(--teal)" : "var(--text-muted)",
+                          color: isActive ? "var(--brand)" : "var(--text-muted)",
                           width: "14px",
                           display: "flex",
                           alignItems: "center",
@@ -4326,7 +4326,7 @@ export default function MapViewPage() {
                           display: "flex",
                           flexDirection: "column",
                           background: "var(--bg-elevated)",
-                          border: isActive ? "1.5px solid var(--teal)" : "1px solid var(--border)",
+                          border: isActive ? "1.5px solid var(--button-bg)" : "1px solid var(--border)",
                           borderRadius: "6px",
                           overflow: "hidden",
                           transition: "all 0.15s ease",
@@ -4388,7 +4388,7 @@ export default function MapViewPage() {
                                 flexDirection: "column",
                                 alignItems: "center",
                                 gap: "4px",
-                                color: "var(--teal)"
+                                color: "var(--brand)"
                               }}
                             >
                               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="18" height="18">
@@ -4497,7 +4497,7 @@ export default function MapViewPage() {
                               autoFocus
                               style={{
                                 background: "var(--bg-base)",
-                                border: "1px solid var(--teal)",
+                                border: "1px solid var(--button-bg)",
                                 borderRadius: "3px",
                                 color: "var(--text-primary)",
                                 fontSize: "11px",
@@ -4516,7 +4516,7 @@ export default function MapViewPage() {
                               style={{
                                 fontSize: "11px",
                                 fontWeight: "600",
-                                color: isActive ? "var(--teal)" : "var(--text-primary)",
+                                color: isActive ? "var(--brand)" : "var(--text-primary)",
                                 overflow: "hidden",
                                 textOverflow: "ellipsis",
                                 whiteSpace: "nowrap",
@@ -4580,7 +4580,7 @@ export default function MapViewPage() {
                                 alignItems: "center",
                                 gap: "8px",
                                 fontSize: "12px",
-                                color: isVerActive ? "var(--teal)" : "var(--text-primary)",
+                                color: isVerActive ? "var(--brand)" : "var(--text-primary)",
                                 cursor: "pointer",
                                 padding: "4px 8px",
                                 borderRadius: "4px",
@@ -4593,7 +4593,7 @@ export default function MapViewPage() {
                               onMouseEnter={e => {
                                 if (!isVerActive) {
                                   e.currentTarget.style.background = "var(--bg-hover)";
-                                  e.currentTarget.style.borderColor = "var(--teal)";
+                                  e.currentTarget.style.borderColor = "var(--brand)";
                                 }
                               }}
                               onMouseLeave={e => {
@@ -4631,7 +4631,7 @@ export default function MapViewPage() {
                                   onClick={e => e.stopPropagation()}
                                   autoFocus
                                   style={{
-                                    background: "var(--bg-input)", border: "1px solid var(--teal)", borderRadius: "3px", color: "var(--text-primary)",
+                                    background: "var(--bg-input)", border: "1px solid var(--button-bg)", borderRadius: "3px", color: "var(--text-primary)",
                                     fontSize: "12px", padding: "1px 4px", width: "100%", outline: "none"
                                   }}
                                 />

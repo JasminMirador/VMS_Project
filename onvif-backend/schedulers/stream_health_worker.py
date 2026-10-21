@@ -8,7 +8,7 @@ import requests
 import json
 from datetime import datetime
 from app.services.camera.mediamtx_service import register_stream
-MEDIAMTX_API = os.environ.get("MEDIAMTX_API_URL", "http://localhost:9997")
+MEDIAMTX_API = os.environ["MEDIAMTX_API_URL"]
 HEALTH_CHECK_INTERVAL = 30  # Check every 30 seconds
 
 async def get_stream_status(stream_name: str) -> dict:

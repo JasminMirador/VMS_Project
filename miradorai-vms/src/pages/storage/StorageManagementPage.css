@@ -51,13 +51,13 @@
 
 /* ── Location cell ──────────────────────────────── */
 .sm-location {
-  color: var(--teal) !important;
+  color: var(--brand) !important;
   font-weight: 500;
 }
 
 /* ── Status badge ───────────────────────────────── */
 .sm-status        { font-size: 16px; font-weight: 500; }
-.sm-status--ok    { color: var(--teal); }
+.sm-status--ok    { color: var(--brand); }
 .sm-status--warn  { color: #f59e0b; }
 
 /* ── Remove / Add buttons ───────────────────────── */
@@ -98,14 +98,14 @@
 .sm-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .sm-btn--primary {
-  background: var(--teal);
+  background: var(--brand);
   color: #000;
-  border-color: var(--teal);
+  border-color: var(--brand);
   font-weight: 600;
 }
 .sm-btn--primary:hover:not(:disabled) {
-  background: var(--teal-dim);
-  border-color: var(--teal-dim);
+  background: var(--brand-hover);
+  border-color: var(--brand-hover);
   color: #000;
 }
 
@@ -123,7 +123,7 @@
 .sm-panel-title {
   font-size: 15px;
   font-weight: 700;
-  color: var(--teal);
+  color: var(--brand);
   margin-bottom: 14px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -144,7 +144,7 @@
 
 .sm-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(16, 185, 129, 0.35);
+  border-color: rgba(var(--brand-rgb), 0.35);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
 }
 
@@ -166,7 +166,7 @@
   border-radius: 4px;
   flex-shrink: 0;
 }
-.sm-legend-dot--used  { background: var(--teal); }
+.sm-legend-dot--used  { background: var(--button-bg); }
 .sm-legend-dot--free  { background: #22c55e; }
 .sm-legend-dot--other { background: #ef4444; }
 
@@ -228,7 +228,7 @@
 }
 .sm-slider {
   flex: 1;
-  accent-color: var(--teal);
+  accent-color: var(--brand);
   height: 6px;
   cursor: pointer;
 }
@@ -236,7 +236,7 @@
   min-width: 64px;
   font-size: 20px;
   font-family: var(--font-mono);
-  color: var(--teal);
+  color: var(--brand);
   text-align: right;
   font-weight: 700;
 }
@@ -270,12 +270,12 @@
   outline: none;
   transition: border-color 0.15s;
 }
-.sm-input:focus { border-color: var(--teal); }
+.sm-input:focus { border-color: var(--brand); }
 
 /* ── Apply message ──────────────────────────────── */
 .sm-apply-msg {
   font-size: 17px;
-  color: var(--teal);
+  color: var(--brand);
   padding: 6px 0;
   font-weight: 500;
 }
@@ -319,7 +319,7 @@
 .sm-browse-btn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
-  border-color: var(--teal);
+  border-color: var(--brand);
 }
 .sm-browse-btn svg { flex-shrink: 0; }
 
@@ -428,6 +428,6 @@
 [data-theme="light"] .sm-browse-btn:hover {
   background: var(--bg-hover);
   color: #0f172a;
-  border-color: var(--teal);
+  border-color: var(--brand);
 }
-
+

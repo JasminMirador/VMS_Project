@@ -23,7 +23,7 @@
 }
 
 .um-title span {
-  color: var(--teal, #14b8a6);
+  color: var(--brand);
 }
 
 .um-add-btn {
@@ -31,7 +31,7 @@
   align-items: center;
   gap: 8px;
   padding: 10px 16px;
-  background: linear-gradient(135deg, var(--teal, #14b8a6) 0%, #0d9488 100%);
+  background: linear-gradient(135deg, var(--brand) 0%, #0d9488 100%);
   border: 1px solid rgba(20, 184, 166, 0.2);
   border-radius: 8px;
   color: #ffffff;
@@ -81,9 +81,9 @@
 }
 
 .success-banner {
-  background: rgba(16, 185, 129, 0.08);
-  border: 1px solid rgba(16, 185, 129, 0.18);
-  color: #34d399;
+  background: rgba(var(--brand-rgb), 0.08);
+  border: 1px solid rgba(var(--brand-rgb), 0.18);
+  color: var(--brand-hover);
 }
 
 /* ── Panel ── */
@@ -220,7 +220,7 @@
 
 .badge-client {
   background: rgba(20, 184, 166, 0.1);
-  color: var(--teal, #14b8a6);
+  color: var(--brand);
   border: 1px solid rgba(20, 184, 166, 0.2);
 }
 
@@ -398,7 +398,7 @@
 }
 
 .form-input:focus {
-  border-color: var(--teal, #14b8a6);
+  border-color: var(--brand);
   box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.1);
 }
 
@@ -421,7 +421,7 @@
 }
 
 .form-select:focus {
-  border-color: var(--teal, #14b8a6);
+  border-color: var(--brand);
   box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.1);
 }
 
@@ -441,7 +441,7 @@
 .form-subtitle {
   font-size: 13px;
   font-weight: 600;
-  color: var(--teal, #14b8a6);
+  color: var(--brand);
   margin-top: 0;
   margin-bottom: 4px;
   letter-spacing: 0.2px;
@@ -489,7 +489,7 @@
 }
 
 .camera-select-all:hover {
-  color: var(--teal, #14b8a6);
+  color: var(--brand);
 }
 
 .camera-select-item {
@@ -509,7 +509,7 @@
 
 .camera-select-item input,
 .camera-select-all input {
-  accent-color: var(--teal, #14b8a6);
+  accent-color: var(--brand);
   cursor: pointer;
   width: 15px;
   height: 15px;
@@ -588,9 +588,9 @@
 }
 
 [data-theme="light"] .success-banner {
-  background: rgba(16, 185, 129, 0.06);
-  border-color: rgba(16, 185, 129, 0.15);
-  color: #059669;
+  background: rgba(var(--brand-rgb), 0.06);
+  border-color: rgba(var(--brand-rgb), 0.15);
+  color: var(--brand);
 }
 
 [data-theme="light"] .action-edit {

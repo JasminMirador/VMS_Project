@@ -15,12 +15,12 @@
 .ss-banner__icon {
   width: 16px; height: 16px;
   flex-shrink: 0;
-  color: var(--teal);
+  color: var(--brand);
 }
 .ss-banner__link-icon {
   width: 14px; height: 14px;
   flex-shrink: 0;
-  color: var(--teal);
+  color: var(--brand);
   cursor: pointer;
   margin-left: auto;
 }
@@ -131,7 +131,7 @@
 }
 .ss-table tbody tr:last-child { border-bottom: none; }
 .ss-table tbody tr:hover { background: var(--bg-elevated); }
-.ss-row--selected { background: rgba(0,200,160,0.06) !important; }
+.ss-row--selected { background: rgba(var(--brand-rgb), 0.06) !important; }
 
 .ss-table td {
   padding: 7px 12px;
@@ -149,7 +149,7 @@
 /* ── Checkbox ────────────────────────────────────────────────── */
 .ss-check {
   width: 14px; height: 14px;
-  accent-color: var(--teal);
+  accent-color: var(--brand);
   cursor: pointer;
 }
 
@@ -178,8 +178,8 @@
   border-radius: 10px;
 }
 .ss-status--streaming {
-  background: rgba(0,200,160,0.12);
-  color: var(--teal);
+  background: rgba(var(--brand-rgb), 0.12);
+  color: var(--brand);
 }
 .ss-status--idle {
   background: var(--bg-elevated);
@@ -252,7 +252,7 @@
   transition: border-color 0.15s;
   cursor: pointer;
 }
-.ss-select:focus { border-color: var(--teal); }
+.ss-select:focus { border-color: var(--brand); }
 .ss-select--drive { width: 80px; }
 
 .ss-input {
@@ -266,7 +266,7 @@
   outline: none;
   transition: border-color 0.15s;
 }
-.ss-input:focus { border-color: var(--teal); }
+.ss-input:focus { border-color: var(--brand); }
 .ss-input--path { width: 100%; }
 .ss-input--size { width: 120px; }
 

@@ -474,12 +474,15 @@ async def get_event_playback_video(camera_id: str, timestamp: str, background_ta
         raise HTTPException(status_code=500, detail=str(e))
 
 from pydantic import BaseModel
-from typing import Union, List
+from typing import Union, List, Optional
 
 class FaceJobCreate(BaseModel):
     camera_id: Union[str, List[str]]
     range_start: str
     range_end: str
+    job_name: Optional[str] = None
+    description: Optional[str] = None
+    incident_time: Optional[str] = None
 
 @router.post("/face-jobs")
 async def create_face_job(payload: FaceJobCreate, background_tasks: BackgroundTasks):
@@ -534,13 +537,18 @@ async def create_face_job(payload: FaceJobCreate, background_tasks: BackgroundTa
                         day_objs = reader.minio_client.list_objects(reader.bucket, prefix=date_prefix, recursive=False)
                         for obj in day_objs:
                             if not obj.object_name.endswith(".enc"): continue
-                            fname = obj.object_name.split("/")[-1].replace(".enc", "").replace("-", ":")
+                            fname_base = obj.object_name.split("/")[-1].replace(".enc", "")
                             try:
-                                file_dt = datetime.fromisoformat(f"{date_str}T{fname}")
-                                if start_dt <= file_dt <= end_dt:
-                                    video_files.append(f"minio:{obj.object_name}")
+                                # New format: YYYY-MM-DD_HH-MM-SS
+                                file_dt = datetime.strptime(fname_base, "%Y-%m-%d_%H-%M-%S")
                             except ValueError:
-                                pass
+                                try:
+                                    # Old format: HH-MM-SS combined with date folder
+                                    file_dt = datetime.strptime(f"{date_str}_{fname_base}", "%Y-%m-%d_%H-%M-%S")
+                                except ValueError:
+                                    continue
+                            if start_dt <= file_dt <= end_dt:
+                                video_files.append(f"minio:{obj.object_name}")
                 
                 # Old architecture: root/shard/stream_key/date_str/
                 shards = reader.minio_client.list_objects(reader.bucket, prefix=r.object_name, recursive=False)
@@ -552,15 +560,23 @@ async def create_face_job(payload: FaceJobCreate, background_tasks: BackgroundTa
                             day_objs = reader.minio_client.list_objects(reader.bucket, prefix=date_prefix, recursive=False)
                             for obj in day_objs:
                                 if not obj.object_name.endswith(".enc"): continue
-                                fname = obj.object_name.split("/")[-1].replace(".enc", "").replace("-", ":")
+                                fname_base = obj.object_name.split("/")[-1].replace(".enc", "")
                                 try:
-                                    file_dt = datetime.fromisoformat(f"{date_str}T{fname}")
-                                    if start_dt <= file_dt <= end_dt:
-                                        video_files.append(f"minio:{obj.object_name}")
+                                    # New format: YYYY-MM-DD_HH-MM-SS
+                                    file_dt = datetime.strptime(fname_base, "%Y-%m-%d_%H-%M-%S")
                                 except ValueError:
-                                    pass
+                                    try:
+                                        # Old format: HH-MM-SS combined with date folder
+                                        file_dt = datetime.strptime(f"{date_str}_{fname_base}", "%Y-%m-%d_%H-%M-%S")
+                                    except ValueError:
+                                        continue
+                                if start_dt <= file_dt <= end_dt:
+                                    video_files.append(f"minio:{obj.object_name}")
     except Exception as e:
         print(f"MinIO fetch error: {e}")
+
+    # Deduplicate and sort files chronologically
+    video_files = sorted(list(set(video_files)))
 
     if not video_files:
         raise HTTPException(status_code=404, detail="No video files found for the given time range.")
@@ -578,9 +594,9 @@ async def create_face_job(payload: FaceJobCreate, background_tasks: BackgroundTa
     from datetime import datetime
     job_doc = {
         "job_id": job_id,
-        "job_name": payload.job_name if payload.job_name else job_id,
-            "description": payload.description,
-            "incident_time": payload.incident_time,
+        "job_name": getattr(payload, "job_name", None) or job_id,
+        "description": getattr(payload, "description", None),
+        "incident_time": getattr(payload, "incident_time", None),
         "camera_id": camera_ids, # Keep original payload list for db record
         "range_start": payload.range_start,
         "range_end": payload.range_end,

@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from app.core.database import mongo_client
 from .websocket_manager import manager
 
-MONGO_URI  = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
+MONGO_URI  = os.environ["MONGO_URI"]
 MONGO_DB_NAME = os.environ.get("MONGO_DB_NAME")
 _client    = mongo_client
 _db = _client[MONGO_DB_NAME] if _client else None
@@ -299,7 +299,7 @@ async def probe_camera_stream(node: dict) -> dict:
     # We ask MediaMTX for the actual bytes received and compute real Mbps.
     # For grid view  → use sub_stream_key path (lower res/bitrate)
     # For fullscreen → use main stream path (full res/bitrate)
-    MEDIAMTX_API = os.environ.get("MEDIAMTX_API_URL", "http://localhost:9997")
+    MEDIAMTX_API = os.environ["MEDIAMTX_API_URL"]
     stream_key    = node.get("stream_key") or ip.replace(".", "_")
     sub_key       = node.get("sub_stream_key")
     view_mode     = node.get("view_mode", "grid")

@@ -171,7 +171,8 @@
   padding: 6px 16px;
   border-radius: 20px;
   border: 1px solid var(--border);
-  color: var(--teal);
+  color: var(--brand);
+
   font-size: 14px;
   font-weight: 600;
   display: flex;
@@ -389,7 +390,8 @@
 }
 .bw-live {
   font-size: 13px;
-  color: var(--teal);
+  color: var(--brand);
+
   background: var(--teal-subtle);
   padding: 1px 6px;
   border-radius: 3px;
@@ -581,7 +583,8 @@
 
 .flag-ok {
   background: var(--teal-subtle);
-  color: var(--teal);
+  color: var(--brand);
+
   border: 1px solid var(--teal-glow);
 }
 
@@ -910,7 +913,8 @@
   border: 1px solid var(--teal-glow);
   border-radius: 6px;
   padding: 3px 8px;
-  color: var(--teal);
+  color: var(--brand);
+
   font-size: 12px;
   font-weight: 600;
 }
@@ -941,7 +945,8 @@
 }
 .topo-dropdown-item:hover {
   background: var(--bg-hover);
-  color: var(--teal);
+  color: var(--brand);
+
 }
 
 /* ── Node Badge (Under Canvas Icon) ── */

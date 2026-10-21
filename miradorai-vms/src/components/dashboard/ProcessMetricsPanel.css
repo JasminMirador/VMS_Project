@@ -77,7 +77,7 @@
 
 .vms-proc-btn-secondary:hover {
   background: rgba(255, 255, 255, 0.05);
-  border-color: var(--teal, #0ea5e9);
+  border-color: var(--brand);
 }
 
 .vms-proc-btn-danger {
@@ -91,7 +91,7 @@
 }
 
 .vms-proc-alert {
-  background: rgba(16, 185, 129, 0.08);
+  background: rgba(var(--brand-rgb), 0.08);
   border: 1px solid rgba(14, 165, 233, 0.3);
   padding: 8px 12px;
   border-radius: var(--radius-sm, 6px);
@@ -99,7 +99,7 @@
   justify-content: space-between;
   align-items: center;
   font-size: 12px;
-  color: var(--teal, #0ea5e9);
+  color: var(--brand);
 }
 
 .vms-proc-alert button {
@@ -148,7 +148,7 @@
 }
 
 .vms-badge-ok {
-  color: var(--teal, #0ea5e9);
+  color: var(--brand);
 }
 
 .vms-badge-warn {
@@ -215,7 +215,7 @@
 }
 
 .vms-proc-search-input:focus {
-  border-color: var(--teal, #0ea5e9) !important;
+  border-color: var(--brand) !important;
 }
 
 /* Table */
@@ -270,7 +270,7 @@
   border-radius: 4px;
   font-family: monospace;
   font-size: 11px;
-  color: var(--teal, #0ea5e9);
+  color: var(--brand);
   border: 1px solid var(--border, #1e293b);
 }
 
@@ -280,7 +280,7 @@
 
 .vms-ip-tag {
   background: rgba(14, 165, 233, 0.1);
-  color: var(--teal, #0ea5e9);
+  color: var(--brand);
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 11px;
@@ -313,7 +313,7 @@
 
 .vms-status-badge.ok {
   background: rgba(14, 165, 233, 0.12);
-  color: var(--teal, #0ea5e9);
+  color: var(--brand);
   border: 1px solid rgba(14, 165, 233, 0.3);
 }
 
@@ -482,6 +482,6 @@
 }
 
 .vms-dropdown-item:hover {
-  background: var(--teal, #0ea5e9);
+  background: var(--brand);
   color: #0a0c10;
 }
