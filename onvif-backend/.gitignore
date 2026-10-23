@@ -1,0 +1,30 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+.env.*
+!.env.example
+video.key
+*.mp4
+player/decrypted/
+
+# Synopsis Service & Video Detection
+devices_data/
+*.pt
+*.zip
+node_modules/
+venv/
+mediamtx.log
+# Ignored file types
+*.pyc
+*.pyi
+*.enc
+*.log
+*.ts
+*.pt
+# Offline recordings and HLS playback cache
+Off Rec/
+*.m3u8
+# Ignore the entire logs directory and rotated logs
+logs/
+*.log*
