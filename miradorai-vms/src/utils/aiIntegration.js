@@ -37,12 +37,12 @@ export async function fetchAndCacheAiIp() {
 
     let ip = null;
     if (aiInt?.serverIp) {
-      ip = aiInt.serverIp.split(":")[0];
+      ip = aiInt.serverIp.trim();
     } else {
       // Priority 2: any first active integration with an IP
       const anyActive = data.find((i) => i.isActive && i.serverIp);
       if (anyActive?.serverIp) {
-        ip = anyActive.serverIp.split(":")[0];
+        ip = anyActive.serverIp.trim();
       }
     }
 
