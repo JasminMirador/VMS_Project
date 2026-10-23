@@ -56,19 +56,27 @@ class MonitoringScheduler:
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
 
+        # ── Start continuous network discovery watcher ───────────────────
+        try:
+            from .network_discovery import discovery_manager
+            discovery_manager.start_watcher()
+        except Exception as e:
+            print(f"[MONITOR] Failed to start discovery watcher: {e}")
+
     def stop(self):
         self.stop_event.set()
         if self.thread:
             self.thread.join(timeout=5)
+        try:
+            from .network_discovery import discovery_manager
+            discovery_manager.stop_watcher()
+        except Exception:
+            pass
 
     def trigger_scan(self, subnet=None):
-        """Runs a full network scan in a separate thread so it never blocks."""
-        def task():
-            results = scanner.scan_network(subnet)
-            save_discovered_nodes(results)
-
-        t = threading.Thread(target=task, daemon=True)
-        t.start()
+        """Runs a full network scan using discovery_manager so it never blocks."""
+        from .network_discovery import discovery_manager
+        return discovery_manager.trigger_scan(subnet)
 
 
 scheduler = MonitoringScheduler()

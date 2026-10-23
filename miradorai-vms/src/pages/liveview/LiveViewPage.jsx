@@ -2014,7 +2014,10 @@ function CameraCell({
     device.stream_key ||
     device.live_stream ||
     (device.ip ? device.ip.replace(/\./g, "_") : "");
-  const baseStreamKey = device.sub_stream_key || mainStreamKey;
+  const baseStreamKey =
+  device.source === "edge"
+    ? (device.stream_key || device.live_stream || mainStreamKey)
+    : (device.sub_stream_key || mainStreamKey);
   const activeCodec = String(
     device.live_codec || device.codec || "",
   ).toUpperCase();
@@ -2022,7 +2025,20 @@ function CameraCell({
 
   // Use the transcoded path for the base stream (sub stream) if it's H.265.
   // MediaMTX runOnDemand will handle transcoding the sub stream dynamically.
-  const streamKeyToUse = isH265 ? `${baseStreamKey}_h264` : baseStreamKey;
+  const streamKeyToUse = isH265
+    ? `${baseStreamKey}_h264`
+    : baseStreamKey;  
+console.log("[GRID STREAM DEBUG]", {
+  camera: device.name || device.device_name,
+  ip: device.ip,
+  source: device.source,
+  stream_key: device.stream_key,
+  live_stream: device.live_stream,
+  sub_stream_key: device.sub_stream_key,
+  codec: device.live_codec || device.codec,
+  finalStreamKey: streamKeyToUse,
+});
+
 
   return (
     <div
@@ -2177,7 +2193,7 @@ function CameraCell({
       </div>
 
       <div className="lv-cam__player" style={{ position: "relative" }}>
-        {device.ws_url || device.rtsp_url ? (
+        {device.ws_url || device.rtsp_url || (device.source === "edge" && (device.stream_key || device.live_stream)) ? (
           <>
             {localStreamMode === "webrtc" ? (
               <WebRTCPlayer_MediaMTX
@@ -2318,7 +2334,7 @@ function SequenceDropdown({ value, onChange, sequences }) {
                 className="lv-check-icon"
                 viewBox="0 0 24 24"
                 fill="none"
-                stroke="var(--teal)"
+                stroke="var(--brand)"
                 strokeWidth="3"
                 width="12"
                 height="12"
@@ -2343,7 +2359,7 @@ function SequenceDropdown({ value, onChange, sequences }) {
                   className="lv-check-icon"
                   viewBox="0 0 24 24"
                   fill="none"
-                  stroke="var(--teal)"
+                  stroke="var(--brand)"
                   strokeWidth="3"
                   width="12"
                   height="12"
@@ -2664,17 +2680,104 @@ export default function LiveViewPage({ onNavigate }) {
     }
   }, [isAiActive, alertSource]);
 
-  const { eventsByTopic: globalEvents } = useWebSocket(["vms/analytics/response"]);
+  // Configured AI analytics per camera, built from the external_ai_alerts collection.
+  // Only loaded while the "AI Analytics" tab is selected in the alerts panel.
+  useEffect(() => {
+    if (alertSource !== "mqtt_ai") {
+      setAnalyticsConfig([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadAiAnalytics = async () => {
+      try {
+        const res = await fetch(`${API}/api/alerts?source=external_ai&limit=5000`, {
+          headers: getAuthHeaders(),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // ip -> Set of distinct features (e.g. "Work Authorization")
+        const byIp = {};
+        (data.alerts || []).forEach((item) => {
+          const raw = item.raw || item.rawData || item;
+          const ip = String(item.ip || item.readerIp || raw.readerIp || "")
+            .replace(/_/g, ".");
+          if (!ip) return;
+          const name = raw.type || item.type || raw.feature || item.feature;
+          if (!name) return;
+          if (!byIp[ip]) byIp[ip] = new Set();
+          byIp[ip].add(String(name));
+        });
+
+        if (!cancelled) {
+          setAnalyticsConfig(
+            Object.entries(byIp).map(([ip, set]) => ({
+              ipAddress: ip,
+              analytics: Array.from(set),
+            })),
+          );
+        }
+      } catch (e) {
+        console.error("[LiveView] Failed to load AI analytics from alerts", e);
+      }
+    };
+
+    loadAiAnalytics();
+    const interval = setInterval(loadAiAnalytics, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [alertSource]);
+
+  // Load configured AI analytics per camera so the "N AI" badge shows in the grid
+  const deviceIpKey = useMemo(
+    () =>
+      devices
+        .map((d) => (d.ip || "").replace(/_/g, "."))
+        .filter(Boolean)
+        .sort()
+        .join(","),
+    [devices],
+  );
 
   useEffect(() => {
-    // If the backend pushes live updates to this topic, update our mock.
-    if (globalEvents && globalEvents["vms/analytics/response"]) {
-       const data = globalEvents["vms/analytics/response"].data;
-       if (Array.isArray(data)) {
-           setAnalyticsConfig(data);
-       }
-    }
-  }, [globalEvents]);
+    if (!deviceIpKey) return;
+    let cancelled = false;
+
+    const loadAnalytics = async () => {
+      const results = await Promise.all(
+        deviceIpKey.split(",").map(async (ip) => {
+          try {
+            const res = await fetch(`${API}/api/camera-analytics/${ip}`, {
+              headers: getAuthHeaders(),
+            });
+            if (!res.ok) return null;
+            const data = await res.json();
+            const analytics = (data.analytics || []).filter((a) => {
+              const t = (a.type || "").toLowerCase();
+              return !t.includes("motion") && !t.includes("counter");
+            });
+            return { ipAddress: ip, analytics };
+          } catch {
+            return null;
+          }
+        }),
+      );
+      if (!cancelled) {
+        setAnalyticsConfig(results.filter((r) => r && r.analytics.length > 0));
+      }
+    };
+
+    loadAnalytics();
+    window.addEventListener("integrationsUpdated", loadAnalytics);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("integrationsUpdated", loadAnalytics);
+    };
+  }, [deviceIpKey]);
 
   useEffect(() => {
     sessionStorage.setItem("miradorai_liveview_layout", layout);
@@ -3970,7 +4073,7 @@ export default function LiveViewPage({ onNavigate }) {
                             layout={layout}
                             hideName={["15x15", "16x16"].includes(layout)}
                             objectFit={objectFitMode}
-                            showAiOverlay={isAiActive && (alertSource === "mqtt_ai" || alertSource === "all")}
+                            showAiOverlay={isAiActive && alertSource === "mqtt_ai"}
                             analyticsData={analyticsConfig.find(a => 
                               (a.readerName && (a.readerName === cam.name || a.readerName === cam.device_name || a.readerName === cam.reader_id)) || 
                               (a.ipAddress && cam.ip && (a.ipAddress === cam.ip || a.ipAddress.replace(/_/g, ".") === cam.ip.replace(/_/g, "."))) ||
@@ -4275,7 +4378,7 @@ function SequenceManagerModal({
                           onChange={(e) =>
                             handleCheckboxChange(cam.id, e.target.checked)
                           }
-                          style={{ accentColor: "var(--teal)" }}
+                          style={{ accentColor: "var(--brand)" }}
                         />
                         <span>
                         <span className="notranslate">

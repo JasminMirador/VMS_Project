@@ -15,35 +15,52 @@ const BW_SPIKE_THRESHOLD_MBPS = 80;
 
 // ─── HIERARCHICAL LAYOUT ─────────────────────────────────────────────────────
 const DEVICE_TIER = {
-  'core-switch': 0,
-  'switch':      1,
-  'poe-switch':  1,
-  'server':      2,
-  'nvr':         2,
-  'camera':      3,
-  'unknown':     3,
+  'router':       0,
+  'core-switch':  1,
+  'switch':       2,
+  'poe-switch':   2,
+  'access_point': 2,
+  'server':       3,
+  'nvr':          3,
+  'nas':          3,
+  'camera':       4,
+  'workstation':  4,
+  'printer':      4,
+  'iot':          4,
+  'other':        4,
+  'unknown':      4,
 };
-const TIER_Y = [80, 240, 400, 560];
+const TIER_Y = [60, 180, 300, 440, 580];
 const H_GAP  = 200;
 const V_GAP  = 160;
 
 function autoLayout(nodes) {
-  const needsLayout = nodes.filter(n => !n._hasPosition);
+  const needsLayout = nodes.filter(n => !n._hasPosition && (!n.position || typeof n.position.x !== 'number'));
   if (needsLayout.length === 0) return nodes;
 
   const byTier = {};
   needsLayout.forEach(n => {
-    const tier = DEVICE_TIER[n.data?.type] ?? 3;
+    const type = n.data?.type || n.type || 'unknown';
+    const tier = DEVICE_TIER[type] ?? 4;
     (byTier[tier] = byTier[tier] || []).push(n);
   });
 
-  const positioned = new Map(nodes.filter(n => n._hasPosition).map(n => [n.id, n]));
+  const positioned = new Map(nodes.filter(n => n._hasPosition || (n.position && typeof n.position.x === 'number')).map(n => [n.id, n]));
 
-  Object.entries(byTier).forEach(([tier, tierNodes]) => {
-    const y = TIER_Y[+tier] ?? (TIER_Y[3] + (+tier - 3) * V_GAP);
-    const startX = 100;
+  Object.entries(byTier).forEach(([tierStr, tierNodes]) => {
+    const tier = parseInt(tierStr, 10);
+    const baseY = TIER_Y[tier] ?? (580 + (tier - 4) * V_GAP);
+    const maxPerRow = 8;
     tierNodes.forEach((n, i) => {
-      positioned.set(n.id, { ...n, position: { x: startX + i * H_GAP, y } });
+      const row = Math.floor(i / maxPerRow);
+      const col = i % maxPerRow;
+      const countInRow = Math.min(tierNodes.length - row * maxPerRow, maxPerRow);
+      const startX = Math.max(120, 550 - ((countInRow - 1) * H_GAP) / 2);
+      const pos = {
+        x: Math.round(startX + col * H_GAP),
+        y: Math.round(baseY + row * 130)
+      };
+      positioned.set(n.id, { ...n, position: pos, _hasPosition: true });
     });
   });
 
@@ -292,6 +309,94 @@ const Icon = ({ type, size = 20, model = '', subtype = '' }) => {
         </g>
       </svg>
     );
+    case 'router': return (
+      <svg viewBox="0 0 100 60" width={size} height={size} style={{ filter: 'drop-shadow(0px 8px 10px rgba(0,0,0,0.6))' }}>
+        <defs>
+          <linearGradient id="rtrTop" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#0284c7"/><stop offset="100%" stopColor="#0369a1"/></linearGradient>
+          <linearGradient id="rtrFront" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0f172a"/><stop offset="100%" stopColor="#020617"/></linearGradient>
+        </defs>
+        <line x1="25" y1="20" x2="15" y2="2" stroke="#38bdf8" strokeWidth="2.5" strokeLinecap="round" />
+        <line x1="75" y1="20" x2="85" y2="2" stroke="#38bdf8" strokeWidth="2.5" strokeLinecap="round" />
+        <circle cx="15" cy="2" r="2" fill="#38bdf8" />
+        <circle cx="85" cy="2" r="2" fill="#38bdf8" />
+        <polygon points="10,25 90,25 95,35 5,35" fill="url(#rtrTop)" stroke="#0284c7" strokeWidth="1"/>
+        <rect x="5" y="35" width="90" height="20" rx="3" fill="url(#rtrFront)" stroke="#334155" strokeWidth="1"/>
+        <circle cx="20" cy="45" r="2" fill="#38bdf8" filter="drop-shadow(0 0 3px #38bdf8)"/>
+        <circle cx="28" cy="45" r="2" fill="#4ade80" filter="drop-shadow(0 0 3px #4ade80)"/>
+        <circle cx="36" cy="45" r="2" fill="#4ade80" filter="drop-shadow(0 0 3px #4ade80)"/>
+        <circle cx="44" cy="45" r="2" fill="#4ade80" filter="drop-shadow(0 0 3px #4ade80)"/>
+        <rect x="65" y="40" width="20" height="10" rx="1.5" fill="#1e293b" stroke="#38bdf8" strokeWidth="1"/>
+      </svg>
+    );
+    case 'access_point':
+    case 'access-point': return (
+      <svg viewBox="0 0 100 100" width={size} height={size} style={{ filter: 'drop-shadow(0px 8px 10px rgba(0,0,0,0.5))' }}>
+        <circle cx="50" cy="50" r="30" fill="#f8fafc" stroke="#64748b" strokeWidth="2"/>
+        <circle cx="50" cy="50" r="20" fill="#0284c7" opacity="0.15"/>
+        <circle cx="50" cy="50" r="6" fill="#0284c7" filter="drop-shadow(0 0 4px #0284c7)"/>
+        <path d="M 28 50 A 22 22 0 0 1 72 50" fill="none" stroke="#0284c7" strokeWidth="2.5" strokeLinecap="round"/>
+        <path d="M 18 50 A 32 32 0 0 1 82 50" fill="none" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" strokeDasharray="3 3"/>
+      </svg>
+    );
+    case 'workstation': return (
+      <svg viewBox="0 0 100 80" width={size} height={size} style={{ filter: 'drop-shadow(0px 8px 10px rgba(0,0,0,0.5))' }}>
+        <rect x="10" y="8" width="55" height="38" rx="2" fill="#0f172a" stroke="#475569" strokeWidth="1.5"/>
+        <rect x="13" y="11" width="49" height="32" rx="1" fill="#1e293b"/>
+        <polygon points="20,25 35,15 45,28 35,33" fill="#38bdf8" opacity="0.3"/>
+        <rect x="34" y="46" width="7" height="8" fill="#64748b"/>
+        <polygon points="25,54 50,54 48,57 27,57" fill="#475569"/>
+        <rect x="70" y="10" width="22" height="46" rx="2" fill="#1e293b" stroke="#64748b" strokeWidth="1.5"/>
+        <rect x="74" y="16" width="14" height="4" fill="#334155"/>
+        <circle cx="81" cy="46" r="2.5" fill="#38bdf8" filter="drop-shadow(0 0 2px #38bdf8)"/>
+      </svg>
+    );
+    case 'printer': return (
+      <svg viewBox="0 0 100 80" width={size} height={size} style={{ filter: 'drop-shadow(0px 8px 10px rgba(0,0,0,0.5))' }}>
+        <polygon points="28,5 72,5 70,22 30,22" fill="#f8fafc" stroke="#64748b" strokeWidth="1.5"/>
+        <line x1="36" y1="12" x2="64" y2="12" stroke="#94a3b8" strokeWidth="1"/>
+        <line x1="36" y1="16" x2="58" y2="16" stroke="#94a3b8" strokeWidth="1"/>
+        <rect x="12" y="20" width="76" height="32" rx="4" fill="#e2e8f0" stroke="#475569" strokeWidth="1.5"/>
+        <rect x="16" y="24" width="68" height="8" fill="#1e293b" rx="1"/>
+        <rect x="25" y="44" width="50" height="20" fill="#f8fafc" stroke="#64748b" strokeWidth="1.5"/>
+        <line x1="32" y1="50" x2="68" y2="50" stroke="#94a3b8" strokeWidth="1"/>
+        <line x1="32" y1="55" x2="60" y2="55" stroke="#94a3b8" strokeWidth="1"/>
+        <circle cx="78" cy="28" r="2" fill="#4ade80" filter="drop-shadow(0 0 2px #4ade80)"/>
+      </svg>
+    );
+    case 'nas': return (
+      <svg viewBox="0 0 100 80" width={size} height={size} style={{ filter: 'drop-shadow(0px 8px 10px rgba(0,0,0,0.5))' }}>
+        <rect x="15" y="10" width="70" height="55" rx="3" fill="#1e293b" stroke="#475569" strokeWidth="1.5"/>
+        {[22, 38, 54, 70].map(x => (
+          <g key={`drive-${x}`}>
+            <rect x={x} y="16" width="10" height="42" rx="1" fill="#0f172a" stroke="#334155" strokeWidth="1"/>
+            <rect x={x+2} y="20" width="6" height="3" fill="#64748b"/>
+            <circle cx={x+5} cy="52" r="1.5" fill="#38bdf8" filter="drop-shadow(0 0 2px #38bdf8)"/>
+          </g>
+        ))}
+      </svg>
+    );
+    case 'iot': return (
+      <svg viewBox="0 0 100 80" width={size} height={size} style={{ filter: 'drop-shadow(0px 8px 10px rgba(0,0,0,0.5))' }}>
+        <rect x="25" y="18" width="50" height="44" rx="4" fill="#0f172a" stroke="#059669" strokeWidth="1.5"/>
+        <rect x="35" y="28" width="30" height="24" rx="2" fill="#064e3b" stroke="#10b981" strokeWidth="1"/>
+        <circle cx="50" cy="40" r="4" fill="#34d399" filter="drop-shadow(0 0 3px #34d399)"/>
+        {[30, 40, 50, 60, 70].map(x => (
+          <g key={`pin-${x}`}>
+            <line x1={x} y1="12" x2={x} y2="18" stroke="#34d399" strokeWidth="2" strokeLinecap="round"/>
+            <line x1={x} y1="62" x2={x} y2="68" stroke="#34d399" strokeWidth="2" strokeLinecap="round"/>
+          </g>
+        ))}
+      </svg>
+    );
+    case 'unknown':
+    case 'other': return (
+      <svg viewBox="0 0 100 80" width={size} height={size} style={{ filter: 'drop-shadow(0px 8px 10px rgba(0,0,0,0.5))' }}>
+        <rect x="20" y="15" width="60" height="48" rx="4" fill="#1e293b" stroke="#64748b" strokeWidth="1.5"/>
+        <circle cx="50" cy="38" r="14" fill="none" stroke="#94a3b8" strokeWidth="2" strokeDasharray="3 3"/>
+        <circle cx="50" cy="38" r="4" fill="#94a3b8"/>
+        <circle cx="70" cy="24" r="2" fill="#38bdf8" filter="drop-shadow(0 0 2px #38bdf8)"/>
+      </svg>
+    );
     case 'alert':       return <svg {...s}><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>;
     case 'bell':        return <svg {...s}><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>;
     case 'wifi':        return <svg {...s}><path d="M1.42 9a16 16 0 0121.16 0"/><path d="M5 12.55a11 11 0 0114.08 0"/><path d="M8.53 16.11a6 6 0 016.95 0"/><circle cx="12" cy="20" r="1"/></svg>;
@@ -306,6 +411,7 @@ const Icon = ({ type, size = 20, model = '', subtype = '' }) => {
     case 'email':       return <svg {...s}><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>;
     case 'x':           return <svg {...s}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
     case 'template':    return <svg {...s}><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M21 9H3M21 15H3M12 3v18"/></svg>;
+    case 'copy':        return <svg {...s}><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>;
     default:            return <svg {...s}><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>;
   }
 };
@@ -320,11 +426,25 @@ const packetLossColor = (pct) => {
 const deviceTypeLabel = (type) => ({
   'core-switch': 'Core Switch', 'poe-switch': 'PoE Switch',
   'nvr': 'NVR', 'camera': 'Camera', 'server': 'Server', 'switch': 'Switch',
+  'router': 'Router', 'access_point': 'Access Point', 'access-point': 'Access Point',
+  'workstation': 'Workstation', 'printer': 'Printer', 'nas': 'NAS Storage',
+  'iot': 'IoT Device', 'other': 'Other Device', 'unknown': 'Network Device',
 }[type] || type || 'Device');
+
+// Hide placeholder values so only real manufacturer/model text is shown
+const GENERIC_NAMES = ['', 'unknown', 'unknown device', 'network device', 'device',
+  'web device', 'network node', 'network gateway', 'http device'];
+const cleanMake  = (n) => { const m = (n?.manufacturer || n?.vendor || '').trim(); return GENERIC_NAMES.includes(m.toLowerCase()) ? '' : m; };
+const cleanModel = (n) => { const m = (n?.model || '').trim(); return GENERIC_NAMES.includes(m.toLowerCase()) ? '' : m; };
+const makeModelLabel = (n) => {
+  const mk = cleanMake(n), md = cleanModel(n);
+  if (mk && md) return md.toLowerCase().startsWith(mk.toLowerCase()) ? md : `${mk} ${md}`;
+  return md || mk || 'Identifying…';
+};
 
 // ─── Custom Topology Node ─────────────────────────────────────────────────────
 const CustomNode = ({ data }) => {
-  const isIconMode = ['switch', 'camera', 'server', 'core-switch', 'poe-switch', 'nvr'].includes(data.type);
+  const isIconMode = ['switch', 'camera', 'server', 'core-switch', 'poe-switch', 'nvr', 'router', 'access_point', 'access-point', 'workstation', 'printer', 'nas', 'iot', 'other', 'unknown'].includes(data.type);
 
   if (isIconMode) {
     return (
@@ -367,7 +487,12 @@ const CustomNode = ({ data }) => {
         </div>
         <div className="topo-node-badge" style={{ marginTop: 8, textAlign: 'center', padding: '2px 8px', borderRadius: 12, backdropFilter: 'blur(4px)' }}>
           <div className="topo-node-ip" style={{ fontSize: 13, fontWeight: 'bold' }}>{data.ip}</div>
-          <div className="topo-node-type" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{deviceTypeLabel(data.type)}</div>
+          {cleanModel(data) && (
+            <div className="topo-node-model" style={{ fontSize: 11, fontWeight: 600, color: '#e2e8f0', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={cleanModel(data)}>
+              {cleanModel(data)}
+            </div>
+          )}
+          <div className="topo-node-type" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'rgba(255,255,255,0.6)' }}>{deviceTypeLabel(data.type)}</div>
         </div>
         <Handle type="source" position={Position.Bottom} style={{ background: '#555', border: 'none' }} />
       </div>
@@ -988,35 +1113,9 @@ const PoEPanel = ({ d }) => {
 
 const normalizeNodeType = (node) => {
   if (!node) return node;
-  const type = node.type;
-  if (type === 'web_device') return node;
-  
   const modelLower = (node.model || '').toLowerCase();
-  const manufacturerLower = (node.manufacturer || '').toLowerCase();
-  const labelLower = (node.label || '').toLowerCase();
   const idLower = (node.id || '').toLowerCase();
-  const ip = node.ip || '';
-  
-  if (
-    modelLower.includes('pc box') || 
-    modelLower.includes('vms host') || 
-    modelLower.includes('pc-box') ||
-    modelLower.includes('host') ||
-    modelLower.includes('server') ||
-    modelLower.includes('computer') ||
-    modelLower.includes('workstation') ||
-    (modelLower.includes('pc') && !modelLower.includes('ipc')) ||
-    manufacturerLower.includes('pc box') ||
-    manufacturerLower.includes('vms host') ||
-    (manufacturerLower.includes('pc') && !manufacturerLower.includes('ipc')) ||
-    labelLower.includes('pc box') ||
-    labelLower.includes('vms host') ||
-    (labelLower.includes('pc') && !labelLower.includes('ipc')) ||
-    idLower.includes('host') ||
-    ip === '172.19.0.6' ||
-    ip.startsWith('172.') ||
-    ip === window.location.hostname
-  ) {
+  if (modelLower.includes('vms host') || idLower.includes('vms-host')) {
     return { ...node, type: 'server' };
   }
   return node;
@@ -1047,11 +1146,16 @@ export default function Topology() {
 
   const [templatesDropdownOpen, setTemplatesDropdownOpen] = useState(false);
   const templatesDropdownRef = useRef(null);
+  const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
+  const typeDropdownRef = useRef(null);
 
   useEffect(() => {
     const handler = (e) => {
       if (templatesDropdownRef.current && !templatesDropdownRef.current.contains(e.target)) {
         setTemplatesDropdownOpen(false);
+      }
+      if (typeDropdownRef.current && !typeDropdownRef.current.contains(e.target)) {
+        setTypeDropdownOpen(false);
       }
     };
     document.addEventListener('mousedown', handler);
@@ -1064,6 +1168,16 @@ export default function Topology() {
 
   const [deviceLiveData, setDeviceLiveData]     = useState(null);
   const [deviceRefreshing, setDeviceRefreshing] = useState(false);
+  const [copiedField, setCopiedField]           = useState(null);
+
+  const copyValue = (text, fieldName) => {
+    if (!text) return;
+    try {
+      navigator.clipboard.writeText(String(text));
+      setCopiedField(fieldName);
+      setTimeout(() => setCopiedField(null), 1800);
+    } catch {}
+  };
 
   // ─── Search and Accordion group states ───
   const [searchQuery, setSearchQuery] = useState('');
@@ -1187,16 +1301,33 @@ export default function Topology() {
       if (!data?.nodes) return;
 
       const seen = new Map();
+      const seenIds = new Set();
+      const idAlias = {};
       data.nodes.forEach(n => {
-        if (n.type !== 'web_device') {
-          const norm = normalizeNodeType(n);
-          seen.set(norm.id, norm);
-        }
+        const norm = normalizeNodeType(n);
+        const key  = norm.ip || norm.mac || norm.id;
+        const cur  = seen.get(key);
+        const better = !cur
+          || (!!norm.position && !cur.position)
+          || (!!norm.position === !!cur.position &&
+              new Date(norm.last_seen || 0) > new Date(cur.last_seen || 0));
+        if (better) { if (cur) idAlias[cur.id] = norm.id; seen.set(key, norm); }
+        else        { idAlias[norm.id] = cur.id; }
       });
-      const uniqueNodes = Array.from(seen.values());
+      const uniqueNodes = [];
+      for (const node of seen.values()) {
+        const idKey = node.id || node.ip;
+        if (!seenIds.has(idKey)) {
+          seenIds.add(idKey);
+          uniqueNodes.push(node);
+        }
+      }
+      const A = (id) => idAlias[id] || id;
 
+      // Populate all discovered devices into the inventory library (left panel)
       setScannedNodes(uniqueNodes);
 
+      // Only devices with an explicit saved position appear on the canvas (no auto-placement)
       const placedNodes = uniqueNodes.filter(n => n.position && typeof n.position.x === 'number' && typeof n.position.y === 'number');
 
       const reactNodes = placedNodes.map(n => ({
@@ -1235,7 +1366,7 @@ export default function Topology() {
 
       const edgeSeen = new Set();
       const uniqueEdges = (data.connections || []).filter(e => {
-        const key = `${e.sourceDeviceId}|${e.destinationDeviceId}`;
+        const key = `${A(e.sourceDeviceId)}|${A(e.destinationDeviceId)}`;
         if (edgeSeen.has(key)) return false;
         edgeSeen.add(key);
         return true;
@@ -1244,15 +1375,16 @@ export default function Topology() {
       const reactEdges = uniqueEdges.map((e) => {
         return {
           id: e.id || `conn-${e.sourceDeviceId}-${e.destinationDeviceId}`,
-          source: e.sourceDeviceId, 
-          target: e.destinationDeviceId,
+          source: A(e.sourceDeviceId),
+          target: A(e.destinationDeviceId),
           animated: true,
           type: 'connection',
           data: e,
         };
       });
 
-      const logicalEdges = (data.edges || []).map((e, idx) => {
+      const logicalEdges = (data.edges || []).map((e0, idx) => {
+        const e = { ...e0, source: A(e0.source), target: A(e0.target) };
         const targetNode = uniqueNodes.find(n => n.id === e.target);
         const targetType = targetNode?.type;
         
@@ -1341,17 +1473,12 @@ export default function Topology() {
   }, []);
 
   useEffect(() => {
-    fetchTopology(); fetchMetrics(); fetchAlerts(); fetchBandwidth();
-    const intervalMetrics = setInterval(fetchMetrics, 10000);
-    const intervalTopo = setInterval(fetchTopology, 2000);
-    const intervalAlerts = setInterval(fetchAlerts, 5000);
-    const intervalBw = setInterval(fetchBandwidth, 2000);
-    return () => {
-      clearInterval(intervalMetrics);
-      clearInterval(intervalTopo);
-      clearInterval(intervalAlerts);
-      clearInterval(intervalBw);
-    };
+    // Fetch cached topology and network data strictly once on component mount (entering page)
+    fetchTopology();
+    fetchMetrics();
+    fetchAlerts();
+    fetchBandwidth();
+    // Continuous polling removed: polling runs only when navigating to this page or on manual scan
   }, [fetchTopology, fetchMetrics, fetchAlerts, fetchBandwidth]);
 
   // Keep selectedNode data in sync when nodes refresh
@@ -1403,7 +1530,25 @@ export default function Topology() {
     setDeviceLiveData(null);
   }, []);
 
-  const triggerScan   = async () => { setScanning(true); try { await fetch(`${API_BASE}/scan`, { method: 'POST' }); } catch {} finally { setScanning(false); } };
+  const triggerScan = async () => {
+    setScanning(true);
+    try {
+      await fetch(`${API_BASE}/scan`, { method: 'POST' });
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        await fetchTopology();
+        const statusRes = await fetch(`${API_BASE}/scan/status`);
+        const statusData = await statusRes.json();
+        if (!statusData.is_scanning) break;
+      }
+      await fetchTopology();
+      await fetchAlerts();
+    } catch (err) {
+      console.error("Scan error:", err);
+    } finally {
+      setScanning(false);
+    }
+  };
   const savePositions = async () => { await Promise.all(nodes.map(n => fetch(`${API_BASE}/nodes/${n.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ position: n.position }) }))); };
   const ackAlert      = async (nodeId) => { await fetch(`${API_BASE}/alerts/${nodeId}/acknowledge`, { method: 'POST' }); setAlerts(prev => prev.filter(a => a.node_id !== nodeId)); };
   const onDragStart   = (e, nd) => { e.dataTransfer.setData('application/reactflow', JSON.stringify(nd)); e.dataTransfer.effectAllowed = 'move'; };
@@ -1431,271 +1576,285 @@ export default function Topology() {
   }, [nodes, setNodes, removeNodeFromCanvas]);
 
   // ─── Topology Template Design Actions ─────────────────────────────────────
-  const placeAllDevices = useCallback(async () => {
-    if (scannedNodes.length === 0) return;
-    setScanning(true);
-    try {
-      const gap = 180;
-      const cols = Math.ceil(Math.sqrt(scannedNodes.length));
-      await Promise.all(
-        scannedNodes.map((node, idx) => {
-          const row = Math.floor(idx / cols);
-          const col = idx % cols;
-          return fetch(`${API_BASE}/nodes/${node.id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              position: {
-                x: 100 + col * gap,
-                y: 100 + row * gap
-              }
-            })
-          });
-        })
-      );
-      await fetchTopology();
-    } catch (err) {
-      console.error("Failed to place all devices:", err);
-    } finally {
-      setScanning(false);
-    }
-  }, [scannedNodes, fetchTopology]);
-
   const resetWorkspace = useCallback(() => {
     setConfirmModal({
       isOpen: true,
       title: 'Clear Canvas',
-      message: "Are you sure you want to clear the canvas? This will remove all devices from the topology and delete all links.",
+      message: "Are you sure you want to clear the canvas? This will remove all devices from the topology canvas.",
       onConfirm: async () => {
         setConfirmModal(prev => ({ ...prev, isOpen: false }));
-        setScanning(true);
+        // Instantly wipe canvas state
+        setNodes([]);
+        setEdges([]);
+        setScannedNodes(snd => snd.map(n => ({ ...n, position: null })));
+        setSelectedNode(null);
+        setSelectedEdge(null);
+        setSidebarOpen(false);
+        setActiveTemplate(null);
         try {
           await fetch(`${API_BASE}/reset`, { method: 'POST' });
           await fetchTopology();
-          setSelectedNode(null);
-          setSidebarOpen(false);
         } catch (err) {
           console.error("Failed to reset workspace:", err);
-        } finally {
-          setScanning(false);
         }
       },
       onCancel: () => setConfirmModal(prev => ({ ...prev, isOpen: false }))
     });
-  }, [fetchTopology]);
+  }, [fetchTopology, setNodes, setEdges]);
 
   const applyTopologyTemplate = useCallback(async (templateType) => {
     setActiveTemplate(templateType);
     setStatusFilter(null);
     setTypeFilter(null);
-    let nodesToArrange = nodes.map(n => n.data);
-    if (nodesToArrange.length === 0) {
-      if (scannedNodes.length === 0) {
-        alert("No scanned devices available. Please scan the network first.");
-        return;
-      }
-      nodesToArrange = scannedNodes;
+
+    // Arrange all scanned nodes (or placed nodes if canvas has any)
+    const targetNodes = scannedNodes.length > 0 ? scannedNodes : nodes.map(n => n.data);
+    const N = targetNodes.length;
+    if (N === 0) {
+      alert("No network devices available to arrange.");
+      return;
     }
 
-    const N = nodesToArrange.length;
-    if (N === 0) return;
+    const newPositions = {};
+    const newEdges = [];
 
-    setScanning(true);
+    if (templateType === 'tree') {
+      // ── HIERARCHICAL TREE ──
+      const routers = targetNodes.filter(n => n.type === 'router');
+      const root = routers[0] ||
+                   targetNodes.find(n => n.type === 'core-switch') ||
+                   targetNodes.find(n => n.type === 'switch' || n.type === 'poe-switch') ||
+                   targetNodes.find(n => n.type === 'server') ||
+                   targetNodes[0];
 
-    try {
-      const newPositions = {};
-      const newEdges = [];
+      const switches = targetNodes.filter(n => (n.type === 'switch' || n.type === 'poe-switch' || n.type === 'core-switch') && n.id !== root.id);
+      const infra = targetNodes.filter(n => (n.type === 'access_point' || n.type === 'server' || n.type === 'nvr' || n.type === 'nas') && n.id !== root.id && !switches.some(s => s.id === n.id));
+      const endpoints = targetNodes.filter(n => n.id !== root.id && !switches.some(s => s.id === n.id) && !infra.some(inf => inf.id === n.id));
 
-      if (templateType === 'star') {
-        let hub = nodesToArrange.find(n => n.type === 'core-switch') ||
-                  nodesToArrange.find(n => n.type === 'switch' || n.type === 'poe-switch') ||
-                  nodesToArrange.find(n => n.type === 'server') ||
-                  nodesToArrange[0];
-        
-        const hubId = hub.id;
-        newPositions[hubId] = { x: 400, y: 300 };
+      // 1. Root position
+      newPositions[root.id] = { x: 500, y: 70 };
 
-        const spokes = nodesToArrange.filter(n => n.id !== hubId);
-        const numSpokes = spokes.length;
+      // 2. Switches position
+      const swY = 220;
+      const swCount = switches.length;
+      switches.forEach((sw, i) => {
+        const startX = Math.max(120, 500 - ((swCount - 1) * 220) / 2);
+        newPositions[sw.id] = { x: Math.round(startX + i * 220), y: swY };
+        newEdges.push({ source: root.id, target: sw.id, type: 'default', inferred: true });
+      });
 
+      // 3. Infrastructure (APs, Servers) position
+      const infY = 370;
+      const infCount = infra.length;
+      infra.forEach((inf, i) => {
+        const startX = Math.max(120, 500 - ((infCount - 1) * 200) / 2);
+        newPositions[inf.id] = { x: Math.round(startX + i * 200), y: infY };
+        const parent = swCount > 0 ? switches[i % swCount] : root;
+        newEdges.push({ source: parent.id, target: inf.id, type: 'default', inferred: true });
+      });
+
+      // 4. Endpoints (Cameras, Workstations, Printers, IoT)
+      const epY = 530;
+      const maxPerRow = 8;
+      endpoints.forEach((ep, i) => {
+        const row = Math.floor(i / maxPerRow);
+        const col = i % maxPerRow;
+        const countInRow = Math.min(endpoints.length - row * maxPerRow, maxPerRow);
+        const startX = Math.max(80, 500 - ((countInRow - 1) * 180) / 2);
+        newPositions[ep.id] = { x: Math.round(startX + col * 180), y: Math.round(epY + row * 140) };
+
+        let parent = null;
+        if (ep.type === 'camera') {
+          const poeSwitches = switches.filter(s => s.type === 'poe-switch');
+          parent = poeSwitches.length > 0 ? poeSwitches[i % poeSwitches.length] : (swCount > 0 ? switches[i % swCount] : root);
+        } else if (ep.type === 'workstation' || ep.type === 'printer') {
+          const apList = infra.filter(inf => inf.type === 'access_point');
+          parent = apList.length > 0 && i % 2 === 0 ? apList[i % apList.length] : (swCount > 0 ? switches[i % swCount] : root);
+        } else {
+          parent = swCount > 0 ? switches[i % swCount] : (infCount > 0 ? infra[i % infCount] : root);
+        }
+        if (parent) {
+          newEdges.push({ source: parent.id, target: ep.id, type: 'default', inferred: true });
+        }
+      });
+    } else if (templateType === 'star') {
+      // ── STAR TOPOLOGY ──
+      const hub = targetNodes.find(n => n.type === 'core-switch') ||
+                  targetNodes.find(n => n.type === 'switch' || n.type === 'poe-switch') ||
+                  targetNodes.find(n => n.type === 'router') ||
+                  targetNodes.find(n => n.type === 'server') ||
+                  targetNodes[0];
+
+      const hubId = hub.id;
+      const centerX = 550;
+      const centerY = 450;
+      newPositions[hubId] = { x: centerX, y: centerY };
+
+      const spokes = targetNodes.filter(n => n.id !== hubId);
+      const numSpokes = spokes.length;
+
+      if (numSpokes <= 16) {
+        const radius = Math.max(260, numSpokes * 22);
         spokes.forEach((spoke, idx) => {
           const angle = (idx * 2 * Math.PI) / numSpokes;
           newPositions[spoke.id] = {
-            x: Math.round(400 + 260 * Math.cos(angle)),
-            y: Math.round(300 + 260 * Math.sin(angle))
+            x: Math.round(centerX + radius * Math.cos(angle)),
+            y: Math.round(centerY + radius * Math.sin(angle))
           };
           newEdges.push({ source: hubId, target: spoke.id, type: 'default', inferred: false });
         });
-      } else if (templateType === 'ring') {
-        nodesToArrange.forEach((node, idx) => {
-          const angle = (idx * 2 * Math.PI) / N;
-          newPositions[node.id] = {
-            x: Math.round(400 + 250 * Math.cos(angle)),
-            y: Math.round(300 + 250 * Math.sin(angle))
+      } else {
+        const innerCount = Math.min(10, Math.floor(numSpokes / 3));
+        const outerCount = numSpokes - innerCount;
+        const innerSpokes = spokes.slice(0, innerCount);
+        const outerSpokes = spokes.slice(innerCount);
+
+        const rInner = 220;
+        const rOuter = Math.max(380, outerCount * 18);
+
+        innerSpokes.forEach((spoke, idx) => {
+          const angle = (idx * 2 * Math.PI) / innerCount;
+          newPositions[spoke.id] = {
+            x: Math.round(centerX + rInner * Math.cos(angle)),
+            y: Math.round(centerY + rInner * Math.sin(angle))
           };
-          const nextNode = nodesToArrange[(idx + 1) % N];
-          newEdges.push({ source: node.id, target: nextNode.id, type: 'default', inferred: false });
-        });
-      } else if (templateType === 'bus') {
-        const gap = 180;
-        const startX = 400 - ((N - 1) * gap) / 2;
-        nodesToArrange.forEach((node, idx) => {
-          newPositions[node.id] = {
-            x: Math.round(startX + idx * gap),
-            y: 300
-          };
-          if (idx < N - 1) {
-            const nextNode = nodesToArrange[idx + 1];
-            newEdges.push({ source: node.id, target: nextNode.id, type: 'default', inferred: false });
-          }
-        });
-      } else if (templateType === 'mesh') {
-        nodesToArrange.forEach((node, idx) => {
-          const angle = (idx * 2 * Math.PI) / N;
-          newPositions[node.id] = {
-            x: Math.round(400 + 250 * Math.cos(angle)),
-            y: Math.round(300 + 250 * Math.sin(angle))
-          };
-        });
-        for (let i = 0; i < N; i++) {
-          for (let j = i + 1; j < N; j++) {
-            newEdges.push({
-              source: nodesToArrange[i].id,
-              target: nodesToArrange[j].id,
-              type: 'default',
-              inferred: false
-            });
-          }
-        }
-      } else if (templateType === 'tree') {
-        const byTier = {};
-        nodesToArrange.forEach(n => {
-          const tier = DEVICE_TIER[n.type] ?? 3;
-          (byTier[tier] = byTier[tier] || []).push(n);
+          newEdges.push({ source: hubId, target: spoke.id, type: 'default', inferred: false });
         });
 
-        Object.entries(byTier).forEach(([tier, tierNodes]) => {
-          const y = TIER_Y[+tier] ?? (TIER_Y[3] + (+tier - 3) * V_GAP);
-          const startX = 400 - ((tierNodes.length - 1) * H_GAP) / 2;
-          tierNodes.forEach((n, i) => {
-            newPositions[n.id] = { x: Math.round(startX + i * H_GAP), y };
-          });
+        outerSpokes.forEach((spoke, idx) => {
+          const angle = (idx * 2 * Math.PI) / outerCount;
+          newPositions[spoke.id] = {
+            x: Math.round(centerX + rOuter * Math.cos(angle)),
+            y: Math.round(centerY + rOuter * Math.sin(angle))
+          };
+          newEdges.push({ source: hubId, target: spoke.id, type: 'default', inferred: false });
         });
-
-        const cores = byTier[0] || [];
-        const switches = byTier[1] || [];
-        const endpoints = byTier[2] || [];
-        const cameras = byTier[3] || [];
-
-        if (cores.length > 0 && switches.length > 0) {
-          switches.forEach((sw, idx) => {
-            const core = cores[idx % cores.length];
-            newEdges.push({ source: core.id, target: sw.id, type: 'default', inferred: true });
-          });
-        }
-        if (switches.length > 0 && endpoints.length > 0) {
-          endpoints.forEach((ep, idx) => {
-            const sw = switches[idx % switches.length];
-            newEdges.push({ source: sw.id, target: ep.id, type: 'default', inferred: true });
-          });
-        } else if (cores.length > 0 && endpoints.length > 0) {
-          endpoints.forEach((ep, idx) => {
-            const core = cores[idx % cores.length];
-            newEdges.push({ source: core.id, target: ep.id, type: 'default', inferred: true });
-          });
-        }
-        if (endpoints.length > 0 && cameras.length > 0) {
-          cameras.forEach((cam, idx) => {
-            const ep = endpoints[idx % endpoints.length];
-            newEdges.push({ source: ep.id, target: cam.id, type: 'default', inferred: true });
-          });
-        } else if (switches.length > 0 && cameras.length > 0) {
-          cameras.forEach((cam, idx) => {
-            const sw = switches[idx % switches.length];
-            newEdges.push({ source: sw.id, target: cam.id, type: 'default', inferred: true });
-          });
-        }
       }
+    } else if (templateType === 'ring') {
+      // ── RING TOPOLOGY ──
+      const radius = Math.max(260, N * 22);
+      const centerX = 550;
+      const centerY = 450;
 
-      // Optimistic UI Update for instant feedback
-      setNodes(nds => nds.map(n => newPositions[n.id] ? { ...n, position: newPositions[n.id] } : n));
-      setScannedNodes(snd => snd.map(n => newPositions[n.id] ? { ...n, position: newPositions[n.id] } : n));
-
-      const reactEdges = newEdges.map((e, idx) => {
-        const targetNode = nodesToArrange.find(n => n.id === e.target);
-        const targetType = targetNode?.type;
-        
-        let strokeColor = '#818cf8';
-        let strokeWidth = 2;
-        
-        if (targetType === 'camera') {
-          strokeColor = '#10b981';
-        } else if (targetType === 'server' || targetType === 'nvr') {
-          strokeColor = '#3b82f6';
-          strokeWidth = 2.5;
-        } else if (targetType === 'switch' || targetType === 'poe-switch' || targetType === 'core-switch') {
-          strokeColor = '#f59e0b';
-          strokeWidth = 2.5;
+      targetNodes.forEach((node, idx) => {
+        const angle = (idx * 2 * Math.PI) / N;
+        newPositions[node.id] = {
+          x: Math.round(centerX + radius * Math.cos(angle)),
+          y: Math.round(centerY + radius * Math.sin(angle))
+        };
+        const nextNode = targetNodes[(idx + 1) % N];
+        newEdges.push({ source: node.id, target: nextNode.id, type: 'default', inferred: false });
+      });
+    } else if (templateType === 'bus') {
+      // ── BUS TOPOLOGY ──
+      const gap = 160;
+      const startX = 120;
+      targetNodes.forEach((node, idx) => {
+        const offset = idx % 2 === 0 ? -90 : 90;
+        newPositions[node.id] = {
+          x: Math.round(startX + idx * gap),
+          y: Math.round(350 + offset)
+        };
+        if (idx < N - 1) {
+          const nextNode = targetNodes[idx + 1];
+          newEdges.push({ source: node.id, target: nextNode.id, type: 'default', inferred: false });
         }
+      });
+    } else if (templateType === 'mesh') {
+      // ── MESH TOPOLOGY ──
+      const radius = Math.max(260, N * 22);
+      const centerX = 550;
+      const centerY = 450;
 
-        const isCameraTarget = targetType === 'camera';
-
-        return {
-          id: `e-temp-${Date.now()}-${idx}`, 
-          source: e.source, 
-          target: e.target,
-          animated: true,
-          type: 'smoothstep',
-          style: { 
-            stroke: strokeColor, 
-            strokeWidth: strokeWidth,
-            filter: `drop-shadow(0px 0px 3px ${strokeColor}66)`
-          },
-          ...(isCameraTarget ? {
-            markerStart: { type: MarkerType.ArrowClosed, color: strokeColor }
-          } : {
-            markerEnd: { type: MarkerType.ArrowClosed, color: strokeColor }
-          })
+      targetNodes.forEach((node, idx) => {
+        const angle = (idx * 2 * Math.PI) / N;
+        newPositions[node.id] = {
+          x: Math.round(centerX + radius * Math.cos(angle)),
+          y: Math.round(centerY + radius * Math.sin(angle))
         };
       });
-      setEdges(prev => [...prev.filter(e => e.type === 'connection'), ...reactEdges]);
-      setScanning(false); // unlock UI immediately
 
-      // Background persistence
-      (async () => {
-        try {
-          await fetch(`${API_BASE}/edges/clear`, { method: 'POST' });
-
-          await Promise.all(
-            Object.entries(newPositions).map(([id, pos]) =>
-              fetch(`${API_BASE}/nodes/${id}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ position: pos })
-              })
-            )
-          );
-
-          await Promise.all(
-            newEdges.map(edge =>
-              fetch(`${API_BASE}/edges`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ source: edge.source, target: edge.target, inferred: edge.inferred })
-              })
-            )
-          );
-
-          await fetchTopology();
-        } catch (err) {
-          console.error("Failed to persist topology template:", err);
+      if (N <= 10) {
+        for (let i = 0; i < N; i++) {
+          for (let j = i + 1; j < N; j++) {
+            newEdges.push({ source: targetNodes[i].id, target: targetNodes[j].id, type: 'default', inferred: false });
+          }
         }
-      })();
-    } catch (err) {
-      console.error("Failed to generate topology template:", err);
-      setScanning(false);
+      } else {
+        for (let i = 0; i < N; i++) {
+          const next1 = (i + 1) % N;
+          const next2 = (i + Math.floor(N / 3)) % N;
+          newEdges.push({ source: targetNodes[i].id, target: targetNodes[next1].id, type: 'default', inferred: false });
+          if (next2 !== next1 && next2 !== i) {
+            newEdges.push({ source: targetNodes[i].id, target: targetNodes[next2].id, type: 'default', inferred: false });
+          }
+        }
+      }
     }
-  }, [nodes, scannedNodes, fetchTopology]);
+
+    // ── Instant optimistic UI update (0ms delay) ──
+    const reactNodes = targetNodes.map(n => ({
+      id: n.id,
+      type: 'custom',
+      _hasPosition: true,
+      position: newPositions[n.id] || { x: 100, y: 100 },
+      data: {
+        ...n,
+        position: newPositions[n.id],
+        onRemove: () => removeNodeFromCanvas(n.id)
+      }
+    }));
+
+    const reactEdges = newEdges.map((e, idx) => {
+      const targetNode = targetNodes.find(n => n.id === e.target);
+      const targetType = targetNode?.type;
+      let strokeColor = '#818cf8';
+      let strokeWidth = 2;
+      if (targetType === 'camera') {
+        strokeColor = '#10b981';
+      } else if (targetType === 'server' || targetType === 'nvr') {
+        strokeColor = '#3b82f6';
+        strokeWidth = 2.5;
+      } else if (targetType === 'switch' || targetType === 'poe-switch' || targetType === 'core-switch') {
+        strokeColor = '#f59e0b';
+        strokeWidth = 2.5;
+      }
+      return {
+        id: `e-temp-${Date.now()}-${idx}`,
+        source: e.source,
+        target: e.target,
+        animated: true,
+        type: 'smoothstep',
+        style: {
+          stroke: strokeColor,
+          strokeWidth,
+          filter: `drop-shadow(0px 0px 3px ${strokeColor}66)`
+        },
+        markerEnd: { type: MarkerType.ArrowClosed, color: strokeColor }
+      };
+    });
+
+    setNodes(reactNodes);
+    setEdges(reactEdges);
+    setScannedNodes(targetNodes.map(n => ({ ...n, position: newPositions[n.id] })));
+
+    // ── Fast Atomic Persistence in background ──
+    try {
+      fetch(`${API_BASE}/topology/layout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ positions: newPositions, edges: newEdges })
+      }).catch(err => {
+        console.error("Topology template persistence note:", err);
+      });
+    } catch {}
+  }, [scannedNodes, nodes, removeNodeFromCanvas]);
+
+  const placeAllDevices = useCallback(async () => {
+    if (scannedNodes.length === 0) return;
+    applyTopologyTemplate('tree');
+  }, [scannedNodes, applyTopologyTemplate]);
+
 
   const sentHistory   = bwHistory.map(b => b?.sent_kbps || 0);
   const recvHistory   = bwHistory.map(b => b?.recv_kbps || 0);
@@ -1705,7 +1864,7 @@ export default function Topology() {
   const degradedCount = scannedNodes.filter(n => n.status === 'degraded').length;
 
   // Device type counts for filter buttons
-  const DEVICE_TYPES = ['camera', 'server', 'nvr', 'switch', 'poe-switch', 'core-switch'];
+  const DEVICE_TYPES = ['camera', 'router', 'switch', 'poe-switch', 'core-switch', 'access_point', 'server', 'workstation', 'printer', 'nas', 'nvr', 'iot', 'unknown', 'other'];
   const nodesByType = scannedNodes.reduce((acc, n) => {
     const t = n.type || 'other';
     if (!acc[t]) acc[t] = [];
@@ -1746,10 +1905,14 @@ export default function Topology() {
     if (statusFilter && node.status !== statusFilter) return false;
     if (typeFilter   && node.type   !== typeFilter)   return false;
     
-    const ipMatch = (node.ip || '').toLowerCase().includes(searchQuery.toLowerCase());
-    const modelMatch = (node.model || '').toLowerCase().includes(searchQuery.toLowerCase());
-    const typeLabelMatch = deviceTypeLabel(node.type).toLowerCase().includes(searchQuery.toLowerCase());
-    return ipMatch || modelMatch || typeLabelMatch;
+    const q = searchQuery.toLowerCase();
+    const ipMatch = (node.ip || '').toLowerCase().includes(q);
+    const macMatch = (node.mac || '').toLowerCase().includes(q);
+    const modelMatch = (node.model || '').toLowerCase().includes(q);
+    const vendorMatch = (node.vendor || node.manufacturer || '').toLowerCase().includes(q);
+    const typeLabelMatch = deviceTypeLabel(node.type).toLowerCase().includes(q);
+    const makeMatch = makeModelLabel(node).toLowerCase().includes(q);
+    return ipMatch || macMatch || modelMatch || vendorMatch || typeLabelMatch || makeMatch;
   });
 
   const onlineNodes = filteredNodes.filter(n => n.status === 'online');
@@ -1759,7 +1922,7 @@ export default function Topology() {
   const renderLibraryItem = (node) => {
     const isPlaced = nodes.some(n => n.id === node.id);
     return (
-      <div key={node.id}
+      <div key={`${node.id}-${node.ip}`}
         className={`library-item status--${node.status}`}
         draggable={!isPlaced}
         onDragStart={e => !isPlaced && onDragStart(e, node)}
@@ -1781,7 +1944,7 @@ export default function Topology() {
         <div className="item-info">
           <span className="item-ip">{node.ip}</span>
           <span className="item-mdl" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            {deviceTypeLabel(node.type)}
+            {cleanModel(node) ? `${cleanModel(node)} • ${deviceTypeLabel(node.type)}` : deviceTypeLabel(node.type)}
             {isPlaced && (
               <span style={{
                 color: '#10b981',
@@ -1862,53 +2025,99 @@ export default function Topology() {
           )}
         </div>
 
-        {/* ── DEVICE TYPE FILTER CHIPS ── */}
-        <div style={{ borderTop: '1px solid var(--border)', padding: '8px 12px 0 12px', marginTop: 2 }}>
+        {/* ── DEVICE TYPE FILTER DROPDOWN ── */}
+        <div style={{ borderTop: '1px solid var(--border)', padding: '10px 12px 0 12px', marginTop: 2 }}>
           <div style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
             Filter by Type
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            {DEVICE_TYPES.map(type => {
-              const count = nodesByType[type]?.length || 0;
-              if (count === 0) return null;
-              const active = typeFilter === type;
-              return (
-                <div
-                  key={type}
-                  onClick={() => toggleTypeFilter(type)}
-                  className={`hier-group ${active ? 'hier-group--active' : ''}`}
-                  style={{
-                    cursor: 'pointer',
-                    padding: '4px 8px',
-                    borderRadius: 7,
-                    border: `1px solid ${active ? '#6366f1' : 'transparent'}`,
-                    background: active ? 'rgba(99,102,241,0.12)' : 'transparent',
-                    transition: 'all 0.15s',
-                    userSelect: 'none',
+
+          <div className="type-filter-dropdown-wrapper" ref={typeDropdownRef}>
+            <button
+              type="button"
+              className={`type-filter-trigger ${typeFilter ? 'type-filter-trigger--active' : ''}`}
+              onClick={() => setTypeDropdownOpen(prev => !prev)}
+              aria-expanded={typeDropdownOpen}
+              aria-haspopup="listbox"
+            >
+              <div className="type-filter-trigger__left">
+                {typeFilter ? (
+                  <Icon type={typeFilter} size={13} />
+                ) : (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                  </svg>
+                )}
+                <span className="type-filter-trigger__label">
+                  {typeFilter ? deviceTypeLabel(typeFilter) : 'All Device Types'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                <span className="type-filter-trigger__badge">
+                  {typeFilter ? (nodesByType[typeFilter]?.length || 0) : scannedNodes.length}
+                </span>
+                <span className={`type-filter-chevron ${typeDropdownOpen ? 'type-filter-chevron--open' : ''}`}>
+                  ▼
+                </span>
+              </div>
+            </button>
+
+            {typeDropdownOpen && (
+              <div className="type-filter-menu" role="listbox">
+                {/* Reset / All Types option */}
+                <button
+                  type="button"
+                  className={`type-filter-option ${!typeFilter ? 'type-filter-option--active' : ''}`}
+                  onClick={() => {
+                    setTypeFilter(null);
+                    setTypeDropdownOpen(false);
                   }}
+                  role="option"
+                  aria-selected={!typeFilter}
                 >
-                  <div className="hier-group__label" style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    color: active ? '#818cf8' : 'var(--text-secondary)',
-                    fontWeight: active ? 700 : 500,
-                  }}>
-                    <Icon type={type} size={11}/>
-                    <span>{deviceTypeLabel(type)}</span>
-                    <span style={{
-                      marginLeft: 'auto',
-                      background: active ? '#6366f1' : 'var(--border)',
-                      color: active ? '#fff' : 'var(--text-secondary)',
-                      borderRadius: 10,
-                      padding: '0 6px',
-                      fontSize: 13,
-                      fontWeight: 700,
-                    }}>{count}</span>
+                  <div className="type-filter-option__left">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="3" width="7" height="7" />
+                      <rect x="14" y="3" width="7" height="7" />
+                      <rect x="14" y="14" width="7" height="7" />
+                      <rect x="3" y="14" width="7" height="7" />
+                    </svg>
+                    <span>All Device Types</span>
                   </div>
-                </div>
-              );
-            })}
+                  <span className="type-filter-option__badge">
+                    {scannedNodes.length}
+                  </span>
+                </button>
+
+                <div className="type-filter-divider" />
+
+                {DEVICE_TYPES.map(type => {
+                  const count = nodesByType[type]?.length || 0;
+                  if (count === 0) return null;
+                  const active = typeFilter === type;
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      className={`type-filter-option ${active ? 'type-filter-option--active' : ''}`}
+                      onClick={() => {
+                        toggleTypeFilter(type);
+                        setTypeDropdownOpen(false);
+                      }}
+                      role="option"
+                      aria-selected={active}
+                    >
+                      <div className="type-filter-option__left">
+                        <Icon type={type} size={13} />
+                        <span>{deviceTypeLabel(type)}</span>
+                      </div>
+                      <span className="type-filter-option__badge">
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Clear filter button */}
@@ -2038,6 +2247,21 @@ export default function Topology() {
               >
                 {scanning ? 'Scanning…' : 'Scan Network'}
               </SpecularButton>
+
+              <button
+                className="topo-btn"
+                onClick={() => {
+                  fetchTopology();
+                  fetchMetrics();
+                  fetchAlerts();
+                  fetchBandwidth();
+                }}
+                title="Reload cached topology and live status"
+                style={{ display: 'flex', alignItems: 'center', gap: 5 }}
+              >
+                <Icon type="refresh" size={13} />
+                <span>Refresh</span>
+              </button>
 
               <button className="topo-btn" onClick={placeAllDevices} disabled={scanning || scannedNodes.length === 0}>
                 Place All
@@ -2222,15 +2446,142 @@ export default function Topology() {
 
             {!selectedEdge && activeTab === 'details' && d && (
               <>
-                <div className="section-title">Identity</div>
-                <div className="detail-row"><label>IP Address</label><span>{d.ip || '—'}</span></div>
-                <div className="detail-row"><label>Device Type</label><span>{deviceTypeLabel(d.type)}</span></div>
-                <div className="detail-row"><label>Manufacturer</label><span>{d.manufacturer || 'Unknown'}</span></div>
-                <div className="detail-row"><label>Model</label><span>{d.model || 'Unknown'}</span></div>
-                <div className="detail-row">
-                  <label>Status</label>
-                  <span className={`status-pill ${d.status || 'offline'}`}>{(d.status || 'offline').toUpperCase()}</span>
+                {/* ── Dynamic Hero Card ── */}
+                <div className="device-hero-card">
+                  <div className="device-hero-top">
+                    <div className="device-hero-icon">
+                      <Icon type={d.type} size={28} model={d.model} subtype={d.camera_type} />
+                    </div>
+                    <div className="device-hero-meta">
+                      <div className="device-hero-title" title={cleanModel(d) || d.model || d.ip}>
+                        {cleanModel(d) || d.model || d.ip}
+                      </div>
+                      <div className="device-hero-sub">
+                        <span>{cleanMake(d) || d.vendor || 'Network Device'}</span>
+                        <span>•</span>
+                        <span className={`badge badge--${d.type}`}>{deviceTypeLabel(d.type)}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="device-hero-status-row">
+                    <span className={`status-pill ${d.status || 'offline'}`}>
+                      {(d.status || 'offline').toUpperCase()}
+                    </span>
+                    <span className="live-ping-badge">
+                      {d.latency != null && d.latency >= 0 ? `${Math.round(d.latency)}ms latency` : 'unreachable'}
+                    </span>
+                  </div>
                 </div>
+
+                {/* ── Identity & Hardware Details ── */}
+                <div className="section-title">Identity & Hardware</div>
+                <div className="id-card-table">
+                  <div className="id-card-row">
+                    <span className="id-label">IP Address</span>
+                    <span className="id-val mono">
+                      {d.ip || '—'}
+                      {d.ip && (
+                        <button className="copy-btn" onClick={() => copyValue(d.ip, 'ip')} title="Copy IP">
+                          {copiedField === 'ip' ? '✓' : <Icon type="copy" size={11} />}
+                        </button>
+                      )}
+                    </span>
+                  </div>
+
+                  <div className="id-card-row">
+                    <span className="id-label">MAC Address</span>
+                    <span className="id-val mono">
+                      {d.mac ? d.mac.toUpperCase() : '—'}
+                      {d.mac && (
+                        <button className="copy-btn" onClick={() => copyValue(d.mac, 'mac')} title="Copy MAC">
+                          {copiedField === 'mac' ? '✓' : <Icon type="copy" size={11} />}
+                        </button>
+                      )}
+                    </span>
+                  </div>
+
+                  {d.hostname && (
+                    <div className="id-card-row">
+                      <span className="id-label">Hostname</span>
+                      <span className="id-val bold">{d.hostname}</span>
+                    </div>
+                  )}
+
+                  <div className="id-card-row">
+                    <span className="id-label">Manufacturer</span>
+                    <span className="id-val bold">{cleanMake(d) || d.vendor || d.manufacturer || 'Unknown'}</span>
+                  </div>
+
+                  <div className="id-card-row">
+                    <span className="id-label">Hardware Model</span>
+                    <span className="id-val bold">{cleanModel(d) || d.model || 'Unknown'}</span>
+                  </div>
+
+                  <div className="id-card-row">
+                    <span className="id-label">Device Category</span>
+                    <span className="id-val">{deviceTypeLabel(d.type)}</span>
+                  </div>
+
+                  {d.confidence != null && (
+                    <div className="id-card-row">
+                      <span className="id-label">Confidence</span>
+                      <span className="id-val">
+                        <span style={{
+                          background: d.confidence >= 70 ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)',
+                          color: d.confidence >= 70 ? '#10b981' : '#f59e0b',
+                          padding: '1px 7px', borderRadius: 10, fontSize: 11, fontWeight: 700
+                        }}>
+                          {d.confidence}% Verified
+                        </span>
+                      </span>
+                    </div>
+                  )}
+
+                  {d.classification_reason && (
+                    <div className="id-card-row" style={{ alignItems: 'flex-start', flexDirection: 'column', gap: 4 }}>
+                      <span className="id-label">Classification Basis</span>
+                      <span style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4, textAlign: 'left' }}>
+                        {d.classification_reason}
+                      </span>
+                    </div>
+                  )}
+
+                  {d.classification_evidence && d.classification_evidence.length > 0 && (
+                    <div className="id-card-row" style={{ alignItems: 'flex-start', flexDirection: 'column', gap: 6 }}>
+                      <span className="id-label">Detection Evidence</span>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                        {d.classification_evidence.map((ev, i) => (
+                          <span key={i} className="evidence-chip">
+                            {ev}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Open Ports & Exposed Services ── */}
+                <div className="section-title" style={{ marginTop: 14 }}>Open Ports & Services</div>
+                {d.open_ports && d.open_ports.length > 0 ? (
+                  <div className="ports-grid">
+                    {d.open_ports.map((port) => {
+                      const svcMap = {
+                        21: 'FTP', 22: 'SSH', 23: 'Telnet', 53: 'DNS', 80: 'HTTP',
+                        135: 'MSRPC', 139: 'NetBIOS', 443: 'HTTPS', 445: 'SMB', 554: 'RTSP',
+                        1935: 'RTMP', 8000: 'HTTP-Dev', 8080: 'HTTP-Alt', 8443: 'HTTPS-Alt',
+                        37777: 'Dahua'
+                      };
+                      return (
+                        <div key={port} className="port-badge">
+                          <span className="port-num">{port}</span>
+                          <span className="port-svc">{svcMap[port] || 'TCP'}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="empty-subtext">No open TCP ports discovered</div>
+                )}
 
                 {(() => {
                   const nodeConnections = edges.filter(e => e.type === 'connection' && (e.source === d.id || e.target === d.id));

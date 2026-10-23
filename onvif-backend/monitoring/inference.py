@@ -102,6 +102,9 @@ def run_auto_topology():
     existing_edges = list(edges_col.find({}))
     children = {e["target"] for e in existing_edges}
 
+    BACKBONE_TYPES = {"server", "router", "switch", "core-switch", "poe-switch"}
+
+
     linked_count = 0
     for node in nodes:
         node_id = node["id"]
@@ -110,7 +113,8 @@ def run_auto_topology():
         if node_id == server_id or node_id in children:
             continue
 
-        if node.get("type") in ["camera", "unknown", "web_device"]:
+        # Auto-link all end-devices (cameras, workstations, printers, NAS, IoT, unknown, etc.)
+        if node.get("type") not in BACKBONE_TYPES:
             edges_col.update_one(
                 {"source": server_id, "target": node_id},
                 {"$set": {
@@ -122,7 +126,7 @@ def run_auto_topology():
                 upsert=True
             )
             linked_count += 1
-            print(f"[INFERENCE] Auto-linked {node_id} to server {server_id}")
+            print(f"[INFERENCE] Auto-linked {node_id} ({node.get('type')}) to server {server_id}")
 
     # ✅ FIX #3: Broadcast topology refresh if anything was linked
     if linked_count > 0:

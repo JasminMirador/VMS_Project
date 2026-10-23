@@ -163,6 +163,7 @@ export default function DashboardNewPage() {
   const loc = language === "ar" ? "ar" : "en-GB";
   const fmtDT = (d) => new Date(d).toLocaleString(loc, { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
   const fmtD = (d) => new Date(d).toLocaleDateString(loc, { day: "numeric", month: "short" });
+  const fmtDWithYear = (d) => new Date(d).toLocaleDateString(loc, { day: "numeric", month: "short", year: "numeric" });
   const ago = (sec) => {
     if (!(sec > 0)) return T("live");
     if (sec < 3600) return T("minAgo", { n: Math.max(1, Math.round(sec / 60)) });
@@ -873,7 +874,7 @@ export default function DashboardNewPage() {
       )}
 
       <Panel T={T} className="c8" title={T("storageGrowth")} sub={T("storageGrowthSub")}>
-        <div className="dn-stat3 colr"><div>{T("avgPerDay")}<b>{storageDiag?.avg_daily_consumption != null ? storageDiag.avg_daily_consumption : "—"}<u>GB</u></b></div><div>{T("addedInPeriod")}<b>{addedTB.toFixed(1)}<u>TB</u></b></div><div className="w">{T("predictedFull")}<b>{fullDate ? fmtD(fullDate) : "—"}</b></div></div>
+        <div className="dn-stat3 colr"><div>{T("avgPerDay")}<b>{storageDiag?.avg_daily_consumption != null ? storageDiag.avg_daily_consumption : "—"}<u>GB</u></b></div><div>{T("addedInPeriod")}<b>{addedTB.toFixed(1)}<u>TB</u></b></div><div className="w">{T("predictedFull")}<b>{fullDate ? fmtDWithYear(fullDate) : "—"}</b></div></div>
         <TrendChart points={trendPoints} w={760} h={250} reserve={fullDate ? 0.48 : 0} yTicks={[0, 5, 10, 15, 20].map((v) => Math.round((totalTB * v) / 20))} yFmt={(v) => `${v} TB`}
           extra={({ x, y, right, left }) => {
             const n = trendPoints.length, last = n ? trendPoints[n - 1] : null;
@@ -884,10 +885,10 @@ export default function DashboardNewPage() {
               {last && <text x={x(n - 1) - 10} y={y(last.v) - 10} textAnchor="end" className="dn-peak">{T("tbToday", { n: last.v.toFixed(1) })}</text>}
               {last && fullDate && <><line x1={x(n - 1)} y1={y(last.v)} x2={right} y2={y(totalTB)} className="dn-stroke dn-proj" />
                 <circle cx={right} cy={y(totalTB)} r="4" className="dn-hollow" />
-                <text x={right + 2} y={y(totalTB) + 44} textAnchor="end" className="dn-peak">{T("fullOn", { d: fmtD(fullDate) })}</text></>}
+                <text x={right + 2} y={y(totalTB) + 44} textAnchor="end" className="dn-peak">{T("fullOn", { d: fmtDWithYear(fullDate) })}</text></>}
               {n > 0 && <text x={left} y={242} className="dn-axis">{fmtD(trendPoints[0].ts)}</text>}
               {last && <text x={x(n - 1)} y={242} textAnchor="middle" className="dn-axis">{T("today")}</text>}
-              {fullDate && <text x={right} y={242} textAnchor="end" className="dn-axis">{fmtD(fullDate)}</text>}
+              {fullDate && <text x={right} y={242} textAnchor="end" className="dn-axis">{fmtDWithYear(fullDate)}</text>}
             </>);
           }} />
       </Panel>

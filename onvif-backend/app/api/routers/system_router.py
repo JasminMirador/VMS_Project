@@ -26,17 +26,23 @@ MONGO_URI = os.environ["MONGO_URI"]
 
 CACHED_DISCOVERED_DEVICES = []
 _discovery_in_progress = False
+_discovery_lock = asyncio.Lock()
+_last_discovery_time = 0
 
 async def run_discovery_pipeline():
-    global CACHED_DISCOVERED_DEVICES, _discovery_in_progress
+    global CACHED_DISCOVERED_DEVICES, _discovery_in_progress, _last_discovery_time
     if _discovery_in_progress:
-        return
+        # If another request is currently running the pipeline, wait for it
+        while _discovery_in_progress:
+            await asyncio.sleep(0.2)
+        return CACHED_DISCOVERED_DEVICES    
+    
     _discovery_in_progress = True
-    print("[BACKGROUND-DISCOVERY] Starting network scan...")
+    print("[DISCOVERY] Starting network scan...")
     try:
         from app.services.camera.discovery_service import discover_all
-        found = await asyncio.to_thread(discover_all, 4, 1000)
-        print(f"[BACKGROUND-DISCOVERY] Found {len(found)} device(s)")
+        found = await asyncio.to_thread(discover_all, 3, 800)
+        print(f"[DISCOVERY] Found {len(found)} camera(s)")
 
         # Enrich discovered devices with their registered details (like exact model name) if already in database/VMS
         from app.managers.stream_manager import load_devices
@@ -53,68 +59,20 @@ async def run_discovery_pipeline():
                         device["model"] = reg_dev["model"]
                     if reg_dev.get("mac") and reg_dev.get("mac") != "Unknown":
                         device["mac"] = reg_dev["mac"]
+                        if reg_dev.get("name") or reg_dev.get("device_name"):
+                            device["name"] = reg_dev.get("device_name") or reg_dev.get("name")
+                    device["already_enrolled"] = True
         except Exception as enrich_err:
-            print(f"[BACKGROUND-DISCOVERY] ⚠ Failed to enrich with registered devices: {enrich_err}")
-
-        for device in found:
-            rtsp_url = device.get("rtsp_url")
-            ip       = device.get("ip")
-
-            if not rtsp_url:
-                print(f"[BACKGROUND-DISCOVERY] ⏭ {ip} — no RTSP URL found, skipping MediaMTX")
-                device["ws_url"]        = None
-                device["stream_key"]    = None
-                device["stream_status"] = "credentials_required"
-                continue
-
-            from urllib.parse import urlparse
-            parsed = urlparse(rtsp_url)
-            if not parsed.username:
-                print(f"[BACKGROUND-DISCOVERY] ⚠ {ip} — no credentials in RTSP URL, skipping MediaMTX")
-                device["ws_url"]        = None
-                device["stream_key"]    = None
-                device["stream_status"] = "credentials_required"
-                continue
-            stream_name = normalize_stream_name(ip, None, device.get("device_name") or device.get("name"))
-
-            if stream_exists_in_mediamtx(stream_name):
-                print(f"[BACKGROUND-DISCOVERY] ✅ {ip} already in MediaMTX")
-                status_code = 200
-            else:
-                register_result = register_stream(stream_name, rtsp_url)
-                status = register_result.get("status") if isinstance(register_result, dict) else "error"
-                print(f"[BACKGROUND-DISCOVERY] MediaMTX register {ip}: {status}")
-                status_code = 200 if status == "ok" else 0
- 
-            if status_code in (200, 201, 409):
-                device["ws_url"]        = f"{os.environ['MEDIAMTX_PUBLIC_URL']}/{stream_name}"
-                device["stream_key"]    = stream_name
-                device["stream_status"] = "streaming"
- 
-                existing = next((d for d in devices if d.get("ip") == ip), None)
-
-                if not existing:
-                    new_dev = {
-                        "stream_key":     stream_name,
-                        "rtsp_url":       rtsp_url,
-                        "recording_rtsp": rtsp_url,
-                        "ip":             ip,
-                        "enabled":        True,
-                    }
-                    saved = save_camera_to_db(new_dev)
-                    if saved:
-                        devices.append(new_dev)
-                        save_devices(devices)
-                    recorder.start_camera(stream_name, rtsp_url, new_dev)
-            else:
-                device["ws_url"]        = None
-                device["stream_key"]    = None
-                device["stream_status"] = "error"
+            print(f"[DISCOVERY] ⚠ Failed to enrich with registered devices: {enrich_err}")
 
         CACHED_DISCOVERED_DEVICES = found
-        print(f"[BACKGROUND-DISCOVERY] Cached list updated with {len(found)} device(s)")
+        import time
+        _last_discovery_time = time.time()
+        print(f"[DISCOVERY] Cached list updated with {len(found)} camera(s)")
+        return found  
     except Exception as e:
-        print(f"[BACKGROUND-DISCOVERY] ❌ Discovery pipeline error: {e}")
+        print(f"[DISCOVERY] ❌ Discovery pipeline error: {e}")
+        return []    
     finally:
         _discovery_in_progress = False
 
@@ -222,15 +180,21 @@ def node_state():
         return {"state": "UNKNOWN", "error": str(e)}
 
 @router.get("/discover-devices", dependencies=[Depends(require_admin)])
-async def discover_devices():
+async def discover_devices(refresh: bool = False):
+    global CACHED_DISCOVERED_DEVICES, _last_discovery_time    
     try:
-        if not _discovery_in_progress:
-            start_background_discovery()
-        return {"devices": CACHED_DISCOVERED_DEVICES}
+        import time
+        now = time.time()
+        # If cache exists and is fresh (< 20 seconds) and refresh is not forced, return immediately
+        if not refresh and CACHED_DISCOVERED_DEVICES and (now - _last_discovery_time < 20):
+            return {"devices": CACHED_DISCOVERED_DEVICES}
+
+        devices = await run_discovery_pipeline()
+        return {"devices": devices or CACHED_DISCOVERED_DEVICES}
  
     except Exception as e:
         print(f"[DISCOVER] ❌ Discovery error: {e}")
-        return {"devices": [], "error": str(e)}
+        return {"devices": CACHED_DISCOVERED_DEVICES or [], "error": str(e)}
  
  
 # ------------------------------------------------------------------
@@ -528,46 +492,14 @@ async def pick_folder_endpoint():
 # ------------------------------------------------------------------
 # Global OS Clipboard Monitor for Screenshots (Win+Shift+S)
 # ------------------------------------------------------------------
-import ctypes
-import base64
-from io import BytesIO
-from PIL import ImageGrab
-from app.core.ws_manager import ws_manager
 
 _clipboard_task = None
-_last_seq = None
-
-async def poll_clipboard():
-    global _last_seq
-    _last_seq = ctypes.windll.user32.GetClipboardSequenceNumber()
-    print("[Clipboard Monitor] Started polling...")
-    while True:
-        await asyncio.sleep(1)
-        try:
-            current_seq = ctypes.windll.user32.GetClipboardSequenceNumber()
-            if current_seq != _last_seq:
-                _last_seq = current_seq
-                
-                # Clipboard changed! Check if it's an image (run in thread to not block asyncio)
-                img = await asyncio.to_thread(ImageGrab.grabclipboard)
-                
-                if img and hasattr(img, 'save'):
-                    # It is an image! Convert to base64
-                    buf = BytesIO()
-                    img.convert("RGB").save(buf, format="JPEG", quality=95)
-                    b64_str = base64.b64encode(buf.getvalue()).decode("utf-8")
-                    
-                    print("[Clipboard Monitor] Detected OS screenshot. Broadcasting to clients...")
-                    # Broadcast the event to any connected frontends
-                    await ws_manager.broadcast("system", "notification", {"type": "os_screenshot", "base64": b64_str})
-        except Exception as e:
-            print(f"[Clipboard Monitor] Error: {e}")
 
 @router.on_event("startup")
 async def startup_clipboard_monitor():
     global _clipboard_task
-    if os.name == 'nt':
-        _clipboard_task = asyncio.create_task(poll_clipboard())
+    # poll_clipboard was removed; clipboard screenshot monitor is disabled
+    _clipboard_task = None
 
 # ------------------------------------------------------------------
 # Native File Picker and Audio Streaming

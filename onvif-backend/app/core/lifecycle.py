@@ -12,7 +12,7 @@ from app.managers.stream_manager import devices, get_devices_by_ip, stream_watch
 from app.managers.health_manager import system_health_collector, camera_health_collector, analytics_poll_loop
 from app.core.database import db as _db, cameras_col, analytics_subs_col
 from app.utils.terminal_logger import log_terminal
-from app.services.camera.mediamtx_service import register_stream
+from app.services.camera.mediamtx_service import register_stream, register_publisher_stream
 from recorder import encrypt_service
 from recorder import rtsp_recorder as recorder
 from schedulers.stream_health_worker import start_health_monitoring
@@ -55,6 +55,12 @@ async def _startup_phase_1():
 
     from monitoring.stream_health import run_stream_health_loop
     await task_manager.start_task('stream_health', run_stream_health_loop())
+    try:
+        from recorder.metadata_queue import metadata_sync_loop
+        await task_manager.start_task('metadata_queue_sync', metadata_sync_loop())
+        print("[STARTUP] ✅ Metadata queue sync worker started.")
+    except Exception as e:
+        print(f"[STARTUP] ⚠ Failed to start metadata queue sync worker: {e}")
     
     # try:
     #     from schedulers.forensic_indexer_worker import start_background_indexer
@@ -83,6 +89,8 @@ async def _startup_phase_2():
             all_cams = list(cameras_col.find({}))
 
             for cam in all_cams:
+                if cam.get("source") == "edge" or cam.get("is_edge_camera") or cam.get("edge_id"):
+                    continue
                 ip = cam.get("ip")
                 if not ip:
                     continue
@@ -151,68 +159,8 @@ async def _startup_phase_2():
             if ids_to_delete:
                 cameras_col.delete_many({"_id": {"$in": ids_to_delete}})
                 print(f"[MIGRATION] ✅ Removed {len(ids_to_delete)} stale entry/entries")
-
-            # Reload devices after all migration steps
-            import app.managers.stream_manager as sm
-            sm.devices = sm.load_devices()
-
-            # --- MIGRATION: Switch IP update/upsert ---
-            infra_nodes = _db["infrastructure_nodes"]
-            existing_unifi = infra_nodes.find_one({"ip": "192.168.1.1"})
-            if existing_unifi:
-                infra_nodes.delete_many({"ip": "192.168.1.1"})
-                _db["infrastructure_edges"].delete_many({
-                    "$or": [
-                        {"source": "node-192-168-1-1"},
-                        {"target": "node-192-168-1-1"}
-                    ]
-                })
-                print("[MIGRATION] Deleted old offline UniFi switch 192.168.1.1")
-
-            cisco_switch = infra_nodes.find_one({"ip": "192.168.126.3"})
-            if not cisco_switch:
-                infra_nodes.insert_one({
-                    "id": "node-192-168-126-3",
-                    "ip": "192.168.126.3",
-                    "type": "switch",
-                    "manufacturer": "Cisco Systems, Inc.",
-                    "model": "Cisco Systems, Inc. Switch",
-                    "status": "online",
-                    "latency": 1,
-                    "last_seen": datetime.utcnow(),
-                    "inferred": False,
-                    "position": {"x": 400, "y": 240}
-                })
-                print("[MIGRATION] Created Cisco Switch node at 192.168.126.3")
-            else:
-                infra_nodes.update_one(
-                    {"ip": "192.168.126.3"},
-                    {"$set": {
-                        "type": "switch",
-                        "manufacturer": "Cisco Systems, Inc.",
-                        "model": "Cisco Systems, Inc. Switch"
-                    }}
-                )
-
-
-            # Purge any nodes that are not camera, server, or switch
-            allowed_types = ["camera", "server", "switch", "poe-switch", "core-switch"]
-            deleted_nodes = infra_nodes.delete_many({"type": {"$nin": allowed_types}})
-            if deleted_nodes.deleted_count > 0:
-                print(f"[MIGRATION] Purged {deleted_nodes.deleted_count} unwanted devices from topology database")
-
-            # Purge stale cameras not in the active devices list (devices.json)
-            active_ips = [dev.get("ip") for dev in sm.devices if dev.get("ip")]
-            if active_ips:
-                stale_cams_deleted = cameras_col.delete_many({"ip": {"$nin": active_ips}})
-                stale_nodes_deleted = infra_nodes.delete_many({
-                    "type": "camera",
-                    "ip": {"$nin": active_ips}
-                })
-                if stale_cams_deleted.deleted_count > 0 or stale_nodes_deleted.deleted_count > 0:
-                    print(f"[MIGRATION] Purged stale cameras: {stale_cams_deleted.deleted_count} from cameras, {stale_nodes_deleted.deleted_count} from infrastructure")
         except Exception as e:
-            print(f"[MIGRATION] ⚠ DB naming cleanup failed: {e}")
+            print(f"[MIGRATION] [WARN] DB naming cleanup failed: {e}")
 
 
 
@@ -238,6 +186,10 @@ async def _startup_phase_2():
 
         if device.get("enabled") is False:
             print(f"[STARTUP] ⏭ Skipping disabled camera: {stream_name}")
+            continue
+        if stream_name and (device.get("source") == "edge" or device.get("is_edge_camera")):
+            print(f"[STARTUP] Registering Edge publisher stream: {stream_name}")
+            register_publisher_stream(stream_name)
             continue
         if stream_name and rtsp_url:
             print(f"[STARTUP] Registering stream: {stream_name}")

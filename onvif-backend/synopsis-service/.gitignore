@@ -1,0 +1,26 @@
+# Python artifacts & logs
+__pycache__/
+*.pyc
+*.pyi
+*.enc
+*.log
+*.pt
+*.ts
+
+# Environment & models
+venv/
+*.pt
+
+# Tubes related PNG files
+devices_data/synopsis/tubes/
+**/tubes/**/*.png
+**/tubes/*.png
+
+# Or ignore the entire generated devices_data directory:
+# devices_data/
+# Ignore face thumbnails specifically:
+devices_data/synopsis/face_thumbs/
+**/face_thumbs/
+
+# (Recommended) Or ignore the entire generated runtime data directory:
+devices_data/

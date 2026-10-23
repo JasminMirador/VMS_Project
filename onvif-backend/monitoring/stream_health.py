@@ -452,13 +452,8 @@ async def run_stream_health_loop():
                             }}
                         )
                 
-                # Delete removed camera nodes
-                existing_cam_nodes = list(nodes_col.find({"type": "camera"}))
-                for node in existing_cam_nodes:
-                    node_ip = node.get("ip")
-                    if node_ip and node_ip not in configured_ips:
-                        nodes_col.delete_one({"id": node.get("id")})
-                        print(f"[STREAM_HEALTH] Removed deleted camera node from topology: {node.get('id')}")
+                # Retain discovered infrastructure cameras even if not registered in VMS cameras collection
+
         except Exception as e:
             print(f"[STREAM_HEALTH] dynamic topology sync error: {e}")
 
@@ -559,7 +554,7 @@ async def run_stream_health_loop():
                             })
 
                             print(
-                                f"[STREAM_HEALTH] {node.get('ip')} → "
+                                f"[STREAM_HEALTH] {node.get('ip')} -> "
                                 f"status={fields['stream_status']} "
                                 f"fps={fields['stream_fps']} "
                                 f"res={fields['stream_resolution']} "
