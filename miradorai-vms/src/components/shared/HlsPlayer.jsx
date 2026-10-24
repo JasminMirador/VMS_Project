@@ -18,22 +18,14 @@ function HlsPlayer({ streamKey, streamUrl, muted = true, autoplay = true, classN
   // Still apply standard image CSS filters if available, but NOT digital zoom (disables WebRTC specific zoom)
   const { cssFilter, cssTransform } = useImageConfig(streamKey);
 
-  // Use env var if provided, otherwise fallback to standard MediaMTX port 8888 on the same hostname
+  // Use env var if provided, otherwise fallback to standard MediaMTX HLS on the same hostname
   const HLS_BASE_URL = import.meta.env.VITE_HLS_BASE_URL || `${window.location.protocol}//${window.location.hostname}/hls`;
-
-  const [activeStreamKey, setActiveStreamKey] = useState(streamKey);
-  const [hasFallenBack, setHasFallenBack] = useState(false);
-
-  useEffect(() => {
-    setActiveStreamKey(streamKey);
-    setHasFallenBack(false);
-  }, [streamKey]);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    const url = streamUrl || `${HLS_BASE_URL}/${activeStreamKey}/index.m3u8`;
+    const url = streamUrl || `${HLS_BASE_URL}/${streamKey}/index.m3u8`;
 
     setStatus("connecting");
     setIsVideoPlaying(false);
@@ -65,12 +57,6 @@ function HlsPlayer({ streamKey, streamUrl, muted = true, autoplay = true, classN
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
               // Stream not yet available — wait and retry
-              if (data.response?.code === 404 && !hasFallenBack) {
-                console.log("HLS 404, falling back to _h264 stream");
-                setHasFallenBack(true);
-                setActiveStreamKey(prev => prev.endsWith("_h264") ? prev.replace("_h264", "") : `${prev}_h264`);
-                return;
-              }
               setStatus("reconnecting");
               setIsVideoPlaying(false);
               setTimeout(() => {
@@ -99,12 +85,6 @@ function HlsPlayer({ streamKey, streamUrl, muted = true, autoplay = true, classN
         if (autoplay) video.play().catch(() => {});
       });
       video.addEventListener("error", () => {
-        if (!hasFallenBack) {
-          console.log("HLS error, falling back to _h264 stream");
-          setHasFallenBack(true);
-          setActiveStreamKey(prev => prev.endsWith("_h264") ? prev.replace("_h264", "") : `${prev}_h264`);
-          return;
-        }
         setStatus("failed");
         setIsVideoPlaying(false);
         setErrorMsg("Stream failed");
@@ -124,7 +104,7 @@ function HlsPlayer({ streamKey, streamUrl, muted = true, autoplay = true, classN
       }
       onConnectChange?.(false);
     };
-  }, [activeStreamKey, streamUrl, autoplay, HLS_BASE_URL, onConnectChange]);
+  }, [streamKey, streamUrl, autoplay, HLS_BASE_URL, onConnectChange]);
 
   const wrapStyle = {
     position: "relative",

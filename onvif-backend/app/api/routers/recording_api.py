@@ -47,12 +47,15 @@ from app.managers.stream_manager import stop_worker_pool
 # ------------------------------------------------------------------
 # Config
 # ------------------------------------------------------------------
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
+MONGO_URI = os.environ.get("MONGO_URI")
 KEY_FILE  = os.environ.get("VIDEO_KEY_FILE", "/app/data/video.key")
 
 if os.name == 'nt' and KEY_FILE == "/app/data/video.key":
     player_path = "c:/Users/miradorwin/Documents/GitHub/VMS_Project/onvif-backend/player/video.key"
-    if os.path.exists(player_path):
+    local_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "devices_data", "video.key"))
+    if os.path.exists(local_backend_path):
+        KEY_FILE = local_backend_path
+    elif os.path.exists(player_path):
         KEY_FILE = player_path
     else:
         sibling_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "devices_data", "video.key"))
@@ -79,7 +82,9 @@ else:
 # Stored alongside devices.json so it survives container restarts.
 _CONFIG_FILE = os.environ.get(
     "RECORDING_CONFIG_FILE",
-    "/app/data/recording_config.json"
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "devices_data", "recording_config.json"))
+    if os.path.exists(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "devices_data", "recording_config.json")))
+    else "/app/data/recording_config.json"
 )
 
 # The container-side base mount point — D:\REC on the host maps here.
@@ -521,9 +526,12 @@ class ExportDeviceRequest(BaseModel):
     destination_path: str = Field("", max_length=1024)
 
 class StorageApplyRequest(BaseModel):
-    display_path: str = Field(..., max_length=1024)
-    container_path: str = Field(..., max_length=1024)
-    allocated:      int | None = None
+    display_path:   str | None = None
+    container_path: str | None = None
+    recording_path: str | None = None
+    folder:         str | None = None
+    location:       str | None = None
+    allocated:      int | float | None = None
     recording_path: str | None = None
 
 class StorageLocation(BaseModel):
@@ -643,19 +651,18 @@ def remove_storage_location(container_path: str = Query(...)):
     locations_collection.update_one({"container_path": container_path}, {"$set": {"is_deleted": True}})
     return {"message": "Location removed"}
 
+def _container_to_display_path(container_path: str) -> str:
 
-def _container_to_display_path(container_path: str = Field(..., max_length=1024)) -> str:
     """
     Convert forward slashes to backslashes for native Windows UI display.
     """
-    return container_path.replace("/", "\\")
+    return (container_path or "").replace("/", "\\")
 
 
 @storage_router.post("/apply")
 def apply_storage_settings(req: StorageApplyRequest):
 
-    raw_path = req.recording_path or req.folder or req.location
-
+    raw_path = req.recording_path or req.container_path or req.folder or req.location or req.display_path
     if not raw_path:
         raise HTTPException(status_code=400, detail="No path provided")
 

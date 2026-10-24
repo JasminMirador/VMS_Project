@@ -721,7 +721,7 @@ function AlertsPanel({
 
   // Prevent overlapping alert refresh requests.
   const fetchingAlertsRef = useRef(false);
-  const [externalAiIp, setExternalAiIp] = useState("192.168.126.35");
+  const [externalAiIp, setExternalAiIp] = useState(import.meta.env.VITE_EXTERNAL_AI_HOST);
   const [isAiActive, setIsAiActive] = useState(false);
 
   useEffect(() => {
@@ -939,7 +939,8 @@ function AlertsPanel({
     if (imgLoc) {
       if (imgLoc.startsWith("http")) return imgLoc;
       const cleanLoc = imgLoc.startsWith("/") ? imgLoc.substring(1) : imgLoc;
-      return `http://${externalAiIp}:9000/${cleanLoc}`;
+      const minioPort = import.meta.env.VITE_MINIO_PORT;
+      return `http://${externalAiIp}:${minioPort}/${cleanLoc}`;
     }
 
     // Prefer persisted snapshot if present on the alert document
@@ -1115,7 +1116,7 @@ function AlertsPanel({
               const imagePath = locVal ? (
                 locVal.startsWith("http")
                   ? locVal
-                  : `http://${externalAiIp}:9000/${locVal.replace(/^\//, '')}`
+                  : `http://${externalAiIp}:${import.meta.env.VITE_MINIO_PORT}/${locVal.replace(/^\//, '')}`
               ) : (item.image || "");
               return {
                 isExternal: true,
@@ -1991,22 +1992,6 @@ function CameraCell({
      aiNames = Array.from(distinctTypes).map(formatEventName);
   }
   const [isLive, setIsLive] = useState(false);
-  const [localStreamMode, setLocalStreamMode] = useState(streamMode);
-  const [ptzOpen, setPtzOpen] = useState(false);
-  const [isMuted, setIsMuted] = useState(true);
-  const [showAiTooltip, setShowAiTooltip] = useState(false);
-
-  useEffect(() => {
-    setLocalStreamMode(streamMode);
-  }, [streamMode]);
-
-  useEffect(() => {
-    onLiveChange?.(device.ip, isLive);
-  }, [device.ip, isLive, onLiveChange]);
-
-  // WebRTC errors are handled inside the player (retries automatically).
-  // We no longer auto-fall back to HLS - the user chooses the mode via the toolbar.
-  const handleWebRTCError = () => {};
 
   // Calculate the target stream key based on stored codec metadata.
   // We prefer the sub_stream_key for grid cells to save bandwidth.
@@ -2023,11 +2008,36 @@ function CameraCell({
   ).toUpperCase();
   const isH265 = ["H.265", "H265", "HEVC"].includes(activeCodec);
 
-  // Use the transcoded path for the base stream (sub stream) if it's H.265.
-  // MediaMTX runOnDemand will handle transcoding the sub stream dynamically.
-  const streamKeyToUse = isH265
-    ? `${baseStreamKey}_h264`
-    : baseStreamKey;  
+  // Per-camera stream mode: If the global mode is HLS, or this specific camera is H.265,
+  // stream it via HLS automatically without forcing any other cameras to switch.
+  const [localStreamMode, setLocalStreamMode] = useState(() => {
+    return streamMode === "hls" || isH265 ? "hls" : "webrtc";
+  });
+  const [ptzOpen, setPtzOpen] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
+  const [showAiTooltip, setShowAiTooltip] = useState(false);
+
+  useEffect(() => {
+    if (streamMode === "hls" || isH265) {
+      setLocalStreamMode("hls");
+    } else {
+      setLocalStreamMode("webrtc");
+    }
+  }, [streamMode, isH265]);
+
+  useEffect(() => {
+    onLiveChange?.(device.ip, isLive);
+  }, [device.ip, isLive, onLiveChange]);
+
+  // When WebRTC is unsupported by the browser or fails for this specific stream (e.g. H.265),
+  // automatically fall back this individual camera to HLS without touching any other cameras.
+  const handleWebRTCError = useCallback((err) => {
+    console.warn(`[LiveView] WebRTC stream error on camera ${device.ip || baseStreamKey}. Auto-switching this camera to HLS:`, err);
+    setLocalStreamMode("hls");
+  }, [device.ip, baseStreamKey]);
+
+  // Use raw stream directly (no transcoding / no _h264 suffix)
+  const streamKeyToUse = baseStreamKey;
 console.log("[GRID STREAM DEBUG]", {
   camera: device.name || device.device_name,
   ip: device.ip,
@@ -2201,6 +2211,7 @@ console.log("[GRID STREAM DEBUG]", {
                 streamKey={streamKeyToUse}
                 cameraId={device.id}
                 onConnectChange={setIsLive}
+                onError={handleWebRTCError}
                 maxBitrate={maxBitrate}
                 badgeMode={badgeMode}
                 muted={isMuted}
@@ -2601,14 +2612,24 @@ export default function LiveViewPage({ onNavigate }) {
     },
     [devices, onNavigate],
   );
+  const fsActiveCodec = String(
+    fsDevice?.live_codec || fsDevice?.codec || "",
+  ).toUpperCase();
+  const fsIsH265 = ["H.265", "H265", "HEVC"].includes(fsActiveCodec);
 
   useEffect(() => {
-    setFsStreamMode(streamMode);
-  }, [streamMode, fsDevice]);
+    if (streamMode === "hls" || fsIsH265) {
+      setFsStreamMode("hls");
+    } else {
+      setFsStreamMode("webrtc");
+    }
+  }, [streamMode, fsDevice, fsIsH265]);
 
-  // WebRTC errors are handled inside the player (retries automatically).
-  // No auto-fallback to HLS from fullscreen either.
-  const handleFsWebRTCError = () => {};
+  // When WebRTC fails or is unsupported for the fullscreen camera, auto-switch to HLS
+  const handleFsWebRTCError = useCallback((err) => {
+    console.warn(`[LiveView FS] WebRTC stream error on camera ${fsDevice?.ip}. Auto-switching fullscreen to HLS:`, err);
+    setFsStreamMode("hls");
+  }, [fsDevice?.ip]);
 
   const [fsMenuOpen, setFsMenuOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -2631,7 +2652,7 @@ export default function LiveViewPage({ onNavigate }) {
   const [sidePlaybackCam, setSidePlaybackCam] = useState(null);
   const [alertSource, setAlertSource] = useState("all"); // 'all' | 'builtin' | 'mqtt_ai'
   const [isAiActive, setIsAiActive] = useState(false);
-  const [externalAiIp, setExternalAiIp] = useState("192.168.126.35");
+  const [externalAiIp, setExternalAiIp] = useState(import.meta.env.VITE_EXTERNAL_AI_HOST);
   const [analyticsConfig, setAnalyticsConfig] = useState([
   ]);
 
@@ -3890,18 +3911,9 @@ export default function LiveViewPage({ onNavigate }) {
                   (() => {
                     const baseFsKey =
                       fsDevice.stream_key ||
-                      fsDevice.stream_key ||
                       fsDevice.live_stream ||
                       "";
-                    const activeCodec = String(
-                      fsDevice.live_codec || fsDevice.codec || "",
-                    ).toUpperCase();
-                    const isH265 = ["H.265", "H265", "HEVC"].includes(
-                      activeCodec,
-                    );
-                    const fsStreamKeyToUse = isH265
-                      ? `${baseFsKey}_h264`
-                      : baseFsKey;
+                    const fsStreamKeyToUse = baseFsKey;
 
                     return (
                       <WebRTCPlayer_MediaMTX
@@ -3909,6 +3921,7 @@ export default function LiveViewPage({ onNavigate }) {
                         streamKey={fsStreamKeyToUse}
                         cameraId={fsDevice.id}
                         onConnectChange={setFsLive}
+                        onError={handleFsWebRTCError}
                         maxBitrate={10000}
                         objectFit={objectFitMode}
                       />
@@ -3916,9 +3929,8 @@ export default function LiveViewPage({ onNavigate }) {
                   })()
                 ) : (
                   <HlsPlayer
-                    key={`fs-hls-${fsDevice.stream_key || fsDevice.stream_key || fsDevice.live_stream}`}
+                    key={`fs-hls-${fsDevice.stream_key || fsDevice.live_stream}`}
                     streamKey={
-                      fsDevice.stream_key ||
                       fsDevice.stream_key ||
                       fsDevice.live_stream
                     }

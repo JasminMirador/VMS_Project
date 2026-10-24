@@ -202,6 +202,8 @@ export default function StorageManagementPage() {
         body:    JSON.stringify({
           // Always send the container path — backend validates & persists it
           recording_path: containerPath,
+          container_path: containerPath,
+          display_path:   displayInput,
           folder:         containerPath,
           allocated,
         }),

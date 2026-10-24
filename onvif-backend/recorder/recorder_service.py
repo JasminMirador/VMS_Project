@@ -22,12 +22,14 @@ import logging
 logging.getLogger('urllib3').setLevel(logging.ERROR)
 
 # Configuration
-MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "192.168.126.200:9000").replace("http://", "").replace("https://", "")
+default_minio = f"{os.environ.get('HOST_IP')}:{os.environ.get('MINIO_PORT')}"
+MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", default_minio).replace("http://", "").replace("https://", "")
 MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "your_access_key")
 MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "your_secret_key")
 MINIO_BUCKET = os.environ.get("MINIO_BUCKET", "vms-rec")
 
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017/")
+default_mongo = f"mongodb://{os.environ.get('HOST_IP')}:{os.environ.get('MONGO_PORT')}/"
+MONGO_URI = os.environ.get("MONGO_URI", default_mongo)
 MONGO_DB_NAME = os.environ.get("MONGO_DB_NAME", "vms_db")
 
 RECORDINGS_DIR = os.environ.get("RECORDINGS_DIR", "C:\\recording" if os.name == "nt" else "/recording")
@@ -54,8 +56,8 @@ minio_client = Minio(
 # Connect to Dedicated VMS Redis Server
 try:
     redis_client = redis.Redis(
-        host='127.0.0.1',
-        port=6380,
+        host=os.environ.get("REDIS_HOST", "127.0.0.1"),
+        port=int(os.environ.get("RECORDER_REDIS_PORT") or os.environ.get("REDIS_PORT")),
         db=1,
         socket_timeout=15,
         socket_connect_timeout=5,
@@ -105,6 +107,20 @@ class EncryptedFileStream(io.RawIOBase):
         super().close()
 
     def readable(self): return True
+
+
+def inject_credentials(rtsp_str, user, pwd):
+    if not rtsp_str or not user or not pwd:
+        return rtsp_str
+    import urllib.parse
+    if f"{urllib.parse.quote_plus(user)}:" in rtsp_str or f"{user}:" in rtsp_str:
+        return rtsp_str
+    if rtsp_str.startswith("rtsp://"):
+        parts = rtsp_str.split("rtsp://", 1)
+        safe_user = urllib.parse.quote_plus(user)
+        safe_pwd = urllib.parse.quote_plus(pwd)
+        return f"rtsp://{safe_user}:{safe_pwd}@{parts[1]}"
+    return rtsp_str
 
 
 def calculate_workers(camera_count):
@@ -232,15 +248,31 @@ def upload_worker_thread(worker_id):
             parts = file_path.split("/")
             filename, camera_id = parts[-1], parts[-2]
             
-            # --- PARALLEL FFPROBE ---
+            # --- PARALLEL FFPROBE & INTEGRITY CHECK ---
+            is_valid_mp4 = True            
             try:
                 cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file_path]
                 out = subprocess.check_output(cmd, stderr=subprocess.STDOUT, timeout=5)
                 true_duration = float(out.strip())
                 if true_duration <= 0: raise ValueError("Invalid duration")
-            except Exception:
-                true_duration = 300.0 # Fallback if ffprobe fails
-            # ------------------------
+            except Exception as probe_err:
+                # If ffprobe errors with moov atom not found, file was cut mid-stream during restart
+                err_str = str(probe_err).lower()
+                if "moov" in err_str or "invalid data" in err_str:
+                    print(f"[WORKER-{worker_id}] Discarding corrupt/incomplete chunk {filename}: {probe_err}")
+                    is_valid_mp4 = False
+                else:
+                    true_duration = 300.0 # Standard fallback for temporary probe timeout
+            if not is_valid_mp4:
+                # Corrupted chunk from mid-stream restart; discard and delete locally
+                try:
+                    os.remove(file_path)
+                except Exception:
+                    pass
+                with queued_lock:
+                    queued_files.discard(file_path)
+                continue
+            # ------------------------------------------
 
             
             try:
@@ -285,11 +317,19 @@ def upload_worker_thread(worker_id):
                         }}, upsert=True)
                     
                     print(f"[WORKER-{worker_id}] Successfully processed {filename} in DB.")
-                    os.remove(file_path)
                 except Exception as e:
                     print(f"[WORKER-{worker_id}] Mongo update failed for {filename}: {e}")
-                    upload_ok = False # Keep file, will retry later
+                    upload_ok = False # Keep file, retry DB update later
 
+                if upload_ok:
+                    # Separate file deletion from DB transaction so Windows WinError 32 lock won't trigger re-upload loops
+                    for _ in range(3):
+                        try:
+                            if os.path.exists(file_path):
+                                os.remove(file_path)
+                            break
+                        except Exception as del_err:
+                            time.sleep(1)
         except Exception as e:
             print(f"[WORKER-{worker_id}] Unhandled error processing {file_path}: {e}")
             upload_ok = False
@@ -338,6 +378,10 @@ def main():
             for cam_id, cam_data in enabled_cams.items():
                 # Prefer recording_rtsp (which handles Main/Sub stream routing), fallback to rtsp_url
                 desired_url = cam_data.get("recording_rtsp") or cam_data.get("rtsp_url")
+                cam_user = cam_data.get("username")
+                cam_pass = cam_data.get("password")
+                if desired_url and cam_user and cam_pass:
+                    desired_url = inject_credentials(desired_url, cam_user, cam_pass)
                 
                 # If camera is running but URL changed (e.g. user clicked Sub Stream in UI)
                 if cam_id in active_threads and active_threads[cam_id].get("url") != desired_url:
