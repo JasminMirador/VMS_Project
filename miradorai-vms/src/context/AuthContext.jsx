@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import { encryptPassword, getPublicKey } from "../utils/crypto";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { fetchAndCacheAiIp } from "../utils/aiIntegration";
+import { unsecureUrl, getEnv } from '../config/appConfig';
 
 const AuthContext = createContext();
 
@@ -41,7 +42,8 @@ const fetchSsoToken = async (accessToken) => {
     const aiIp = await fetchAndCacheAiIp();
     
     // Hit the remote IP directly (no proxy)
-    const ssoUrl = `http://${aiIp}:3000/unsecure/keybasedlogin`;
+    const ssoPort = getEnv("SSO_PORT");
+    const ssoUrl = unsecureUrl(aiIp, "/keybasedlogin", ssoPort);
     console.log("[SSO] Calling keybasedlogin directly at:", ssoUrl);
 
     // Fetch integrations to get appName and accessToken
@@ -65,27 +67,14 @@ const fetchSsoToken = async (accessToken) => {
       console.warn("[SSO] Failed to fetch dynamic appName and accessToken from integrations", e);
     }
 
-    // Get email from storage to pass to the SSO API
-    let userEmail = "";
-    try {
-      const storedUser = getAuthItem("miradorai_user");
-      if (storedUser) {
-        const parsed = JSON.parse(storedUser);
-        if (parsed && parsed.email) {
-          userEmail = parsed.email;
-        }
-      }
-    } catch (e) {
-      console.warn("Could not get email for SSO", e);
-    }
 
     const res = await fetch(ssoUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ 
         accessToken: ssoAccessToken, 
-        appName: ssoAppName,
-        email: userEmail
+        appName: ssoAppName 
+
       }),
     });
     let data = null;
@@ -265,6 +254,61 @@ export const AuthProvider = ({ children }) => {
       return { success: false, error: "Cannot connect to server. Please try again." };
     }
   };
+
+  // ------------------------------------------------------------------
+  // Sign Up with password — password is RSA-encrypted like login/reset
+  // ------------------------------------------------------------------
+  const signupWithPassword = async (email, role, password, confirmPassword) => {
+    if (!email || !password || !confirmPassword) {
+      return { success: false, error: "All fields are required" };
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return { success: false, error: "Invalid email format" };
+    }
+
+    if (password.length < 12) {
+      return { success: false, error: "Password must be at least 12 characters" };
+    }
+
+    if (password !== confirmPassword) {
+      return { success: false, error: "Passwords do not match" };
+    }
+
+    try {
+      const pubKey = await getPublicKey(API_BASE);
+      const encryptedPassword = await encryptPassword(password, pubKey);
+      const encryptedConfirm = await encryptPassword(confirmPassword, pubKey);
+
+      const res = await fetch(`${API_BASE}/api/auth/signup/password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          role,
+          password: encryptedPassword,
+          confirm_password: encryptedConfirm,
+        }),
+      });
+
+      let data = null;
+      try {
+        data = await res.json();
+      } catch (e) {}
+
+      if (!res.ok) {
+        return { success: false, error: data?.detail || data?.message || `Server error (${res.status})` };
+      }
+
+      return { success: true, message: data?.message || "Account created successfully. Please log in." };
+    } catch (err) {
+      console.error("[AUTH] Password signup error:", err);
+      return { success: false, error: "Cannot connect to server. Please try again." };
+    }
+  };
+
+
 
   // ------------------------------------------------------------------
   // Sign In — verifies against MongoDB via backend
@@ -575,6 +619,7 @@ export const AuthProvider = ({ children }) => {
         login,
         completeLogin,
         signup,
+        signupWithPassword,
         finalizeSignup,
         forgotPassword,
         resetPassword,
