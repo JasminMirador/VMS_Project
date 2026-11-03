@@ -30,7 +30,9 @@ class TimestampLogger:
 sys.stdout = TimestampLogger(sys.stdout)
 sys.stderr = TimestampLogger(sys.stderr)
 
-env_path = Path(__file__).parent.parent.parent.parent / ".env"
+env_path = Path(__file__).parent.parent.parent / ".env"
+if not env_path.exists():
+    env_path = Path(__file__).parent.parent.parent.parent / ".env"
 if env_path.exists():
     for line in env_path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -43,7 +45,7 @@ import asyncio
 import requests as http_requests
 from datetime import datetime
 from app.core.database import cameras_col, db as _db
-from app.services.camera.mediamtx_service import register_stream
+from app.services.camera.mediamtx_service import register_stream, register_publisher_stream
 from recorder import rtsp_recorder as recorder
 
 DEVICES_FILE  = os.environ.get("DEVICES_FILE", os.path.join(os.path.dirname(__file__), "..", "..", "devices_data", "devices.json"))
@@ -135,7 +137,7 @@ def load_devices():
                     "sub_stream_key":  d.get("sub_stream_key"),
                     "ip":             d.get("ip_address") or d.get("ip"),
                     "ip_address":     d.get("ip_address") or d.get("ip"),
-                    "port":           d.get("port", 80),
+                    "port":           d.get("port", int(os.environ.get("CAMERA_DEFAULT_PORT"))),
                     "username":       d.get("username", ""),
                     "password":       d.get("password", ""),
                     "enabled":        d.get("enabled", True),
@@ -241,6 +243,59 @@ def stream_exists_in_mediamtx(stream_name: str) -> bool:
         return r.status_code == 200
     except:
         return False
+
+# ── Self-healing: keep every camera's _sub path registered in MediaMTX ──────
+import threading
+import time
+
+_sub_sync_started = False
+
+
+def _sync_sub_streams_once():
+    from app.core.database import cameras_col
+
+    if cameras_col is None:
+        return
+    res = requests.get(
+        f"{MEDIAMTX_API}/v3/config/paths/list?itemsPerPage=1000", timeout=5
+    )
+    if res.status_code != 200:
+        return
+    existing = {p["name"] for p in res.json().get("items", [])}
+
+    for cam in cameras_col.find({"is_deleted": {"$ne": True}, "enabled": {"$ne": False}}):
+        if cam.get("source") == "edge" or cam.get("is_edge_camera"):
+            continue
+        key = cam.get("sub_stream_key")
+        rtsp = cam.get("sub_stream_rtsp")
+        if not key or not rtsp or key in existing:
+            continue
+        body = {"source": rtsp, "sourceOnDemand": False}
+        r = requests.post(
+            f"{MEDIAMTX_API}/v3/config/paths/add/{key}", json=body, timeout=10
+        )
+        print(f"[SUB-SYNC] re-registered {key}: {r.status_code}")
+
+
+def _sub_sync_loop():
+    time.sleep(10)
+    while True:
+        try:
+            _sync_sub_streams_once()
+        except Exception as e:
+            print("[SUB-SYNC] error:", e)
+        time.sleep(30)
+
+
+def start_sub_stream_sync():
+    global _sub_sync_started
+    if _sub_sync_started:
+        return
+    _sub_sync_started = True
+    threading.Thread(target=_sub_sync_loop, daemon=True).start()
+
+
+start_sub_stream_sync()
 
 # Global list of devices
 devices = load_devices()
@@ -753,6 +808,29 @@ async def stream_watchdog():
                     save_devices(devices)
                     if cameras_col is not None:
                         cameras_col.update_one({"stream_key": stream_name}, {"$set": {"live_codec": actual_codec, "codec": actual_codec}})
+
+                is_edge = device.get("source") == "edge" or device.get("is_edge_camera")
+                if is_edge:
+                    base_exists = stream_exists_in_mediamtx(stream_name)
+                    if not base_exists:
+                        print(f"[WATCHDOG] WARN: Edge stream {stream_name} path missing in MediaMTX - re-registering publisher path...")
+                        try:
+                            from app.services.camera.mediamtx_service import register_publisher_stream
+                            result = register_publisher_stream(stream_name)
+                            status_code = result.get("statusCode", 0) if isinstance(result, dict) else 0
+                            if status_code in (200, 201):
+                                print(f"[WATCHDOG] OK: Re-registered Edge publisher {stream_name}")
+                                _watchdog_failures[stream_name] = 0
+                            else:
+                                _watchdog_failures[stream_name] = fail_count + 1
+                        except Exception as e:
+                            _watchdog_failures[stream_name] = fail_count + 1
+                            print(f"[WATCHDOG] ERROR: Edge re-register exception for {stream_name}: {e}")
+                    else:
+                        if _watchdog_failures.get(stream_name, 0) > 0:
+                            print(f"[WATCHDOG] OK: Edge {stream_name} recovered")
+                        _watchdog_failures[stream_name] = 0
+                    continue
 
                 needs_h264_path = actual_codec == "H.265"
                 sub_stream_rtsp = device.get("sub_stream_rtsp")

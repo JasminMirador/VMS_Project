@@ -3,9 +3,8 @@ import SearchBar from "../../components/shared/SearchBar";
 import SpecularButton from "../../components/shared/SpecularButton";
 import { useTheme } from "../../context/ThemeContext";
 import "./Recordingmethodpage.css";
+import { getNumber, apiUrl } from '../../config/appConfig';
 
-const STREAM_API = import.meta.env.VITE_API_URL || "";
-const BACKEND = import.meta.env.VITE_API_URL || "";
 
 const DEFAULT_CONTINUOUS = {
   enabled: true,
@@ -157,7 +156,7 @@ export default function RecordingMethodPage() {
 
   const fetchSchedules = async () => {
     try {
-      const res = await fetch(`${BACKEND}/api/storage/schedules`, {
+      const res = await fetch(apiUrl('/storage/schedules'), {
         headers: getAuthHeaders()
       });
       const data = await res.json();
@@ -194,7 +193,7 @@ export default function RecordingMethodPage() {
 
       let backendData = [];
       try {
-        const res = await fetch(`${STREAM_API}/api/cameras`, {
+        const res = await fetch(apiUrl('/cameras'), {
           headers: getAuthHeaders()
         });
         if (res.ok) {
@@ -368,12 +367,12 @@ export default function RecordingMethodPage() {
 
         if (authedRtsp && needsStreamAssign) {
           console.log(`[RM] Re-assigning stream for ${cam.ip} (profile/RTSP changed)`);
-          await fetch(`${STREAM_API}/api/streams/assign`, {
+          await fetch(apiUrl('/streams/assign'), {
             method: "POST",
             headers: getAuthHeaders(),
             body: JSON.stringify({
               ip: cam.ip,
-              port: cam.port || 80,
+              port: cam.port || getNumber("CAMERA_DEFAULT_PORT", 80),
               username: cam.username || "",
               live_rtsp: cam.rtsp_url,
               recording_rtsp: authedRtsp,
@@ -390,7 +389,7 @@ export default function RecordingMethodPage() {
           console.log(`[RM] Skipping stream re-assignment for ${cam.ip} (unchanged)`);
         }
 
-        await fetch(`${BACKEND}/api/recordings/assign-schedule`, {
+        await fetch(apiUrl('/recordings/assign-schedule'), {
           method: "POST",
           headers: getAuthHeaders(),
           body: JSON.stringify({
@@ -402,7 +401,7 @@ export default function RecordingMethodPage() {
 
         if (data.schedule === "Never") {
           try {
-            await fetch(`${BACKEND}/api/recordings/stop/${cam.stream_key}`, {
+            await fetch(apiUrl(`/recordings/stop/${cam.stream_key}`), {
               method: "POST",
               headers: getAuthHeaders(),
             });

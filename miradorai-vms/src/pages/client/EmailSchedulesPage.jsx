@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Mail, Trash2, Clock, Send, Paperclip, X, Calendar, Bold, Italic, Underline, Strikethrough, AlignLeft, AlignCenter, AlignRight, List, ListOrdered } from "lucide-react";
 import "./EmailSchedulesPage.css";
+import { apiUrl } from "../../config/appConfig";
 
-const API_BASE = import.meta.env.VITE_API_URL || "";
+
 
 const getAuthHeaders = () => {
   const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
@@ -216,7 +217,7 @@ export default function EmailSchedulesPage() {
   const fetchSchedules = async () => {
     setSchedulesLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/reports/schedules`, {
+      const res = await fetch(apiUrl("/reports/schedules"), {
         headers: getAuthHeaders()
       });
       if (res.ok) {
@@ -235,7 +236,7 @@ export default function EmailSchedulesPage() {
   const fetchEmailHistory = async () => {
     setHistoryLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/reports/manual-history`, {
+      const res = await fetch(apiUrl("/reports/manual-history"), {
         headers: getAuthHeaders()
       });
       if (res.ok) {
@@ -265,7 +266,7 @@ export default function EmailSchedulesPage() {
     }
     setScheduleSubmitMsg("");
     try {
-      const res = await fetch(`${API_BASE}/api/reports/schedules`, {
+      const res = await fetch(apiUrl("/reports/schedules"), {
         method: "POST",
         headers: {
           ...getAuthHeaders(),
@@ -295,7 +296,7 @@ export default function EmailSchedulesPage() {
 
   const handleDeleteSchedule = async (id) => {
     try {
-      const res = await fetch(`${API_BASE}/api/reports/schedules/${id}`, {
+      const res = await fetch(apiUrl(`/reports/schedules/${id}`), {
         method: "DELETE",
         headers: getAuthHeaders()
       });
@@ -348,7 +349,7 @@ export default function EmailSchedulesPage() {
     });
 
     try {
-      const res = await fetch(`${API_BASE}/api/reports/send-manual`, {
+      const res = await fetch(apiUrl("/reports/send-manual"), {
         method: "POST",
         headers: getAuthHeaders(),
         body: formData

@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import SearchBar from "../../components/shared/SearchBar";
 import "./ManagementPage.css";
+import { apiUrl } from "../../config/appConfig";
 
 const TOOLBAR = [
   { key: "assign-ip", title: "Assign IP address",
@@ -21,9 +22,9 @@ const TOOLBAR = [
     icon: <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg> },
 ];
 
-const BACKEND =
-  import.meta.env.VITE_API_URL ??
-  `http://${import.meta.env.VITE_API_HOST}:${import.meta.env.VITE_API_PORT}`;
+
+
+
 
 function loadDevices() {
   try {
@@ -67,7 +68,7 @@ function AssignIPModal({ device, onClose }) {
   const handleSave = async () => {
     setStatus("Applying...");
     try {
-      const res = await fetch(`${BACKEND}/api/onvif/network`, {
+      const res = await fetch(apiUrl("/onvif/network"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ip: device.ip, new_ip: ip, subnet: mask, gateway: gw }),
@@ -150,7 +151,7 @@ function UpgradeModal({ device, onClose }) {
     setPhase("upgrading");
     setMsg("Uploading firmware... please do not disconnect.");
     try {
-      const res = await fetch(`${BACKEND}/api/onvif/firmware/upgrade`, {
+      const res = await fetch(apiUrl("/onvif/firmware/upgrade"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ip: device.ip }),
@@ -198,7 +199,7 @@ function FactoryModal({ device, onClose }) {
     setPhase("resetting");
     setMsg("Sending factory reset command...");
     try {
-      const res = await fetch(`${BACKEND}/api/onvif/factory-reset`, {
+      const res = await fetch(apiUrl("/onvif/factory-reset"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ip: device.ip }),
@@ -242,7 +243,7 @@ function RestartModal({ device, onClose }) {
     setPhase("restarting");
     setMsg("Sending restart command...");
     try {
-      const res = await fetch(`${BACKEND}/api/onvif/restart`, {
+      const res = await fetch(apiUrl("/onvif/restart"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ip: device.ip }),
@@ -281,7 +282,7 @@ function IdentifyModal({ device, onClose }) {
   const handleIdentify = async () => {
     setPhase("pulsing");
     try {
-      await fetch(`${BACKEND}/api/onvif/identify`, {
+      await fetch(apiUrl("/onvif/identify"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ip: device.ip }),

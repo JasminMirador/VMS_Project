@@ -3,8 +3,9 @@ import SearchBar from "../../components/shared/SearchBar";
 import SpecularButton from "../../components/shared/SpecularButton";
 import { useTheme } from "../../context/ThemeContext";
 import "./StorageManagementPage.css";
+import { apiUrl } from "../../config/appConfig";
 
-const BACKEND = import.meta.env.VITE_API_URL || "";
+
 
 // ── Path helpers ────────────────────────────────────────────────────────────
 // The backend always works with Linux container paths (/recordings/...).
@@ -41,7 +42,7 @@ export default function StorageManagementPage() {
   // ── Fetch storage info from backend ──────────────────────────────────────
   const fetchStorage = () => {
     setLoading(true);
-    fetch(`${BACKEND}/api/storage/management`)
+    fetch(apiUrl("/storage/management"))
       .then((r) => r.json())
       .then((data) => {
         // Backend returns container_path; we show display_path / location
@@ -59,7 +60,7 @@ export default function StorageManagementPage() {
       })
       .catch(() => {
         // Fallback: ask the recorder what path it's currently using
-        fetch(`${BACKEND}/api/recordings/status`)
+        fetch(apiUrl("/recordings/status"))
           .then((r) => r.json())
           .then((status) => {
             const containerPath = status.recording_path || "/recordings";
@@ -142,7 +143,7 @@ export default function StorageManagementPage() {
     if (!window.confirm(`Remove storage location "${sel.display || sel.location}"?`)) return;
     
     try {
-      await fetch(`${BACKEND}/api/storage/locations?container_path=${encodeURIComponent(sel.container_path)}`, {
+      await fetch(apiUrl(`/storage/locations?container_path=${encodeURIComponent(sel.container_path)}`), {
         method: "DELETE"
       });
       fetchStorage();
@@ -158,7 +159,7 @@ export default function StorageManagementPage() {
     const display       = toDisplayPath(containerPath);
     
     try {
-      await fetch(`${BACKEND}/api/storage/locations`, {
+      await fetch(apiUrl("/storage/locations"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -196,7 +197,7 @@ export default function StorageManagementPage() {
     setApplyMsg("Applying...");
 
     try {
-      const res = await fetch(`${BACKEND}/api/storage/apply`, {
+      const res = await fetch(apiUrl("/storage/apply"), {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({

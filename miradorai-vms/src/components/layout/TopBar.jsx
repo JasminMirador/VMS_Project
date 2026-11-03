@@ -11,8 +11,7 @@ import { Icon, iconSvg } from "./topbarIcons";
 import Dock from "../shared/Dock/Dock";
 import "./TopBar.css";
 import "./SupervisorModal.css";
-
-const API_BASE = (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) || "";
+import { apiUrl } from "../../config/appConfig";
 
 // ---- Language Selector ----
 const LANGUAGES = [
@@ -188,7 +187,7 @@ function SupervisorDetailsModal({ onClose, onStatusChange }) {
     const fetchStatus = async () => {
       try {
         const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
-        const res = await fetch(`${API_BASE}/api/auth/supervisor-status`, {
+        const res = await fetch(apiUrl("/auth/supervisor-status"), {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         if (res.ok) {
@@ -219,7 +218,7 @@ function SupervisorDetailsModal({ onClose, onStatusChange }) {
     setLoading(true);
     try {
       const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
-      const res = await fetch(`${API_BASE}/api/auth/supervisor-password`, {
+      const res = await fetch(apiUrl("/auth/supervisor-password"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -251,7 +250,7 @@ function SupervisorDetailsModal({ onClose, onStatusChange }) {
     setLoading(true);
     try {
       const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
-      const res = await fetch(`${API_BASE}/api/auth/supervisor-password`, {
+      const res = await fetch(apiUrl("/auth/supervisor-password"), {
         method: "DELETE",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
@@ -549,7 +548,7 @@ const updateUserMenuPosition = () => {
     const fetchAiStatus = async () => {
       try {
         const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || localStorage.getItem('token');
-        const res = await fetch(`${API_BASE}/api/integrations`, {
+        const res = await fetch(apiUrl("/integrations"), {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         if (res.ok) {
@@ -578,7 +577,7 @@ const updateUserMenuPosition = () => {
     const fetchSvStatus = async () => {
       try {
         const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
-        const res = await fetch(`${API_BASE}/api/auth/supervisor-status`, {
+        const res = await fetch(apiUrl("/auth/supervisor-status"), {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         if (res.ok) {

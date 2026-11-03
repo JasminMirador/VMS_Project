@@ -1,6 +1,7 @@
 import React from "react";
+import { apiUrl } from "../../config/appConfig";
 
-const API = import.meta.env.VITE_API_URL || "";
+
 
 /**
  * Uploads a CAD (.dwg / .dxf) file with accurate real-time upload & server conversion progress.
@@ -87,7 +88,7 @@ export function importCadWithProgress(file, token, onProgress) {
       reject(new Error("CAD conversion request timed out"));
     };
 
-    xhr.open("POST", `${API}/api/maps/convert-cad`);
+    xhr.open("POST", apiUrl("/maps/convert-cad"));
     if (token) {
       xhr.setRequestHeader("Authorization", "Bearer " + token);
     }

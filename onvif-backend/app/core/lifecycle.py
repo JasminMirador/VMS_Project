@@ -79,7 +79,7 @@ async def _startup_phase_1():
     try:
         from discovery_host import start_discovery_host_server
         start_discovery_host_server()
-        print("[STARTUP] ✅ Discovery Host Scan server started on port 19999.")
+        print(f"[STARTUP] ✅ Discovery Host Scan server started on port {os.environ.get('DISCOVERY_HOST_PORT')}.")
     except Exception as e:
         print(f"[STARTUP] ⚠ Failed to start Discovery Host Scan server: {e}")
 
@@ -213,7 +213,7 @@ async def _startup_phase_2():
                         {"ip": ip},
                         {"$set": {
                             "ip":       ip,
-                            "port":     device.get("port", 80),
+                            "port":     device.get("port", int(os.environ.get("CAMERA_DEFAULT_PORT"))),
                             "username": username,
                             "password": device.get("password", ""),
                             "manufacturer": manuf,
@@ -238,7 +238,7 @@ async def _startup_phase_2():
                 t = await task_manager.start_task(
                     f"analytics_{sub_ip}",
                     analytics_poll_loop(
-                        sub_ip, sub.get("port", 80),
+                        sub_ip, sub.get("port", int(os.environ.get("CAMERA_DEFAULT_PORT"))),
                         sub.get("username", ""), sub.get("password", ""),
                         sub.get("manufacturer", "bosch")
                     )

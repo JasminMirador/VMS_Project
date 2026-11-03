@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo, useEffect } from "react";
+import { getEnv, apiUrl } from '../../config/appConfig';
 
 const generateCameraId = (index) => {
   const rand = Math.random().toString(36).substring(2, 6);
@@ -64,21 +65,90 @@ export default function EdgeManualConfigModal({
   apiBase,
   authHeaders,
   existingDevices = [],
+  initialEdge = null,
+  initialOpenAddCamera = false,
   onClose,
   onSaved,
 }) {
-  const [activeTab, setActiveTab] = useState("edge"); // "edge" | "cameras"
-  const [edgeId, setEdgeId] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [token, setToken] = useState("");
+  const [activeTab, setActiveTab] = useState(initialEdge ? "cameras" : "edge"); // "edge" | "cameras"
+  const [edgeId, setEdgeId] = useState(initialEdge?.edge_id || initialEdge?.name || "");
+  const [displayName, setDisplayName] = useState(initialEdge?.name || initialEdge?.display_name || "");
+  const [token, setToken] = useState(initialEdge?.token || "");
   const [showToken, setShowToken] = useState(false);
-  const [cameras, setCameras] = useState([]);
+  const [cameras, setCameras] = useState(
+    Array.isArray(initialEdge?.cameras)
+      ? initialEdge.cameras.map((c, idx) => ({
+          camera_id: c.camera_id || c.id || generateCameraId(idx + 1),
+          name: c.name || c.device_name || `Camera ${idx + 1}`,
+          rtsp_url: c.rtsp_url || c.recording_rtsp || "",
+          username: c.username || "",
+          password: c.password || "",
+          enabled: c.enabled !== false && c.status !== "Offline",
+          added_at: c.added_at,
+          updated_at: c.updated_at,
+        }))
+      : []
+  );
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [infoNotice, setInfoNotice] = useState("");
+
+  const hasLoadedInitialEdgeRef = useRef(false);
+
+  useEffect(() => {
+    if (!initialEdge || hasLoadedInitialEdgeRef.current) return;
+    hasLoadedInitialEdgeRef.current = true;
+
+    const targetId = initialEdge.edge_id || initialEdge.name;
+    if (!targetId) return;
+
+    let active = true;
+    const fetchEdgeData = async () => {
+      try {
+        const headers = typeof authHeaders === "function" ? authHeaders() : (authHeaders || {});
+        const res = await fetch(
+          apiUrl(`/edge-config/${encodeURIComponent(targetId.trim())}`),
+          { headers }
+        );
+        if (res.ok && active) {
+          const data = await res.json();
+          if (data) {
+            if (data.edge_id) setEdgeId(data.edge_id);
+            if (data.display_name) setDisplayName(data.display_name);
+            if (data.token) setToken(data.token);
+            if (Array.isArray(data.cameras) && data.cameras.length > 0) {
+              setCameras(
+                data.cameras.map((c, idx) => ({
+                  camera_id: c.camera_id || generateCameraId(idx + 1),
+                  name: c.name || `Camera ${idx + 1}`,
+                  rtsp_url: c.rtsp_url || "",
+                  username: c.username || "",
+                  password: c.password || "",
+                  enabled: c.enabled !== false,
+                  added_at: c.added_at,
+                  updated_at: c.updated_at,
+                }))
+              );
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Could not fetch remote edge config, using local state", err);
+      }
+
+      if (initialOpenAddCamera && active) {
+        openAddCameraModal();
+      }
+    };
+
+    fetchEdgeData();
+    return () => {
+      active = false;
+    };
+  }, [initialEdge, initialOpenAddCamera, apiBase, authHeaders]);
 
   // Direct fetch fallback in case parent devices state is empty or still loading
   const [internalDevices, setInternalDevices] = useState([]);
@@ -88,7 +158,7 @@ export default function EdgeManualConfigModal({
     const fetchExisting = async () => {
       try {
         const headers = typeof authHeaders === "function" ? authHeaders() : (authHeaders || {});
-        const res = await fetch(`${apiBase || ""}/api/cameras`, { headers });
+        const res = await fetch(apiUrl('/cameras'), { headers });
         if (res.ok && active) {
           const data = await res.json();
           const list = Array.isArray(data) ? data : (data?.devices || []);
@@ -209,16 +279,29 @@ export default function EdgeManualConfigModal({
   // Check if current Edge ID matches any already-registered edge device
   const matchedExistingEdge = useMemo(() => {
     const trimmed = edgeId.trim().toLowerCase();
-    if (!trimmed) return null;
-    return (
-      existingEdges.find(
-        (e) =>
-          (e.edge_id && e.edge_id.toLowerCase() === trimmed) ||
-          (e.edge_ip && e.edge_ip.toLowerCase() === trimmed) ||
-          (e.display_name && e.display_name.toLowerCase() === trimmed)
-      ) || null
-    );
-  }, [edgeId, existingEdges]);
+    const foundInList = trimmed
+      ? existingEdges.find(
+          (e) =>
+            (e.edge_id && e.edge_id.toLowerCase() === trimmed) ||
+            (e.edge_ip && e.edge_ip.toLowerCase() === trimmed) ||
+            (e.display_name && e.display_name.toLowerCase() === trimmed)
+        )
+      : null;
+
+    if (foundInList) return foundInList;
+
+    if (initialEdge) {
+      return {
+        edge_id: initialEdge.edge_id || initialEdge.name,
+        display_name: initialEdge.name || initialEdge.display_name || edgeId,
+        edge_ip: initialEdge.ip || "",
+        token: token || initialEdge.token || "",
+        cameras: cameras,
+      };
+    }
+
+    return null;
+  }, [edgeId, existingEdges, initialEdge, cameras, token]);
 
   // Handle auto-populating details from matched edge
   const handleLoadExistingEdge = async () => {
@@ -229,7 +312,7 @@ export default function EdgeManualConfigModal({
     // Try backend config first for exact camera records & token
     try {
       const res = await fetch(
-        `${apiBase}/api/edge-config/${encodeURIComponent(edgeId.trim())}`,
+        apiUrl(`/edge-config/${encodeURIComponent(edgeId.trim())}`),
         { headers: authHeaders() }
       );
       if (res.ok) {
@@ -365,7 +448,7 @@ export default function EdgeManualConfigModal({
     if (urls.length === 0) {
       const trimmed = camRtspUrl.trim();
       if (!trimmed) {
-        setModalAlert("Please enter a Stream URL (e.g. rtsp://192.168.1.50:554/live).");
+        setModalAlert(`Please enter a Stream URL (e.g. rtsp://192.168.1.50:${getEnv("CAMERA_RTSP_PORT")}/live).`);
       } else {
         setModalAlert("Stream URL must start with rtsp://, rtsps://, http://, or https://");
       }
@@ -572,7 +655,7 @@ export default function EdgeManualConfigModal({
         };
       });
 
-      const response = await fetch(`${apiBase}/api/edge-config/${encodeURIComponent(id)}`, {
+      const response = await fetch(apiUrl(`/edge-config/${encodeURIComponent(id)}`), {
         method: "PUT",
         headers: authHeaders(),
         body: JSON.stringify({
@@ -623,7 +706,7 @@ export default function EdgeManualConfigModal({
     setDeleting(true);
     try {
       const headers = typeof authHeaders === "function" ? authHeaders() : (authHeaders || {});
-      const res = await fetch(`${apiBase}/api/edge-config/${encodeURIComponent(targetEdgeId)}`, {
+      const res = await fetch(apiUrl(`/edge-config/${encodeURIComponent(targetEdgeId)}`), {
         method: "DELETE",
         headers,
       });
@@ -666,10 +749,16 @@ export default function EdgeManualConfigModal({
         <div className="modal-header">
           <div>
             <h2 className="modal-title">
-              {matchedExistingEdge ? "Update Edge Device" : "Add Edge Device"}
+              {initialEdge
+                ? `Add Camera to ${displayName || initialEdge.name || "Edge Device"}`
+                : matchedExistingEdge
+                ? "Update Edge Device"
+                : "Add Edge Device"}
             </h2>
             <p className="edge-cfg__subtitle">
-              {matchedExistingEdge
+              {initialEdge
+                ? `Add and manage connected RTSP cameras for Edge device "${displayName || initialEdge.name}"`
+                : matchedExistingEdge
                 ? `Editing settings and cameras for existing device "${matchedExistingEdge.display_name}"`
                 : "Configure Edge Gateway credentials and connected RTSP cameras"}
             </p>
@@ -1168,7 +1257,9 @@ export default function EdgeManualConfigModal({
                           <polyline points="7 3 7 8 15 8" />
                         </svg>
                         <span>
-                          {matchedExistingEdge
+                          {initialEdge
+                            ? `Save & Apply to "${displayName || initialEdge.name}"`
+                            : matchedExistingEdge
                             ? `Update Edge Device ("${matchedExistingEdge.display_name}")`
                             : "Save"}
                         </span>
@@ -1197,7 +1288,11 @@ export default function EdgeManualConfigModal({
                   {editingCameraIndex !== null ? "Camera Configuration" : "Stream Ingestion"}
                 </div>
                 <h3 className="edge-submodal__title">
-                  {editingCameraIndex !== null ? "Edit Camera Stream" : "Add Cameras to Edge"}
+                  {editingCameraIndex !== null
+                    ? "Edit Camera Stream"
+                    : initialEdge
+                    ? `Add Camera to "${displayName || initialEdge.name}"`
+                    : "Add Cameras to Edge"}
                 </h3>
               </div>
               <button
@@ -1276,7 +1371,7 @@ export default function EdgeManualConfigModal({
                     <input
                       ref={urlInputRef}
                       className="modal-input"
-                      placeholder="rtsp://192.168.1.64:554/stream1"
+                      placeholder={`rtsp://192.168.1.64:${getEnv("CAMERA_RTSP_PORT")}/stream1`}
                       value={camRtspUrl}
                       onChange={(e) => {
                         setCamRtspUrl(e.target.value);
@@ -1289,7 +1384,7 @@ export default function EdgeManualConfigModal({
                       ref={urlInputRef}
                       className="modal-input"
                       rows={3}
-                      placeholder={"rtsp://192.168.1.64:554/stream1"}
+                      placeholder={`rtsp://192.168.1.64:${getEnv("CAMERA_RTSP_PORT")}/stream1`}
                       value={camRtspUrl}
                       onChange={(e) => {
                         setCamRtspUrl(e.target.value);

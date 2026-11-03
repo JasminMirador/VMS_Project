@@ -43,6 +43,7 @@ import SmartSearchSettingsPage from "../../pages/smartsearch/Smartsearchsettings
 import LiveViewPage from "../../pages/liveview/LiveViewPage";
 
 import MediaPlayerPage from "../../pages/admin/MediaPlayerPage";
+import MultiPlaybackPage from "../../pages/admin/MultiPlaybackPage";
 import BackupPage from "../../pages/admin/BackupPage";
 import LogsPage from "../../pages/logs/LogsPage";
 
@@ -57,6 +58,8 @@ import ForensicSearchPage from "../../pages/forensic/ForensicSearchPage";
 import AiAnalyticsPage from "../../pages/analytics/AiAnalyticsPage";
 import SystemPerformancePage from "../../pages/diagnostics/SystemPerformancePage";
 import RaidMgmtPage from "../../pages/StorageManagement";
+// import PerformanceTestPage from "../../pages/diagnostics/PerformanceTestPage";
+
 import VideoSynopsis from "../../pages/analytics/VideoSynopsisPage";
 import FaceDetectionPage from "../../pages/analytics/FaceDetectionPage";
 
@@ -141,6 +144,7 @@ const MAP = {
 
   // ================= ADMIN =================
   "media-player": MediaPlayerPage,
+  "multi-playback": MultiPlaybackPage,
   "backup": BackupPage,
   "logs": LogsPage,
   "map-view": MapViewPage,
@@ -151,11 +155,14 @@ const MAP = {
   "system-performance": SystemPerformancePage,
   "raid-mgmt": RaidMgmtPage,
   "approvals": PendingApprovalsPage,
+  // "performance-test": PerformanceTestPage,
 };
 
 // Pages that require supervisor unlock for CLIENT role
-const CLIENT_SUPERVISOR_PAGES = ["media-player", "backup", "masking"];
+const CLIENT_SUPERVISOR_PAGES = ["media-player", "multi-playback", "backup", "masking"];
+// const CLIENT_BLOCKED_PAGES = ["designer-view", "topology-map", "network-health", "system-performance", "performance-test", "raid-mgmt", "viewing-stations", "user-management"];
 const CLIENT_BLOCKED_PAGES = ["designer-view", "topology-map", "network-health", "system-performance", "raid-mgmt", "viewing-stations", "user-management"];
+
 
 // Pages the OPERATOR role is allowed to access
 const OPERATOR_ALLOWED_PAGES = ["live-view", "map-view", "client-settings", "profile", "ai-analytics"];

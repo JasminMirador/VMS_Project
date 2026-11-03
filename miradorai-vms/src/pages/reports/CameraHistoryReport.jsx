@@ -4,9 +4,9 @@ import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
 import "./CameraHistoryReport.css";
+import { apiUrl } from "../../config/appConfig";
 
 // Assuming API base is window.location.hostname for now, or using a generic approach:
-const API_BASE_URL = `http://${window.location.hostname}:8000/api`;
 
 export default function CameraHistoryReport() {
   const [fromDate, setFromDate] = useState(() => {
@@ -32,7 +32,7 @@ export default function CameraHistoryReport() {
       const fromIso = new Date(`${fromDate}T00:00:00Z`).toISOString();
       const toIso = new Date(`${toDate}T23:59:59Z`).toISOString();
       
-      const res = await axios.get(`${API_BASE_URL}/reports/history`, {
+      const res = await axios.get(apiUrl('/reports/history'), {
         params: { from_date: fromIso, to_date: toIso }
       });
       if (res.data.status === "success") {

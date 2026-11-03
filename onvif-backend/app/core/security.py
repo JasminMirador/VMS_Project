@@ -50,7 +50,8 @@ def get_or_create_keys():
 
 PRIVATE_KEY, PUBLIC_KEY = get_or_create_keys()
 ALGORITHM = "RS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 365 * 24 * 60 # 365 days
+# ACCESS_TOKEN_EXPIRE_MINUTES = 365 * 24 * 60 # 365 days
+ACCESS_TOKEN_EXPIRE_MINUTES = 365 * 24 * 60  # 365 days
 
 security_scheme = HTTPBearer(auto_error=False)
 

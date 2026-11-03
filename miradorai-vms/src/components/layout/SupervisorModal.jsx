@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import "./SupervisorModal.css";
+import { apiUrl } from "../../config/appConfig";
 
-const API_BASE = (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) || "";
+
 
 /**
  * SupervisorModal
@@ -36,7 +37,7 @@ export default function SupervisorModal({ pageName, onSuccess, onCancel }) {
     setIsLoading(true);
 
     try {
-      const res = await fetch(`${API_BASE}/api/auth/verify-supervisor`, {
+      const res = await fetch(apiUrl("/auth/verify-supervisor"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password }),

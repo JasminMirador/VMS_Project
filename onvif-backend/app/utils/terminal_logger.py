@@ -3,7 +3,7 @@ from app.core.database import mongo_client
 import os
 import asyncio
 
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
+MONGO_URI = os.environ.get("MONGO_URI")
 mongo_client = mongo_client
 db = mongo_client[os.environ.get("MONGO_DB_NAME")] if mongo_client else None
 terminal_logs_col = db["terminal_logs"] if db is not None else None

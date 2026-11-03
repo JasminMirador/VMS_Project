@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import "./DiscoveryModal.css";
+import { apiUrl } from "../../config/appConfig";
 
-const API_BASE = import.meta.env.VITE_API_URL;
+
 
 
 export default function DiscoveryModal({
@@ -101,7 +102,7 @@ export default function DiscoveryModal({
 
     let devices = [];
     try {
-      const response = await fetch(`${API_BASE}/api/discover-devices`, {
+      const response = await fetch(apiUrl("/discover-devices"), {
         headers: {
           Authorization: "Bearer " + token
         }
@@ -281,7 +282,7 @@ export default function DiscoveryModal({
 
         let data = null;
         try {
-          const res = await fetch(`${API_BASE}/api/onvif/probe`, {
+          const res = await fetch(apiUrl("/onvif/probe"), {
             method: "POST",
             headers: { 
               "Content-Type": "application/json",

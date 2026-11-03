@@ -467,7 +467,8 @@ class HostNetworkDetector:
             else:
                 network_obj = ipaddress.IPv4Network(f"{best_ip}/{best_netmask}", strict=False)
         except Exception:
-            network_obj = ipaddress.IPv4Network("192.168.1.0/24", strict=False)
+            fallback_subnet = os.environ.get("HOST_SUBNET", "192.168.126").strip()
+            network_obj = ipaddress.IPv4Network(f"{fallback_subnet}.0/24", strict=False)
 
         default_gateway = None
         try:
@@ -855,10 +856,10 @@ class DeviceClassifier:
         # --- A. Workstation & PC Evaluation (High Priority) ---
         if 445 in open_ports:
             workstation_score += 45
-            workstation_evidence.append("SMB (port 445)")
+            workstation_evidence.append("SMB file service")
         if 3389 in open_ports:
             workstation_score += 40
-            workstation_evidence.append("RDP (port 3389)")
+            workstation_evidence.append("RDP remote desktop service")
         if 135 in open_ports or 139 in open_ports:
             workstation_score += 30
             active_rpc = [p for p in [135, 139] if p in open_ports]
@@ -873,7 +874,7 @@ class DeviceClassifier:
                 # Standalone SSH without web development services: check if router or server
                 if not is_default_gateway and not any(r in combined_text for r in ["router", "gateway", "firewall"]):
                     server_score += 30
-                    server_evidence.append("SSH remote administration port (22)")
+                    server_evidence.append("SSH remote administration service")
 
         # --- B. Web Interface / Embedded Signals ---
         if 80 in open_ports or 443 in open_ports or 8080 in open_ports or 8443 in open_ports:
@@ -894,11 +895,11 @@ class DeviceClassifier:
         # --- C. Printer Evaluation ---
         if 9100 in open_ports:
             if 22 in open_ports and any(p in open_ports for p in [5000, 8000, 8080]):
-                printer_score += 15 # Port 9100 on Linux dev host
-                printer_evidence.append("Port 9100 (low printer weight on Dev Host)")
+                printer_score += 15 # Print service on Linux dev host
+                printer_evidence.append("Raw print service (low printer weight on Dev Host)")
             else:
                 printer_score += 50
-                printer_evidence.append("JetDirect port 9100")
+                printer_evidence.append("JetDirect print service")
         if 631 in open_ports or 515 in open_ports:
             printer_score += 35
             printer_evidence.append(f"IPP/LPD print port ({[p for p in [631, 515] if p in open_ports]})")
@@ -1096,7 +1097,7 @@ class NetworkDiscoveryManager:
             port_futures = {
                 port_pool.submit(DeviceIdentifier.probe_tcp_port, ip, port, 0.3): port
                 for port in DeviceIdentifier.STRATEGIC_PORTS.keys()
-                if port != 161
+                if port != int(os.environ.get("SNMP_PORT"))
             }
             for pf in as_completed(port_futures):
                 p = port_futures[pf]
@@ -1470,11 +1471,11 @@ class NetworkDiscoveryManager:
                             "manufacturer": mfg,
                             "model": mdl,
                             "confidence": 100,
-                            "classification_evidence": ["Confirmed by discovery_service (RTSP port 554 + ONVIF/brand verification)"],
+                            "classification_evidence": ["Confirmed by discovery_service (RTSP streaming + ONVIF/brand verification)"],
                             "classification_reason": f"Camera verified by discovery service ({mfg} {mdl})",
                             "status": "online",
                             "open_ports": [554],
-                            "detected_services": ["rtsp:554"],
+                            "detected_services": [f"rtsp:{os.environ.get('RTSP_PORT')}"],
                             "last_seen": datetime.utcnow(),
                             "inferred": False
                         }
@@ -1496,8 +1497,9 @@ class NetworkDiscoveryManager:
                 host_ip = host_net["ip"]
                 targets = [str(ip) for ip in net_obj.hosts() if str(ip) not in camera_ips and str(ip) != host_ip]
             except Exception as e:
-                print(f"[DISCOVERY] Error parsing subnet: {e}, falling back to 192.168.1.0/24")
-                targets = [f"192.168.1.{i}" for i in range(1, 255) if f"192.168.1.{i}" not in camera_ips]
+                fallback_subnet = os.environ.get("HOST_SUBNET", "192.168.126").strip()
+                print(f"[DISCOVERY] Error parsing subnet: {e}, falling back to {fallback_subnet}.0/24")
+                targets = [f"{fallback_subnet}.{i}" for i in range(1, 255) if f"{fallback_subnet}.{i}" not in camera_ips]
 
             total_targets = len(targets)
             completed = 0

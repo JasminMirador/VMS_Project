@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import "./RaidManagement.css";
+import { apiUrl } from "../config/appConfig";
 
-const BACKEND = import.meta.env.VITE_API_URL || "";
+
 
 const TABS = ["Overview", "Volumes", "Health", "Performance", "Logs", "Replication"];
 
@@ -26,13 +27,13 @@ export default function StorageManagement() {
     setLoading(true);
     try {
       const [statusRes, configRes, devicesRes, perfRes, logsRes, replRes, drivesRes] = await Promise.all([
-        fetch(`${BACKEND}/api/storage/status`).then(r => r.json()).catch(() => null),
-        fetch(`${BACKEND}/api/storage/config`).then(r => r.json()).catch(() => null),
-        fetch(`${BACKEND}/api/storage/devices`).then(r => r.json()).catch(() => []),
-        fetch(`${BACKEND}/api/storage/performance`).then(r => r.json()).catch(() => null),
-        fetch(`${BACKEND}/api/storage/logs`).then(r => r.json()).catch(() => ({})),
-        fetch(`${BACKEND}/api/storage/replication`).then(r => r.json()).catch(() => null),
-        fetch(`${BACKEND}/api/storage/available-drives`).then(r => r.json()).catch(() => []),
+        fetch(apiUrl("/storage/status")).then(r => r.json()).catch(() => null),
+        fetch(apiUrl("/storage/config")).then(r => r.json()).catch(() => null),
+        fetch(apiUrl("/storage/devices")).then(r => r.json()).catch(() => []),
+        fetch(apiUrl("/storage/performance")).then(r => r.json()).catch(() => null),
+        fetch(apiUrl("/storage/logs")).then(r => r.json()).catch(() => ({})),
+        fetch(apiUrl("/storage/replication")).then(r => r.json()).catch(() => null),
+        fetch(apiUrl("/storage/available-drives")).then(r => r.json()).catch(() => []),
       ]);
       setStatus(statusRes);
       setConfig(configRes);
@@ -72,7 +73,7 @@ export default function StorageManagement() {
     setIsProvisioning(true);
     setProvisionMsg(`Provisioning storage array on drive ${targetDrive}:. This may take a few minutes...`);
     try {
-      const res = await fetch(`${BACKEND}/api/storage/provision`, {
+      const res = await fetch(apiUrl("/storage/provision"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ targetDriveLetter: targetDrive, recordingsFolder: folderName }),
@@ -94,7 +95,7 @@ export default function StorageManagement() {
     setIsRunningTest(true);
     setPerformance(p => ({ ...p, status: "Testing..." }));
     try {
-      const res = await fetch(`${BACKEND}/api/storage/performance`, { method: "POST" });
+      const res = await fetch(apiUrl("/storage/performance"), { method: "POST" });
       const data = await res.json();
       setPerformance(data);
     } catch {

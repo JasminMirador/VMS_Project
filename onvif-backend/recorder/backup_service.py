@@ -48,7 +48,7 @@ def load_config() -> dict:
     except Exception as e:
         print(f"[BACKUP] Config load error: {e}")
     return {
-        "network":        {"protocol": "SMB", "ip": "", "port": 445,
+        "network":        {"protocol": "SMB", "ip": "", "port": int(os.environ.get("SMB_PORT")),
                            "username": "", "password": "", "path": ""},
         "auto":           {"enabled": False},
         "retention_days": 7,

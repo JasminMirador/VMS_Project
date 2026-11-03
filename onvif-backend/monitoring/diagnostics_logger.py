@@ -8,12 +8,16 @@ MONGO_DB_NAME = os.environ.get("MONGO_DB_NAME")
 client = mongo_client
 db = client[MONGO_DB_NAME] if client else None
 
-def calculate_retention_stats(free_gb):
+def calculate_retention_stats(free_gb, total_gb=None):
     if db is None:
         return None, None
     
+    query = {}
+    if total_gb and total_gb > 0:
+        query = {"total_gb": {"$gte": total_gb * 0.85, "$lte": total_gb * 1.15}}
+
     # Query storage history sorted by timestamp
-    history = list(db["storage_history"].find().sort("timestamp", 1))
+    history = list(db["storage_history"].find(query).sort("timestamp", 1))
     if len(history) < 2:
         return None, None # Insufficient historical data
         
@@ -44,6 +48,8 @@ def log_diagnostics():
     # 1. Gather Storage Metrics
     from recorder import rtsp_recorder as recorder
     rec_dir = recorder.get_recordings_dir()
+    if rec_dir and os.name == 'nt' and len(rec_dir) >= 2 and rec_dir[1] == ':' and (len(rec_dir) == 2 or rec_dir[2] != '\\'):
+        rec_dir = rec_dir[:2] + '\\' + rec_dir[2:]
     try:
         usage = shutil.disk_usage(rec_dir if os.path.exists(rec_dir) else "/")
         total_gb = round(usage.total / (1024 ** 3), 1)
@@ -66,7 +72,7 @@ def log_diagnostics():
             except Exception as alert_err:
                 print(f"[DIAGNOSTICS] Error sending storage alert: {alert_err}")
 
-    avg_daily, retention_days = calculate_retention_stats(free_gb)
+    avg_daily, retention_days = calculate_retention_stats(free_gb, total_gb)
 
     # Insert into storage_history
     db["storage_history"].insert_one({

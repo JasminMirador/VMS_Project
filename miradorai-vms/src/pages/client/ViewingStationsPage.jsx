@@ -3,8 +3,8 @@ import WebRTCPlayer_MediaMTX from "../../components/shared/WebRTCPlayer_MediaMTX
 import rrwebPlayer from 'rrweb-player';
 import 'rrweb-player/dist/style.css';
 import "./ViewingStationsPage.css";
+import { wsEventsUrl, getEnv, apiUrl } from "../../config/appConfig";
 
-const API = import.meta.env.VITE_API_URL;
 
 function getAuthHeaders() {
   const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
@@ -97,7 +97,7 @@ export default function ViewingStationsPage() {
   // Fetch viewing stations
   const fetchStations = async () => {
     try {
-      const res = await fetch(`${API}/api/viewing-stations`, {
+      const res = await fetch(apiUrl('/viewing-stations'), {
         headers: getAuthHeaders()
       });
       if (res.ok) {
@@ -165,7 +165,7 @@ export default function ViewingStationsPage() {
     setPushStatus({ success: null, message: "" });
     
     try {
-      const res = await fetch(`${API}/api/viewing-stations/push`, {
+      const res = await fetch(apiUrl('/viewing-stations/push'), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -476,11 +476,10 @@ function LiveMirrorMonitor({ station }) {
   
   useEffect(() => {
     let ws = null;
-    const apiBase = import.meta.env.VITE_API_URL || '';
 
     const getRtcConfig = async () => {
       try {
-        const res = await fetch(`${apiBase}/api/viewing-stations/ice-servers`);
+        const res = await fetch(apiUrl('/viewing-stations/ice-servers'));
         if (res.ok) {
           const data = await res.json();
           if (data.iceServers && data.iceServers.length > 0) {
@@ -493,23 +492,22 @@ function LiveMirrorMonitor({ station }) {
       }
       return {
         iceServers: [
-          { urls: "stun:global.stun.twilio.com:3478" },
-          { urls: "stun:stun.l.google.com:19302" },
-          {
-            urls: "turn:global.turn.twilio.com:3478?transport=udp",
+          { urls: getEnv("STUN_SERVER") },
+          ...(getEnv("TURN_SERVER_UDP") ? [{
+            urls: getEnv("TURN_SERVER_UDP"),
             username: "d3caa20dc03b96f465cf78ae677e43a12842daa2b27febcef8d41ac2ee74db84",
             credential: "iPnaKnb4WYyxGP6nlQap2K5Adx4resPtdbt6hxK/YSw="
-          },
-          {
-            urls: "turn:global.turn.twilio.com:3478?transport=tcp",
+          }] : []),
+          ...(getEnv("TURN_SERVER_TCP") ? [{
+            urls: getEnv("TURN_SERVER_TCP"),
             username: "d3caa20dc03b96f465cf78ae677e43a12842daa2b27febcef8d41ac2ee74db84",
             credential: "iPnaKnb4WYyxGP6nlQap2K5Adx4resPtdbt6hxK/YSw="
-          },
-          {
-            urls: "turn:global.turn.twilio.com:443?transport=tcp",
+          }] : []),
+          ...(getEnv("TURN_SERVER_TLS") ? [{
+            urls: getEnv("TURN_SERVER_TLS"),
             username: "d3caa20dc03b96f465cf78ae677e43a12842daa2b27febcef8d41ac2ee74db84",
             credential: "iPnaKnb4WYyxGP6nlQap2K5Adx4resPtdbt6hxK/YSw="
-          }
+          }] : [])
         ]
       };
     };
@@ -521,14 +519,7 @@ function LiveMirrorMonitor({ station }) {
       }
     };
 
-    let wsUrl = '';
-    
-    if (apiBase) {
-      wsUrl = apiBase.replace(/^http/, 'ws') + `/ws/events?topics=station_${station.station_id}_stream`;
-    } else {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      wsUrl = `${protocol}//${window.location.host}/ws/events?topics=station_${station.station_id}_stream`;
-    }
+    const wsUrl = wsEventsUrl(`station_${station.station_id}_stream`);
     
     console.log("[LiveMirror] Connecting to stream:", wsUrl);
     ws = new WebSocket(wsUrl);
@@ -663,15 +654,7 @@ function RrwebMirrorMonitor({ station }) {
     let ws = null;
     let events = [];
 
-    const apiBase = import.meta.env.VITE_API_URL || '';
-    let wsUrl = '';
-
-    if (apiBase) {
-      wsUrl = apiBase.replace(/^http/, 'ws') + `/ws/events?topics=station_${station.station_id}_stream`;
-    } else {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      wsUrl = `${protocol}//${window.location.host}/ws/events?topics=station_${station.station_id}_stream`;
-    }
+    const wsUrl = wsEventsUrl(`station_${station.station_id}_stream`);
 
     console.log("[RrwebMirror] Connecting to stream:", wsUrl);
     ws = new WebSocket(wsUrl);

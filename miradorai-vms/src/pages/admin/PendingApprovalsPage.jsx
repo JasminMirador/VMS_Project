@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNotifications } from "../../context/NotificationContext";
+import { apiUrl } from "../../config/appConfig";
 
-
-const API = import.meta.env.VITE_API_URL || "";
 
 /* =========================================================
    AUTH HEADERS
@@ -43,7 +42,7 @@ export default function PendingApprovalsPage() {
 
     try {
       const res = await fetch(
-        `${API}/api/auth/admin/signup-requests`,
+        apiUrl("/auth/admin/signup-requests"),
         {
           headers: getAuthHeaders(),
         }
@@ -100,7 +99,7 @@ export default function PendingApprovalsPage() {
 
     try {
       const res = await fetch(
-        `${API}/api/auth/admin/approve-signup`,
+        apiUrl("/auth/admin/approve-signup"),
         {
           method: "POST",
           headers: getAuthHeaders(),

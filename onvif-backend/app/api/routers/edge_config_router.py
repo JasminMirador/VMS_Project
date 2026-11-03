@@ -153,6 +153,49 @@ async def list_edge_configs():
         document = _read_document()
         return {"edges": [_safe_edge_summary(edge_id, config) for edge_id, config in document["edges"].items()]}
 
+@router.get("/{edge_id}", dependencies=[Depends(require_admin)])
+async def get_edge_config(edge_id: str = ApiPath(..., min_length=1, max_length=64)):
+    """Return full configuration for a single Edge device (for editing/adding cameras)."""
+    with _FILE_LOCK:
+        document = _read_document()
+        edges = document.get("edges", {})
+        matched_key = None
+        target = edge_id.strip().lower()
+        for k, v in edges.items():
+            if k.lower() == target:
+                matched_key = k
+                break
+            if isinstance(v, dict) and str(v.get("display_name", "")).strip().lower() == target:
+                matched_key = k
+                break
+
+        if not matched_key:
+            from app.core.database import cameras_col
+            if cameras_col is not None:
+                doc = cameras_col.find_one({
+                    "$or": [
+                        {"edge_id": re.compile(f"^{re.escape(edge_id)}$", re.IGNORECASE)},
+                        {"edge_name": re.compile(f"^{re.escape(edge_id)}$", re.IGNORECASE)},
+                        {"display_name": re.compile(f"^{re.escape(edge_id)}$", re.IGNORECASE)},
+                    ]
+                })
+                if doc and doc.get("edge_id"):
+                    actual_id = doc["edge_id"]
+                    if actual_id in edges:
+                        matched_key = actual_id
+
+        if not matched_key:
+            raise HTTPException(status_code=404, detail="Edge configuration not found")
+
+        cfg = edges[matched_key]
+        return {
+            "edge_id": matched_key,
+            "display_name": cfg.get("display_name") or matched_key,
+            "token": cfg.get("token") or "",
+            "publish_base": cfg.get("publish_base"),
+            "cameras": cfg.get("cameras", []),
+        }
+
 def _inject_credentials(rtsp_str: str, user: str, pwd: str) -> str:
     if not rtsp_str or not user or not pwd:
         return rtsp_str
@@ -174,7 +217,7 @@ def _save_edge_cameras_to_mongo(edge_id: str, edge: dict):
     publish_base = (
         edge.get("publish_base")
         or os.getenv("VMS_PUBLISH_BASE")
-        or f"rtsp://{os.getenv('VMS_PUBLIC_HOST', '14.99.8.170')}:8554"
+        or f"rtsp://{os.getenv('VMS_PUBLIC_HOST', os.getenv('PRIMARY_IP'))}:{os.getenv('MEDIAMTX_RTSP_PORT')}"
     ).rstrip("/")
 
     display_name = edge.get("display_name") or edge.get("name") or edge_id
@@ -209,11 +252,15 @@ def _save_edge_cameras_to_mongo(edge_id: str, edge: dict):
         cam_added_at = camera.get("added_at") or now_str
         cam_updated_at = camera.get("updated_at") or now_str
 
+        host = os.environ.get("MEDIAMTX_HOST") or os.environ.get("HOST_IP") or "127.0.0.1"
+        port = os.environ.get("MEDIAMTX_RTSP_PORT", "8554")
+        mediamtx_host = f"{host}:{port}" if ":" not in host else host
+        mediamtx_rec_rtsp = f"rtsp://{mediamtx_host}/{stream_key}"
         record = {
             "stream_key": stream_key,
             "ome_stream": stream_key,  # Required by recorder_worker.py
             "rtsp_url": cam_rtsp or stream_url,
-            "recording_rtsp": stream_url or cam_rtsp,
+            "recording_rtsp": mediamtx_rec_rtsp,
             "source_rtsp": cam_rtsp,
             "ip": camera_ip,
             "ip_address": camera_ip,
@@ -270,6 +317,11 @@ def _save_edge_cameras_to_mongo(edge_id: str, edge: dict):
                         {"$set": record},
                         upsert=True
                     )
+                try:
+                    from app.services.camera.mediamtx_service import register_publisher_stream
+                    register_publisher_stream(stream_key)
+                except Exception as pub_err:
+                    print(f"[EDGE-CONFIG] Failed to register publisher path {stream_key}: {pub_err}")
             except Exception as e:
                 print(f"[EDGE-CONFIG] Error saving camera {camera_id} to MongoDB: {e}")
                 raise HTTPException(

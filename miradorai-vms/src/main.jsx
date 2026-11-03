@@ -6,7 +6,26 @@ import "./styles/global.css";
 import "./mobile.css";
 import "./styles/button-theme.css";
 import "./styles/table-theme.css";
+import { prefixes, getEnv } from "./config/appConfig";
  
+// Migrate all legacy sessionStorage items to localStorage and clear sessionStorage
+try {
+  if (typeof window !== "undefined" && window.sessionStorage) {
+    for (let i = 0; i < window.sessionStorage.length; i++) {
+      const key = window.sessionStorage.key(i);
+      if (key) {
+        const val = window.sessionStorage.getItem(key);
+        if (val !== null && !localStorage.getItem(key)) {
+          localStorage.setItem(key, val);
+        }
+      }
+    }
+    window.sessionStorage.clear();
+  }
+} catch (e) {
+  console.warn("Storage migration error:", e);
+}
+
 // Global Fetch Interceptor to attach JWT token
 const originalFetch = window.fetch;
 window.fetch = async (...args) => {
@@ -52,8 +71,12 @@ window.fetch = async (...args) => {
     }
   }
  
-  // Attach VMS JWT token to all VMS backend API calls (port 8000 or /api/ paths)
-  if (typeof resource === 'string' && (resource.includes(':8000') || resource.includes('/api/'))) {
+  const apiPort = getEnv("API_PORT");
+  const externalAiPort = getEnv("EXTERNAL_AI_PORT");
+  const p = prefixes();
+
+  // Attach VMS JWT token to all VMS backend API calls (API port or /api/ paths)
+  if (typeof resource === 'string' && (resource.includes(':' + apiPort) || resource.includes(p.api + '/'))) {
     const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
     if (token) {
       config = config || {};
@@ -65,12 +88,12 @@ window.fetch = async (...args) => {
   }
 
   // Attach SSO JWT token to all integration server calls.
-  // Covers both direct calls (port 8080) and calls via the /external-ai-api proxy.
+  // Covers both direct calls (external AI port) and calls via the /external-ai-api proxy.
   // But NOT to the keybasedlogin endpoint itself (that's where we get the token).
   const isIntegrationCall = (
     typeof resource === 'string' && (
-      (resource.includes(':8080') && !resource.includes('/unsecure/keybasedlogin')) ||
-      resource.includes('/external-ai-api')
+      (resource.includes(':' + externalAiPort) && !resource.includes(p.unsecure + '/keybasedlogin')) ||
+      resource.includes(p.externalAi)
     )
   );
   if (isIntegrationCall) {
@@ -88,7 +111,7 @@ window.fetch = async (...args) => {
   const response = await originalFetch(resource, config);
  
   // Handle unauthorized responses globally
-  if (response.status === 401 && !resource.includes('/api/auth/') && !resource.includes('/unsecure/keybasedlogin')) {
+  if (response.status === 401 && !resource.includes(p.api + '/auth/') && !resource.includes(p.unsecure + '/keybasedlogin')) {
     console.warn("Unauthorized API call:", resource);
     const hadToken = Boolean((localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")));
     

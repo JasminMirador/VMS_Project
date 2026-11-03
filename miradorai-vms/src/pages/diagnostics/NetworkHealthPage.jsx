@@ -26,8 +26,9 @@ import {
   ResponsiveContainer
 } from "recharts";
 import "./NetworkHealthPage.css";
+import { apiUrl } from "../../config/appConfig";
 
-const API_BASE = import.meta.env.VITE_API_URL || "";
+
 
 const NetworkHealthPage = () => {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -45,7 +46,7 @@ const NetworkHealthPage = () => {
 
   const fetchLiveMetrics = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/system/status`, {
+      const res = await fetch(apiUrl("/system/status"), {
         headers: {
           "Authorization": `Bearer ${localStorage.getItem("token") || ""}`
         }
@@ -55,7 +56,7 @@ const NetworkHealthPage = () => {
         setMetrics(data);
       }
 
-      const diagRes = await fetch(`${API_BASE}/api/infrastructure/health`, {
+      const diagRes = await fetch(apiUrl("/infrastructure/health"), {
         headers: {
           "Authorization": `Bearer ${localStorage.getItem("token") || ""}`
         }
@@ -75,7 +76,7 @@ const NetworkHealthPage = () => {
 
   const fetchHistory = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/system/history?range=${range}`, {
+      const res = await fetch(apiUrl(`/system/history?range=${range}`), {
         headers: {
           "Authorization": `Bearer ${localStorage.getItem("token") || ""}`
         }
@@ -104,7 +105,7 @@ const NetworkHealthPage = () => {
     setIsPinging(true);
     setDiagResult(null);
     try {
-      const res = await fetch(`${API_BASE}/api/infrastructure/nodes/${diagnosingIp}`, {
+      const res = await fetch(apiUrl(`/infrastructure/nodes/${diagnosingIp}`), {
         headers: {
           "Authorization": `Bearer ${localStorage.getItem("token") || ""}`
         }

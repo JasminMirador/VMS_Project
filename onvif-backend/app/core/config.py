@@ -2,8 +2,11 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# config.py is at VMS_Project/onvif-backend/app/core/, so parents[3] is VMS_Project
-_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
+
+# config.py is at onvif-backend/app/core/, so parents[2] is onvif-backend
+_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+if not _ENV_FILE.exists():
+    _ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 
 
 class Settings(BaseSettings):

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import DatePicker from "../../components/shared/DatePicker";
 import SearchBar from "../../components/shared/SearchBar";
 import "./Schedules.css";
+import { apiUrl } from "../../config/appConfig";
 
 // ── Toast Notification ────────────────────────────────────────────
 const TOAST_DURATION = 3500;
@@ -87,7 +88,7 @@ function Toast({ message, subtitle, type = "success", onClose }) {
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const TOTAL_SLOTS = 24 * 12; // 5-min intervals
 
-const BACKEND = import.meta.env.VITE_API_URL || "";
+
 
 function getAuthHeaders() {
   const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
@@ -440,7 +441,7 @@ export default function Schedules() {
   const fetchSchedules = async () => {
     setLoading(true);
     try {
-      const res  = await fetch(`${BACKEND}/api/storage/schedules`, {
+      const res  = await fetch(apiUrl("/storage/schedules"), {
         headers: getAuthHeaders()
       });
       const data = await res.json();
@@ -461,7 +462,7 @@ export default function Schedules() {
 
       // Check backend
       try {
-        const devRes = await fetch(`${BACKEND}/api/cameras`, { headers: getAuthHeaders() });
+        const devRes = await fetch(apiUrl("/cameras"), { headers: getAuthHeaders() });
         if (devRes.ok) {
            const devData = await devRes.json();
            const devices = Array.isArray(devData) ? devData : (devData.devices || []);
@@ -494,7 +495,7 @@ export default function Schedules() {
     if (!selectedId) return;
     const target = schedules.find((s) => s.id === selectedId);
     try {
-      await fetch(`${BACKEND}/api/storage/schedules/${selectedId}`, { 
+      await fetch(apiUrl(`/storage/schedules/${selectedId}`), { 
         method: "DELETE",
         headers: getAuthHeaders()
       });
@@ -601,7 +602,7 @@ export default function Schedules() {
                       const readableRanges = {};
                       DAYS.forEach((d) => { readableRanges[d] = getRangeLabel(selected.week[d]); });
                       const payload = { ...selected, ranges: readableRanges };
-                      const res = await fetch(`${BACKEND}/api/storage/schedules`, {
+                      const res = await fetch(apiUrl("/storage/schedules"), {
                         method: "POST",
                         headers: getAuthHeaders(),
                         body: JSON.stringify(payload),

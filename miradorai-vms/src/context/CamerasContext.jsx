@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useCallback } from "react";
+import { apiUrl } from "../config/appConfig";
 
-const API_BASE = import.meta.env.VITE_API_URL;
 export const CAMERAS_UPDATED_EVENT = "miradorai-cameras-updated";
 
 function loadFromStorage() {
@@ -28,7 +28,7 @@ export function CamerasProvider({ children }) {
     if (!token) return []; // Do not fetch or trigger 401 when logged out
 
     try {
-      const res = await fetch(`${API_BASE}/api/cameras`, {
+      const res = await fetch(apiUrl("/cameras"), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) return [];

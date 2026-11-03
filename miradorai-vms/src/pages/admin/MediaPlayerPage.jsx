@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import DatePicker from "../../components/shared/DatePicker";
 import { useAuth } from "../../context/AuthContext";
 import { useImageConfig, buildCSSFilter } from "../../hooks/useImageConfig";
@@ -7,9 +8,8 @@ import SpecularButton from "../../components/shared/SpecularButton";
 import AnimatedDownloadButton from "../../components/shared/AnimatedDownloadButton";
 import TimePicker from "../../components/shared/TimePicker";
 import { useTheme } from "../../context/ThemeContext";
+import { apiUrl } from "../../config/appConfig";
 import "./MediaPlayerPage.css";
-
-const STREAM_API = import.meta.env.VITE_API_URL || "";
 
 function getToken() {
   return (
@@ -185,6 +185,7 @@ const TrimTimeline = ({ src, duration, trimStart, trimEnd, onTrimStartChange, on
 };
 
 export default function MediaPlayerPage() {
+  const navigate = useNavigate();
   const { user, supervisorUnlocked } = useAuth();
   const { theme } = useTheme();
 
@@ -361,7 +362,7 @@ export default function MediaPlayerPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${STREAM_API}/api/recordings/cameras`, {
+        const res = await fetch(apiUrl("/recordings/cameras"), {
           headers: authHeaders(),
         });
         if (res.ok) {
@@ -376,7 +377,7 @@ export default function MediaPlayerPage() {
   useEffect(() => {
     const fetchRecordingStatus = async () => {
       try {
-        const res = await fetch(`${STREAM_API}/api/recordings/status`, {
+        const res = await fetch(apiUrl("/recordings/status"), {
           headers: authHeaders(),
         });
         if (res.ok) {
@@ -399,7 +400,7 @@ export default function MediaPlayerPage() {
       setFiles([]);
       try {
         const res = await fetch(
-          `${STREAM_API}/api/recordings/${selectedCam.stream_key}?date=${selectedDate}`,
+          apiUrl(`/recordings/${selectedCam.stream_key}?date=${selectedDate}`),
           { headers: authHeaders() }
         );
         if (!cancelled && res.ok) {
@@ -542,7 +543,8 @@ export default function MediaPlayerPage() {
         if (!info.ip) return;
 
         // Fetch up to 1000 alerts including software motion
-        const res = await fetch(`${STREAM_API}/api/alerts?limit=1000&include_software_motion=true`, {
+        const res = await fetch(apiUrl("/alerts?limit=1000&include_software_motion=true"), 
+        {
           headers: authHeaders()
         });
         if (res.ok && !cancelled) {
@@ -644,7 +646,7 @@ export default function MediaPlayerPage() {
       v.crossOrigin = "anonymous";
       const cb = Date.now();
       const tk = getToken();
-      v.src = `${STREAM_API}/api/recordings/play`
+      v.src = apiUrl("/recordings/play")
         + `?camera_id=${encodeURIComponent(file.camera_id)}`
         + `&date=${encodeURIComponent(file.date)}`
         + `&start_time=${encodeURIComponent(file.start_time)}`
@@ -718,7 +720,7 @@ export default function MediaPlayerPage() {
       const formData = new FormData();
       formData.append("file", file);
 
-      const uploadRes = await fetch(`${STREAM_API}/api/recordings/upload-temp`, {
+      const uploadRes = await fetch(apiUrl("/recordings/upload-temp"), {
         method: "POST",
         headers: authHeaders(),
         body: formData,
@@ -749,7 +751,7 @@ export default function MediaPlayerPage() {
       setIsVideoLoading(true);
 
       const tk = getToken();
-      const streamUrl = `${STREAM_API}/api/recordings/play-uploaded`
+      const streamUrl = apiUrl("/recordings/play-uploaded")
         + `?temp_id=${encodeURIComponent(temp_id)}`
         + `&_cb=${Date.now()}`
         + (tk ? `&token=${encodeURIComponent(tk)}` : "");
@@ -906,7 +908,7 @@ export default function MediaPlayerPage() {
 
     setShowDownloadModal(false);
 
-    let url = `${STREAM_API}/api/recordings/download`
+    let url = apiUrl("/recordings/download")
       + `?camera_id=${encodeURIComponent(playingFile.camera_id)}`
       + `&date=${encodeURIComponent(playingFile.date)}`
       + `&start_time=${encodeURIComponent(playingFile.start_time)}`;
@@ -979,7 +981,7 @@ export default function MediaPlayerPage() {
       const formData = new FormData();
       formData.append("video_file", verifyVideoFile);
       formData.append("signature_file", verifySigFile);
-      const res = await fetch(`${STREAM_API}/api/recordings/verify-signature`, {
+      const res = await fetch(apiUrl("/recordings/verify-signature"), {
         method: "POST",
         headers: authHeaders(),
         body: formData,
@@ -1005,7 +1007,7 @@ export default function MediaPlayerPage() {
       start_time: exportStartTime,
       end_time: exportEndTime,
     };
-    const directUrl = `${STREAM_API}/api/recordings/export-zip`;
+    const directUrl = apiUrl("/recordings/export-zip");
     const filename = `recordings_${exportStartDate}_to_${exportEndDate}.zip`;
 
     try {
@@ -1143,6 +1145,36 @@ export default function MediaPlayerPage() {
       <div className="lv-toolbar">
         <div className="lv-toolbar__left">
           <h1 className="lv-page-title">Playback</h1>
+          <button
+            className="mp-mode-toggle-btn"
+            title="Multi-Camera Playback (Watch multiple cameras at a time)"
+            onClick={() => navigate("/multi-playback")}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "5px 12px",
+              marginLeft: "12px",
+              background: "#0e7490",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: "6px",
+              fontSize: "12px",
+              fontWeight: 600,
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = "#0b5b73")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "#0e7490")}
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
+              <rect x="3" y="3" width="7" height="7" rx="1.5" />
+              <rect x="14" y="3" width="7" height="7" rx="1.5" />
+              <rect x="3" y="14" width="7" height="7" rx="1.5" />
+              <rect x="14" y="14" width="7" height="7" rx="1.5" />
+            </svg>
+            <span>Multi-Camera Grid</span>
+          </button>
           <div className="lv-toolbar__stats">
             <span className="lv-toolbar__count">
               {actualRecordingCount} camera{actualRecordingCount !== 1 ? "s" : ""} recording

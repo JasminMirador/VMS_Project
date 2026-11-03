@@ -15,8 +15,8 @@ import { EditDeviceModal } from "../devices/AddDevicesPage";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import useGroups from "../../hooks/useGroups";
 import * as rrweb from "rrweb";
+import { wsEventsUrl, externalAiUrl, apiUrl, getEnv } from "../../config/appConfig";
 
-const API = import.meta.env.VITE_API_URL || "";
 
 function getAuthHeaders() {
   const token =
@@ -186,7 +186,7 @@ function MaskOverlay({ ip }) {
 
   useEffect(() => {
     if (!ip) return;
-    fetch(`${API}/api/masks/${encodeURIComponent(ip)}`)
+    fetch(apiUrl(`/masks/${encodeURIComponent(ip)}`))
       .then((r) => r.json())
       .then((data) =>
         setMasks((data.masks || []).filter((m) => m.enabled !== false)),
@@ -332,7 +332,7 @@ export function AlertPopup({ ip, alerts, onClose }) {
       const safeIp = (ip || "").replace(/\./g, "_");
 
       const url =
-        `${API}/api/event-playback` +
+        apiUrl('/event-playback') +
         `?ip=${encodeURIComponent(safeIp)}` +
         `&time=${encodeURIComponent(time)}`;
 
@@ -581,7 +581,7 @@ function CameraAnalyticsSettingsModal({ devices, preferences, onClose, onSave })
       const ip = (d.ip || "").replace(/_/g, ".");
       if (!ip) return;
       try {
-        const res = await fetch(`${API}/api/camera-analytics/${ip}`);
+        const res = await fetch(apiUrl(`/camera-analytics/${ip}`));
         if (res.ok) {
           const data = await res.json();
           const filteredAnalytics = (data.analytics || []).filter(a => {
@@ -613,7 +613,7 @@ function CameraAnalyticsSettingsModal({ devices, preferences, onClose, onSave })
     // Save to backend
     for (const ip of Object.keys(localPrefs)) {
       try {
-        await fetch(`${API}/api/camera-analytics/${ip}/preferences`, {
+        await fetch(apiUrl(`/camera-analytics/${ip}/preferences`), {
           method: "PUT",
           headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
           body: JSON.stringify({ enabled: localPrefs[ip] })
@@ -721,15 +721,14 @@ function AlertsPanel({
 
   // Prevent overlapping alert refresh requests.
   const fetchingAlertsRef = useRef(false);
-  const [externalAiIp, setExternalAiIp] = useState(import.meta.env.VITE_EXTERNAL_AI_HOST);
+  const [externalAiIp, setExternalAiIp] = useState(getEnv("EXTERNAL_AI_HOST"));
   const [isAiActive, setIsAiActive] = useState(false);
 
   useEffect(() => {
     const fetchAiIp = async () => {
       try {
         const token = localStorage.getItem('miradorai_token') || localStorage.getItem('token');
-        const API_BASE = import.meta.env.VITE_API_URL || "";
-        const res = await fetch(API_BASE + "/api/integrations", {
+        const res = await fetch(apiUrl("/integrations"), {
           headers: token ? { Authorization: 'Bearer ' + token } : {},
         });
         if (res.ok) {
@@ -776,7 +775,7 @@ function AlertsPanel({
   const [isSourceDropdownOpen, setIsSourceDropdownOpen] = useState(false);
     const fetchPreferences = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/api/camera-analytics-preferences`, {
+      const res = await fetch(apiUrl('/camera-analytics-preferences'), {
         headers: getAuthHeaders(),
       });
       if (res.ok) {
@@ -939,7 +938,7 @@ function AlertsPanel({
     if (imgLoc) {
       if (imgLoc.startsWith("http")) return imgLoc;
       const cleanLoc = imgLoc.startsWith("/") ? imgLoc.substring(1) : imgLoc;
-      const minioPort = import.meta.env.VITE_MINIO_PORT;
+      const minioPort = getEnv("MINIO_PORT");
       return `http://${externalAiIp}:${minioPort}/${cleanLoc}`;
     }
 
@@ -955,7 +954,7 @@ function AlertsPanel({
     const ip = normalizeIp(alert.ip || alert.serial || "");
     const time = alert.time || alert.received_at || "";
     if (!ip || !time) return null;
-    return `${API}/api/event-playback/snapshot?ip=${encodeURIComponent(ip)}&time=${encodeURIComponent(time)}`;
+    return apiUrl(`/event-playback/snapshot?ip=${encodeURIComponent(ip)}&time=${encodeURIComponent(time)}`);
   };
 
   const fetchLiveSnapshotForIp = async (ip) => {
@@ -963,7 +962,7 @@ function AlertsPanel({
     try {
       const ipDot = (ip || "").replace(/_/g, ".");
       const res = await fetch(
-        `${API}/api/camera/brand/snapshot/${encodeURIComponent(ipDot)}`,
+        apiUrl(`/camera/brand/snapshot/${encodeURIComponent(ipDot)}`),
       );
       if (!res.ok) return null;
       const data = await res.json();
@@ -1006,7 +1005,7 @@ function AlertsPanel({
         if (alertSource === "builtin") {
           urlParam = "&source=built_in";
         }
-        const res = await fetch(`${API}/api/alerts?limit=5000${urlParam}`, {
+        const res = await fetch(apiUrl(`/alerts?limit=5000${urlParam}`), {
           headers: getAuthHeaders(),
         });
         if (res.ok) {
@@ -1047,7 +1046,7 @@ function AlertsPanel({
       if (fetchExternal) {
         // 1. Fetch external AI alerts from local MongoDB backend database
         try {
-          const dbRes = await fetch(`${API}/api/alerts?source=external_ai&limit=500`, {
+          const dbRes = await fetch(apiUrl('/alerts?source=external_ai&limit=500'), {
             headers: getAuthHeaders(),
           });
           if (dbRes.ok) {
@@ -1095,9 +1094,9 @@ function AlertsPanel({
 
           const fetchUrls = [];
           if (readerIds.length > 0) {
-            readerIds.forEach(rid => fetchUrls.push(`/external-ai-api/getalert?readerIds=${encodeURIComponent(rid)}&page=1&size=50`));
+            readerIds.forEach(rid => fetchUrls.push(externalAiUrl(`/getalert?readerIds=${encodeURIComponent(rid)}&page=1&size=50`)));
           } else {
-            fetchUrls.push(`/external-ai-api/getalert?page=1&size=50`);
+            fetchUrls.push(externalAiUrl(`/getalert?page=1&size=50`));
           }
 
           const responses = await Promise.all(
@@ -1116,7 +1115,7 @@ function AlertsPanel({
               const imagePath = locVal ? (
                 locVal.startsWith("http")
                   ? locVal
-                  : `http://${externalAiIp}:${import.meta.env.VITE_MINIO_PORT}/${locVal.replace(/^\//, '')}`
+                  : `http://${externalAiIp}:${getEnv("MINIO_PORT")}/${locVal.replace(/^\//, '')}`
               ) : (item.image || "");
               return {
                 isExternal: true,
@@ -2276,16 +2275,20 @@ function EmptyCell() {
 }
 
 function getOrCreateStationDetails() {
-  let sid = sessionStorage.getItem("miradorai_workstation_id");
+  let sid = localStorage.getItem("miradorai_workstation_id") || sessionStorage.getItem("miradorai_workstation_id");
   if (!sid) {
     sid = "ws-" + Math.random().toString(36).substring(2, 8);
-    sessionStorage.setItem("miradorai_workstation_id", sid);
   }
-  let sname = sessionStorage.getItem("miradorai_workstation_name");
+  localStorage.setItem("miradorai_workstation_id", sid);
+  sessionStorage.removeItem("miradorai_workstation_id");
+
+  let sname = localStorage.getItem("miradorai_workstation_name") || sessionStorage.getItem("miradorai_workstation_name");
   if (!sname) {
     sname = "Terminal " + sid.split("-")[1].toUpperCase();
-    sessionStorage.setItem("miradorai_workstation_name", sname);
   }
+  localStorage.setItem("miradorai_workstation_name", sname);
+  sessionStorage.removeItem("miradorai_workstation_name");
+
   return { sid, sname };
 }
 
@@ -2472,14 +2475,7 @@ export default function LiveViewPage({ onNavigate }) {
     let stopFn = null;
     let isRecording = false;
 
-    const apiBase = import.meta.env.VITE_API_URL || '';
-    let wsUrl = '';
-    if (apiBase) {
-      wsUrl = apiBase.replace(/^http/, 'ws') + `/ws/events?topics=station_${stationDetails.sid}`;
-    } else {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      wsUrl = `${protocol}//${window.location.host}/ws/events?topics=station_${stationDetails.sid}`;
-    }
+    const wsUrl = wsEventsUrl(`station_${stationDetails.sid}`);
 
     const connect = () => {
       console.log("[LiveView] Connecting to WebSocket for events:", wsUrl);
@@ -2504,9 +2500,13 @@ export default function LiveViewPage({ onNavigate }) {
 
   const [devices, setDevices] = useState(loadDevices);
   const [layout, setLayout] = useState(() => {
-    return sessionStorage.getItem("miradorai_liveview_layout") || "2x2";
+    return localStorage.getItem("miradorai_liveview_layout") || sessionStorage.getItem("miradorai_liveview_layout") || "2x2";
   });
   const [currentPage, setCurrentPage] = useState(1);
+  const [selectedGroupId, setSelectedGroupId] = useState(() => {
+    return localStorage.getItem("miradorai_liveview_selected_group") || sessionStorage.getItem("miradorai_liveview_selected_group") || "all";
+  });
+  const [groupDropdownOpen, setGroupDropdownOpen] = useState(false);
   const [gridDropdownOpen, setGridDropdownOpen] = useState(false);
   const [gridFullscreen, setGridFullscreen] = useState(false);
   const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
@@ -2531,7 +2531,7 @@ export default function LiveViewPage({ onNavigate }) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [appliedTimestamp, setAppliedTimestamp] = useState(() => {
     return parseFloat(
-      sessionStorage.getItem("miradorai_applied_layout_time") || "0",
+      (localStorage.getItem("miradorai_applied_layout_time") || sessionStorage.getItem("miradorai_applied_layout_time") || "0"),
     );
   });
 
@@ -2584,7 +2584,7 @@ export default function LiveViewPage({ onNavigate }) {
       if (payload.device_name && !payload.name) {
         payload.name = payload.device_name;
       }
-      await fetch(`${API}/api/cameras/by-ip/${updated.ip}`, {
+      await fetch(apiUrl(`/cameras/by-ip/${updated.ip}`), {
         method: "PUT",
         headers: getAuthHeaders(),
         body: JSON.stringify(payload),
@@ -2652,7 +2652,7 @@ export default function LiveViewPage({ onNavigate }) {
   const [sidePlaybackCam, setSidePlaybackCam] = useState(null);
   const [alertSource, setAlertSource] = useState("all"); // 'all' | 'builtin' | 'mqtt_ai'
   const [isAiActive, setIsAiActive] = useState(false);
-  const [externalAiIp, setExternalAiIp] = useState(import.meta.env.VITE_EXTERNAL_AI_HOST);
+  const [externalAiIp, setExternalAiIp] = useState(getEnv("EXTERNAL_AI_HOST"));
   const [analyticsConfig, setAnalyticsConfig] = useState([
   ]);
 
@@ -2660,7 +2660,7 @@ export default function LiveViewPage({ onNavigate }) {
     const fetchAiStatus = async () => {
       try {
         const token = localStorage.getItem('miradorai_token') || localStorage.getItem('token') || localStorage.getItem('authToken');
-        const res = await fetch(`${API}/api/integrations`, {
+        const res = await fetch(apiUrl('/integrations'), {
           headers: token ? { Authorization: 'Bearer ' + token } : {},
         });
         if (res.ok) {
@@ -2713,7 +2713,7 @@ export default function LiveViewPage({ onNavigate }) {
 
     const loadAiAnalytics = async () => {
       try {
-        const res = await fetch(`${API}/api/alerts?source=external_ai&limit=5000`, {
+        const res = await fetch(apiUrl('/alerts?source=external_ai&limit=5000'), {
           headers: getAuthHeaders(),
         });
         if (!res.ok) return;
@@ -2801,28 +2801,31 @@ export default function LiveViewPage({ onNavigate }) {
   }, [deviceIpKey]);
 
   useEffect(() => {
-    sessionStorage.setItem("miradorai_liveview_layout", layout);
+    localStorage.setItem("miradorai_liveview_layout", layout);
+    sessionStorage.removeItem("miradorai_liveview_layout");
   }, [layout]);
 
   useEffect(() => {
     const checkBackendStartup = async () => {
       try {
-        const res = await fetch(`${API}/api/health`);
+        const res = await fetch(apiUrl('/health'));
         if (res.ok) {
           const data = await res.json();
           const currentStartupId = data.startup_id;
           if (currentStartupId) {
-            const savedStartupId = sessionStorage.getItem(
+            const savedStartupId = localStorage.getItem(
               "miradorai_backend_startup_id",
-            );
+            ) || sessionStorage.getItem("miradorai_backend_startup_id");
             if (savedStartupId && savedStartupId !== currentStartupId) {
               setLayout("2x2");
-              sessionStorage.setItem("miradorai_liveview_layout", "2x2");
+              localStorage.setItem("miradorai_liveview_layout", "2x2");
             }
-            sessionStorage.setItem(
+            localStorage.setItem(
               "miradorai_backend_startup_id",
               currentStartupId,
             );
+            sessionStorage.removeItem("miradorai_backend_startup_id");
+            sessionStorage.removeItem("miradorai_liveview_layout");
           }
         }
       } catch (e) {
@@ -2838,7 +2841,7 @@ export default function LiveViewPage({ onNavigate }) {
   useEffect(() => {
     const syncStreamKeys = async () => {
       try {
-        const res = await fetch(`${API}/api/cameras`, {
+        const res = await fetch(apiUrl('/cameras'), {
           headers: getAuthHeaders(),
         });
         if (!res.ok) return;
@@ -2938,8 +2941,16 @@ export default function LiveViewPage({ onNavigate }) {
   const fsRef = useRef(null);
   const fsMenuRef = useRef(null);
   const dropdownRef = useRef(null);
+  const groupDropdownRef = useRef(null);
   const gridAreaRef = useRef(null);
   const showRec = localStorage.getItem("miradorai_show_rec_ind") !== "false";
+  const handleGroupChange = useCallback((gid) => {
+    setSelectedGroupId(gid);
+    setCurrentPage(1);
+    setGroupDropdownOpen(false);
+    localStorage.setItem("miradorai_liveview_selected_group", gid);
+    sessionStorage.removeItem("miradorai_liveview_selected_group");
+  }, []);
 
   const handleLiveChange = useCallback((ip, isLive) => {
     setLiveStatus((prev) => {
@@ -2952,6 +2963,9 @@ export default function LiveViewPage({ onNavigate }) {
     const handler = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
         setGridDropdownOpen(false);
+      }
+      if (groupDropdownRef.current && !groupDropdownRef.current.contains(e.target)) {
+        setGroupDropdownOpen(false);
       }
       if (fsMenuRef.current && !fsMenuRef.current.contains(e.target)) {
         setFsMenuOpen(false);
@@ -2988,7 +3002,7 @@ export default function LiveViewPage({ onNavigate }) {
   useEffect(() => {
     const fetchRecordingStatus = async () => {
       try {
-        const res = await fetch(`${API}/api/recordings/status`, {
+        const res = await fetch(apiUrl('/recordings/status'), {
           headers: getAuthHeaders(),
         });
         if (res.ok) {
@@ -3007,7 +3021,7 @@ export default function LiveViewPage({ onNavigate }) {
   useEffect(() => {
     const fetchLatest = async () => {
       try {
-        const res = await fetch(`${API}/api/cameras`, { headers: getAuthHeaders() });
+        const res = await fetch(apiUrl('/cameras'), { headers: getAuthHeaders() });
         if (res.ok) {
           const data = await res.json();
           const list = Array.isArray(data) ? data : (data.devices || data.cameras || []);
@@ -3067,7 +3081,7 @@ export default function LiveViewPage({ onNavigate }) {
   useEffect(() => {
     const loadInitialCounts = async () => {
       try {
-        const res = await fetch(`${API}/api/alerts?limit=100`, {
+        const res = await fetch(apiUrl('/alerts?limit=100'), {
           headers: getAuthHeaders(),
         });
         const data = await res.json();
@@ -3152,7 +3166,7 @@ export default function LiveViewPage({ onNavigate }) {
 
   const openAlertPopup = useCallback(async (ip) => {
     try {
-      const res = await fetch(`${API}/api/alerts?limit=100`, {
+      const res = await fetch(apiUrl('/alerts?limit=100'), {
         headers: getAuthHeaders(),
       });
       const data = await res.json();
@@ -3202,22 +3216,58 @@ export default function LiveViewPage({ onNavigate }) {
       user.allowedCameras.includes(String(c.id)),
     );
   }, [devices, user]);
-  const onlineCams = activeCams.filter(
-    (d) => d.ws_url || d.rtsp_url || d.source === "AI_WEBHOOK",
-  );
-  const disabledCount = devices.length - activeCams.length;
+  const groupFilteredCams = useMemo(() => {
+    if (!selectedGroupId || selectedGroupId === "all") {
+      return activeCams;
+    }
+    if (selectedGroupId === "default") {
+      return activeCams.filter((c) => !c.group_id || c.group_id === "default");
+    }
+    return activeCams.filter((c) => (c.group_id || "default") === selectedGroupId);
+  }, [activeCams, selectedGroupId]);
+
 
   const activeSequence = useMemo(() => {
     return sequences.find((s) => s.id === activeSequenceId);
   }, [activeSequenceId, sequences]);
 
   const filteredActiveCams = useMemo(() => {
-    if (!activeSequence) return activeCams;
-    return activeCams.filter((c) =>
+    if (!activeSequence) return groupFilteredCams;
+    return groupFilteredCams.filter((c) =>
       activeSequence.cameraIds.includes(String(c.id)),
     );
-  }, [activeCams, activeSequence]);
+  }, [groupFilteredCams, activeSequence]);
 
+  const onlineCams = useMemo(() => {
+    return filteredActiveCams.filter(
+      (d) => d.ws_url || d.rtsp_url || d.source === "AI_WEBHOOK",
+    );
+  }, [filteredActiveCams]);
+  const disabledCount = devices.length - activeCams.length;
+
+  const defaultGroupCamsCount = useMemo(() => {
+    return activeCams.filter((c) => !c.group_id || c.group_id === "default").length;
+  }, [activeCams]);
+
+  const hasDefaultCams = defaultGroupCamsCount > 0;
+
+  const selectedGroupLabel = useMemo(() => {
+    if (!selectedGroupId || selectedGroupId === "all") return "ALL";
+    if (selectedGroupId === "default") return "Default";
+    const found = groups.find((g) => (g.id || g._id) === selectedGroupId);
+    return found ? found.name : "ALL";
+  }, [selectedGroupId, groups]);
+
+  useEffect(() => {
+    if (selectedGroupId !== "all" && selectedGroupId !== "default") {
+      const exists = groups.some((g) => (g.id || g._id) === selectedGroupId);
+      if (groups.length > 0 && !exists) {
+        setSelectedGroupId("all");
+        localStorage.setItem("miradorai_liveview_selected_group", "all");
+        sessionStorage.removeItem("miradorai_liveview_selected_group");
+      }
+    }
+  }, [groups, selectedGroupId]);
   useEffect(() => {
     if (activeSequenceId === "all") {
       const val = parseInt(
@@ -3310,7 +3360,7 @@ export default function LiveViewPage({ onNavigate }) {
         const isCamFullscreen = fsDevice && fsDevice.id === cam.id;
         const mode = isCamFullscreen ? "fullscreen" : "grid";
 
-        fetch(`${API}/api/system/cameras/${cam.ip}/view-mode`, {
+        fetch(apiUrl(`/system/cameras/${cam.ip}/view-mode`), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -3329,7 +3379,7 @@ export default function LiveViewPage({ onNavigate }) {
   useEffect(() => {
     const sendHeartbeat = async () => {
       try {
-        const res = await fetch(`${API}/api/viewing-stations/heartbeat`, {
+        const res = await fetch(apiUrl('/viewing-stations/heartbeat'), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -3373,10 +3423,11 @@ export default function LiveViewPage({ onNavigate }) {
 
             setLayout(pushed.grid);
             setAppliedTimestamp(pushed.timestamp);
-            sessionStorage.setItem(
+            localStorage.setItem(
               "miradorai_applied_layout_time",
               String(pushed.timestamp),
             );
+            sessionStorage.removeItem("miradorai_applied_layout_time");
 
             window.dispatchEvent(new Event("storage"));
           }
@@ -3485,10 +3536,11 @@ export default function LiveViewPage({ onNavigate }) {
                       value={stationName}
                       onChange={(e) => {
                         setStationName(e.target.value);
-                        sessionStorage.setItem(
+                        localStorage.setItem(
                           "miradorai_workstation_name",
                           e.target.value,
                         );
+                        sessionStorage.removeItem("miradorai_workstation_name");
                       }}
                       onBlur={() => setIsEditingName(false)}
                       onKeyDown={(e) => {
@@ -3524,6 +3576,105 @@ export default function LiveViewPage({ onNavigate }) {
                         <path d="M6 9l6 6 6-6" />
                       </svg>
                     </span>
+                  )}
+                </div>
+
+                <div className="lv-filter-divider" />
+                {/* Camera Group Dropdown */}
+                <div
+                  className="lv-filter-item lv-dropdown-container"
+                  ref={groupDropdownRef}
+                >
+                  <span
+                    style={{
+                      cursor: "pointer",
+                      flex: 1,
+                      whiteSpace: "nowrap",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                    }}
+                    onClick={() => setGroupDropdownOpen(!groupDropdownOpen)}
+                    title="Filter cameras by group"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      width="12"
+                      height="12"
+                      style={{ opacity: 0.7 }}
+                    >
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                    </svg>
+                    <span style={{ opacity: 0.75, fontSize: "12px" }}>Group:</span>
+                    <span style={{ fontWeight: 600 }}>{selectedGroupLabel}</span>
+                    <svg
+                      className={`lv-chevron-icon ${groupDropdownOpen ? "open" : ""}`}
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      width="10"
+                      height="10"
+                      style={{ marginLeft: "4px", opacity: 0.8 }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setGroupDropdownOpen(!groupDropdownOpen);
+                      }}
+                    >
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
+                  </span>
+                  {groupDropdownOpen && (
+                    <div className="lv-filter-dropdown lv-group-dropdown">
+                      <button
+                        type="button"
+                        className={`lv-filter-dropdown-item ${selectedGroupId === "all" ? "selected" : ""}`}
+                        onClick={() => handleGroupChange("all")}
+                      >
+                        <span style={{ flex: 1, textAlign: "left" }}>ALL</span>
+                        <span className="lv-group-count">({activeCams.length})</span>
+                      </button>
+                      {hasDefaultCams && (
+                        <button
+                          type="button"
+                          className={`lv-filter-dropdown-item ${selectedGroupId === "default" ? "selected" : ""}`}
+                          onClick={() => handleGroupChange("default")}
+                        >
+                          <span style={{ flex: 1, textAlign: "left" }}>Default</span>
+                          <span className="lv-group-count">({defaultGroupCamsCount})</span>
+                        </button>
+                      )}
+                      {groups
+                        .filter((g) => g.id !== "default" && g.name?.toLowerCase() !== "default")
+                        .map((g) => {
+                          const gid = g.id || g._id;
+                          const count = activeCams.filter((c) => (c.group_id || "default") === gid).length;
+                          return (
+                            <button
+                              key={gid}
+                              type="button"
+                              className={`lv-filter-dropdown-item ${selectedGroupId === gid ? "selected" : ""}`}
+                              onClick={() => handleGroupChange(gid)}
+                            >
+                              <span
+                                style={{
+                                  flex: 1,
+                                  textAlign: "left",
+                                  textOverflow: "ellipsis",
+                                  overflow: "hidden",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {g.name}
+                              </span>
+                              <span className="lv-group-count">({count})</span>
+                            </button>
+                          );
+                        })}
+                    </div>
                   )}
                 </div>
 
@@ -3996,6 +4147,23 @@ export default function LiveViewPage({ onNavigate }) {
                   view streams.
                 </p>
               </div>
+            ) : filteredActiveCams.length === 0 ? (
+              <div className="lv-empty">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="0.8"
+                  width="64"
+                  height="64"
+                >
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                </svg>
+                <p>No cameras found in group &ldquo;{selectedGroupLabel}&rdquo;.</p>
+                <p className="lv-empty__sub">
+                  Assign cameras in <strong>Manage Camera Groups</strong> or switch to <strong>ALL</strong>.
+                </p>
+              </div>
             ) : (
               <>
                 <div
@@ -4101,7 +4269,7 @@ export default function LiveViewPage({ onNavigate }) {
                 </div>
 
                 {/* Pagination Bar */}
-                {activeCams.length > 0 && (
+                {filteredActiveCams.length > 0 && (
                   <div className="lv-pagination">
                     <button
                       className="lv-page-btn"

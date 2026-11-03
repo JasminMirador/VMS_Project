@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import Button from "../../components/shared/Button";
 import Toggle from "../../components/shared/Toggle";
 import "./IntegrationPage.css";
+import { apiUrl } from "../../config/appConfig";
 
 function generateRandomId() {
   return Math.random().toString().slice(2, 18).padEnd(16, "0");
@@ -119,8 +120,8 @@ export default function IntegrationPage() {
     try {
       const token = localStorage.getItem("token") || (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
       const headers = { Authorization: token ? `Bearer ${token}` : "" };
-      const API_BASE = import.meta.env.VITE_API_URL || "";
-      const res = await fetch(`${API_BASE}/api/integrations`, { headers });
+
+      const res = await fetch(apiUrl("/integrations"), { headers });
       if (res.ok) {
         const data = await res.json();
         setConnections(data);
@@ -256,8 +257,8 @@ export default function IntegrationPage() {
     try {
       const token = localStorage.getItem("token") || (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
       const headers = { Authorization: token ? `Bearer ${token}` : "" };
-      const API_BASE = import.meta.env.VITE_API_URL || "";
-      const res = await fetch(`${API_BASE}/api/integrations/${id}`, { method: "DELETE", headers });
+
+      const res = await fetch(apiUrl(`/integrations/${id}`), { method: "DELETE", headers });
       if (res.ok) {
         setConnections(connections.filter((c) => c.id !== id));
         window.dispatchEvent(new Event("integrationsUpdated"));
@@ -278,8 +279,8 @@ export default function IntegrationPage() {
     setIsPinging(true);
     try {
       const token = localStorage.getItem("token") || (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
-      const API_BASE = import.meta.env.VITE_API_URL || "";
-      const res = await fetch(`${API_BASE}/api/integrations/ping`, {
+
+      const res = await fetch(apiUrl("/integrations/ping"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -388,7 +389,7 @@ export default function IntegrationPage() {
         Authorization: token ? `Bearer ${token}` : "",
       };
 
-      const API_BASE = import.meta.env.VITE_API_URL || "";
+
       const exists = connections.find((c) => c.id === formData.id || c._id === formData.id);
 
       const payload = {
@@ -396,7 +397,7 @@ export default function IntegrationPage() {
         updated_at: Date.now() / 1000,
       };
 
-      const res = await fetch(`${API_BASE}/api/integrations${exists ? `/${formData.id}` : ""}`, {
+      const res = await fetch(apiUrl(`/integrations${exists ? `/${formData.id}` : ""}`), {
         method: exists ? "PUT" : "POST",
         headers,
         body: JSON.stringify(payload),
@@ -817,14 +818,14 @@ export default function IntegrationPage() {
                             if (exists) {
                               try {
                                 const token = localStorage.getItem("token") || (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
-                                const API_BASE = import.meta.env.VITE_API_URL || "";
+                          
                                 const targetId = formData.id || formData._id;
                                 const payload = {
                                   ...exists,
                                   ...updatedForm,
                                   updated_at: Date.now() / 1000,
                                 };
-                                const res = await fetch(`${API_BASE}/api/integrations/${targetId}`, {
+                                const res = await fetch(apiUrl(`/integrations/${targetId}`), {
                                   method: "PUT",
                                   headers: {
                                     "Content-Type": "application/json",

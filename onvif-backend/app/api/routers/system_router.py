@@ -105,7 +105,7 @@ def health():
     mosquitto_ok = False
     try:
         mqtt_host = os.environ["MQTT_BROKER"]
-        mqtt_port = int(os.environ.get("MQTT_PORT", 1883))
+        mqtt_port = int(os.environ.get("MQTT_PORT"))
         with socket.create_connection((mqtt_host, mqtt_port), timeout=1):
             mosquitto_ok = True
     except Exception:

@@ -380,7 +380,8 @@ def main():
                 desired_url = cam_data.get("recording_rtsp") or cam_data.get("rtsp_url")
                 cam_user = cam_data.get("username")
                 cam_pass = cam_data.get("password")
-                if desired_url and cam_user and cam_pass:
+                is_edge = cam_data.get("source") == "edge" or cam_data.get("is_edge_camera")
+                if desired_url and cam_user and cam_pass and not is_edge:
                     desired_url = inject_credentials(desired_url, cam_user, cam_pass)
                 
                 # If camera is running but URL changed (e.g. user clicked Sub Stream in UI)

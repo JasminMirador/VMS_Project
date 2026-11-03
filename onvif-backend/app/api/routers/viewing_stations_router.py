@@ -253,8 +253,8 @@ def get_ice_servers():
     return {
         "success": True,
         "iceServers": [
-            {"urls": "stun:global.stun.twilio.com:3478"},
-            {"urls": "stun:stun.l.google.com:19302"}
+            {"urls": os.environ.get("STUN_SERVER_TWILIO")},
+            {"urls": os.environ.get("STUN_SERVER_GOOGLE")}
         ]
     }
 

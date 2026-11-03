@@ -281,6 +281,30 @@
   color: var(--brand);
 }
 
+.lv-group-dropdown {
+  min-width: 150px;
+  max-width: 260px;
+  max-height: 280px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.lv-group-dropdown::-webkit-scrollbar {
+  width: 4px;
+}
+.lv-group-dropdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+.lv-group-dropdown::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+.lv-group-count {
+  margin-left: 8px;
+  font-size: 11px;
+  opacity: 0.65;
+  font-weight: 500;
+}
+
 .lv-station-name-input {
   background: transparent;
   border: 1px solid var(--border);

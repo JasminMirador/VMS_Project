@@ -3,6 +3,7 @@ import Toggle from "../../components/shared/Toggle";
 import { useUserSettings } from "../../context/UserSettingsContext";
 import ServerFolderPicker from "../../components/shared/ServerFolderPicker";
 import "./UserSettingsPage.css";
+import { apiUrl } from "../../config/appConfig";
 
 export default function UserSettingsPage() {
   const { settings, saveSettings } = useUserSettings();
@@ -51,8 +52,8 @@ export default function UserSettingsPage() {
       try {
         const token = localStorage.getItem("token") || sessionStorage.getItem("token");
         const headers = token ? { "Authorization": `Bearer ${token}` } : {};
-        const API = import.meta.env.VITE_API_URL || "";
-        const res = await fetch(`${API}/api/pick-folder`, { headers });
+
+        const res = await fetch(apiUrl("/pick-folder"), { headers });
         const data = await res.json();
         if (data.success && data.path) {
           updateDraft('snapFolder', data.path);

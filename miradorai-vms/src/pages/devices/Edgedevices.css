@@ -314,3 +314,23 @@
   background: rgba(34, 197, 94, 0.12);
   color: #22c55e;
 }
+
+/* ?? Edge Box Add Camera Actions ?????????????????????????????????????????? */
+.edge-box__add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--teal, #14b8a6);
+  cursor: pointer;
+  padding: 3px 5px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+.edge-box__add-btn:hover {
+  color: #fff;
+  background: rgba(20, 184, 166, 0.25);
+  box-shadow: 0 0 8px rgba(20, 184, 166, 0.4);
+}
+

@@ -53,8 +53,8 @@ async def _get_client():
         try:
             import redis.asyncio as aioredis    # imported lazily so import errors are caught
 
-            host     = os.environ.get("REDIS_HOST", "127.0.0.1")
-            port     = int(os.environ.get("REDIS_PORT", 6379))
+            host     = os.environ.get("REDIS_HOST")
+            port     = int(os.environ.get("REDIS_PORT"))
             password = os.environ.get("REDIS_PASSWORD") or None
 
             client = aioredis.Redis(
@@ -70,8 +70,8 @@ async def _get_client():
         except Exception as exc:
             print(
                 f"[REDIS] ⚠ Could not connect to Redis at "
-                f"{os.environ.get('REDIS_HOST','127.0.0.1')}:"
-                f"{os.environ.get('REDIS_PORT','6379')} — {exc}\n"
+                f"{os.environ.get('REDIS_HOST')}:"
+                f"{os.environ.get('REDIS_PORT')} — {exc}\n"
                 f"        Stream publishing is disabled until Redis becomes available."
             )
 
@@ -124,6 +124,7 @@ async def publish_event(
             approximate=True,               # O(1) trim — no performance impact
         )
 
+        await client.publish("vms_config_updates", "update")
         print(
             f"[REDIS] Published  | stream={stream}"
             f"  event_type={event_type}"

@@ -1,0 +1,194 @@
+/* Loader.css - Universal loader styling for Mirador VMS */
+ 
+.mirador-loader {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    position: relative;
+    box-sizing: border-box;
+}
+ 
+/* ── Variants ── */
+.mirador-loader--area {
+    width: 100%;
+    min-height: 240px;
+    padding: 48px 24px;
+    background: transparent;
+}
+ 
+.mirador-loader--overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    background: rgba(10, 12, 16, 0.72);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    border-radius: inherit;
+}
+ 
+.mirador-loader--fullscreen {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: rgba(10, 12, 16, 0.85);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+ 
+.mirador-loader--inline {
+    display: inline-flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    min-height: unset;
+    padding: 0;
+    vertical-align: middle;
+}
+ 
+/* ── Spinner Ring ── */
+.mirador-loader__spinner-box {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+ 
+.mirador-loader__ring {
+    border-radius: 50%;
+    border-style: solid;
+    animation: mirador-spin 0.9s cubic-bezier(0.55, 0.15, 0.45, 0.85) infinite;
+}
+ 
+/* Sizes */
+.mirador-loader--sm .mirador-loader__ring {
+    width: 22px;
+    height: 22px;
+    border-width: 2.5px;
+    border-color: rgba(34, 211, 238, 0.2);
+    border-top-color: var(--brand, #22d3ee);
+    border-right-color: var(--teal, #10b981);
+}
+ 
+.mirador-loader--md .mirador-loader__ring {
+    width: 44px;
+    height: 44px;
+    border-width: 3.5px;
+    border-color: rgba(34, 211, 238, 0.18);
+    border-top-color: var(--brand, #22d3ee);
+    border-right-color: var(--teal, #10b981);
+}
+ 
+.mirador-loader--lg .mirador-loader__ring {
+    width: 60px;
+    height: 60px;
+    border-width: 4px;
+    border-color: rgba(34, 211, 238, 0.15);
+    border-top-color: var(--brand, #22d3ee);
+    border-right-color: var(--teal, #10b981);
+}
+ 
+/* Glow Effect */
+.mirador-loader__glow {
+    position: absolute;
+    inset: -6px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(34, 211, 238, 0.22) 0%, transparent 70%);
+    animation: mirador-pulse 2s ease-in-out infinite;
+    pointer-events: none;
+}
+ 
+.mirador-loader--sm .mirador-loader__glow {
+    display: none;
+}
+ 
+/* Text */
+.mirador-loader__text {
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--text-secondary, #94a3b8);
+    text-align: center;
+    animation: mirador-fade 1.8s ease-in-out infinite;
+}
+ 
+.mirador-loader--sm .mirador-loader__text {
+    font-size: 12px;
+}
+ 
+.mirador-loader--lg .mirador-loader__text {
+    font-size: 14px;
+    font-weight: 600;
+}
+ 
+/* ── Skeleton Table Rows ── */
+.mirador-loader__skeleton {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px 20px;
+}
+ 
+.mirador-loader__skeleton-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+    height: 38px;
+    background: linear-gradient(90deg,
+            rgba(255, 255, 255, 0.03) 25%,
+            rgba(255, 255, 255, 0.07) 50%,
+            rgba(255, 255, 255, 0.03) 75%);
+    background-size: 200% 100%;
+    border-radius: 6px;
+    animation: mirador-shimmer 1.8s ease-in-out infinite;
+}
+ 
+/* ── Keyframes ── */
+@keyframes mirador-spin {
+    0% {
+        transform: rotate(0deg);
+    }
+ 
+    100% {
+        transform: rotate(360deg);
+    }
+}
+ 
+@keyframes mirador-pulse {
+ 
+    0%,
+    100% {
+        opacity: 0.3;
+        transform: scale(0.92);
+    }
+ 
+    50% {
+        opacity: 0.8;
+        transform: scale(1.12);
+    }
+}
+ 
+@keyframes mirador-fade {
+ 
+    0%,
+    100% {
+        opacity: 0.65;
+    }
+ 
+    50% {
+        opacity: 1;
+    }
+}
+ 
+@keyframes mirador-shimmer {
+    0% {
+        background-position: 200% 0;
+    }
+ 
+    100% {
+        background-position: -200% 0;
+    }
+}

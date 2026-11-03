@@ -375,7 +375,8 @@ import urllib.request
 
 @router.get("/media/{path:path}")
 def proxy_external_ai_media(path: str = Path(..., max_length=1024)):
-    target_url = f"http://192.168.126.201:9000/{path}"
+    media_base = os.environ.get("EXTERNAL_AI_MEDIA_URL") or f"http://{os.environ.get('EXTERNAL_AI_HOST')}:{os.environ.get('MINIO_PORT')}"
+    target_url = f"{media_base.rstrip('/')}/{path}"
     try:
         # Fetch directly using standard urllib which is allowed on system level
         req = urllib.request.Request(target_url, method="GET")

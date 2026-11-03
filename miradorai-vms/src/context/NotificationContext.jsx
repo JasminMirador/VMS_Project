@@ -4,6 +4,7 @@ import { useAuth } from "./AuthContext";
 import { useUserSettings } from "./UserSettingsContext";
 import { useNotificationPermission } from "../hooks/useNotificationPermission";
 import { useWebSocket } from "../hooks/useWebSocket";
+import { apiUrl } from "../config/appConfig";
 import "./NotificationContext.css";
 
 const NotificationContext = createContext({});
@@ -65,7 +66,7 @@ export const NotificationProvider = ({ children }) => {
       } catch(e) {}
     } else if (soundType === "file" && filePath) {
       try {
-        const url = `${import.meta.env.VITE_API_URL || ""}/api/stream-audio?path=${encodeURIComponent(filePath)}`;
+        const url = apiUrl(`/stream-audio?path=${encodeURIComponent(filePath)}`);
         const audio = new Audio(url);
         audio.play().catch(e => console.error("Audio play failed:", e));
       } catch(e) {}

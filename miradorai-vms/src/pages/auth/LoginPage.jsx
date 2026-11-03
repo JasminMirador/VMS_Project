@@ -234,7 +234,7 @@ const LoginPage = () => {
   const [signInError, setSignInError] = useState("");
   const [signInSuccess, setSignInSuccess] = useState("");
   const [activeSessionWarning, setActiveSessionWarning] = useState(null);
-  const [keepLoggedIn, setKeepLoggedIn] = useState(false);
+  const [keepLoggedIn, setKeepLoggedIn] = useState(true);
   const signInPasswordRef = useRef(null);
 
   // After a failed login the password is cleared; put the cursor back in it

@@ -2,8 +2,8 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useDigitalZoom } from "../../hooks/useDigitalZoom";
 import { useAuth } from "../../context/AuthContext";
 import "./ForensicSearchPage.css";
+import { apiUrl } from "../../config/appConfig";
 
-const API_BASE = import.meta.env.VITE_API_URL || "";
 
 const COLORS = [
   { name: "white",  hex: "#f8fafc", textDark: true  },
@@ -27,9 +27,10 @@ function getAuthHeaders() {
 function authUrl(path) {
   const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
   const separator = path.includes("?") ? "&" : "?";
+  const clean = path.startsWith("/api") ? path.slice(4) : path;
   return token
-    ? `${API_BASE}${path}${separator}token=${encodeURIComponent(token)}`
-    : `${API_BASE}${path}`;
+    ? `${apiUrl(clean)}${separator}token=${encodeURIComponent(token)}`
+    : apiUrl(clean);
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -327,7 +328,7 @@ export default function ForensicSearchPage() {
   const fetchCameras = async () => {
     let camList = [];
     try {
-      const res  = await fetch(`${API_BASE}/api/cameras`, { headers: getAuthHeaders() });
+      const res  = await fetch(apiUrl("/cameras"), { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) {
@@ -358,7 +359,7 @@ export default function ForensicSearchPage() {
 
   const fetchStatus = async () => {
     try {
-      const res  = await fetch(`${API_BASE}/api/forensic/index-status`, { headers: getAuthHeaders() });
+      const res  = await fetch(apiUrl("/forensic/index-status"), { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         setStatusData(data);
@@ -386,7 +387,7 @@ export default function ForensicSearchPage() {
         `bag=${bag}`,
       ].join("&") + cameraQuery;
 
-      const res  = await fetch(`${API_BASE}/api/forensic/search?${qs}`, { headers: getAuthHeaders() });
+      const res  = await fetch(apiUrl(`/forensic/search?${qs}`), { headers: getAuthHeaders() });
       const data = await res.json();
       if (data.success) setResults(data.results || []);
       fetchStatus();
@@ -402,7 +403,7 @@ export default function ForensicSearchPage() {
   const handleReindex = async (camId, startDate, endDate) => {
     try {
       await fetch(
-        `${API_BASE}/api/forensic/reindex?camera_id=${encodeURIComponent(camId)}&start_date=${startDate}&end_date=${endDate}`,
+        apiUrl(`/forensic/reindex?camera_id=${encodeURIComponent(camId)}&start_date=${startDate}&end_date=${endDate}`),
         { method: "POST", headers: getAuthHeaders() }
       );
     } catch (e) {
@@ -450,7 +451,7 @@ export default function ForensicSearchPage() {
     setActiveTrack(null);
     setVideoError(false);
     try {
-      const res  = await fetch(`${API_BASE}/api/forensic/track`, {
+      const res  = await fetch(apiUrl("/forensic/track"), {
         method:  "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body:    JSON.stringify({ detection_ids: detIdsArray, detection_id: detIdsArray[0] }),

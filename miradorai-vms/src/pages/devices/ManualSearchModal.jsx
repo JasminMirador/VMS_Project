@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
+import { getNumber, apiUrl } from '../../config/appConfig';
 
-const API_BASE = import.meta.env.VITE_API_URL;
 
 const css = `
   .msm-overlay {
@@ -426,7 +426,7 @@ export default function ManualSearchModal({
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 60000);
 
-      const res = await fetch(`${API_BASE}/api/onvif/probe`, {
+      const res = await fetch(apiUrl('/onvif/probe'), {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
@@ -434,7 +434,7 @@ export default function ManualSearchModal({
         },
         body: JSON.stringify({
           ip,
-          port: port ? Number(port) : 80,
+          port: port ? Number(port) : getNumber("CAMERA_DEFAULT_PORT", 80),
           username: user,
           password: pass,
           group_id: selectedGroupId,
@@ -490,7 +490,7 @@ export default function ManualSearchModal({
     setDiscovered(null);
 
     try {
-      const res = await fetch(`${API_BASE}/api/streams/register-direct`, {
+      const res = await fetch(apiUrl('/streams/register-direct'), {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
@@ -558,7 +558,7 @@ export default function ManualSearchModal({
       : [{ source: 1, profiles: discovered?.profiles || [] }];
 
     if (mode === "onvif") {
-      const enrollPort = detectedPort || port || "80";
+      const enrollPort = detectedPort || port || String(getNumber("CAMERA_DEFAULT_PORT", 80));
       onEnroll?.({
         cameraName,
         ip,
@@ -702,10 +702,10 @@ export default function ManualSearchModal({
                 <input
                   tabIndex={3}
                   className={`msm-input ${errors.port ? "error" : ""}`}
-                  placeholder="80"
+                  placeholder={String(getNumber("CAMERA_DEFAULT_PORT", 80))}
                   value={port}
                   onChange={(e) => { setPort(e.target.value); setErrors((s) => ({ ...s, port: "" })); }}
-                  onBlur={() => { if (!port) setPort("80"); }}
+                  onBlur={() => { if (!port) setPort(String(getNumber("CAMERA_DEFAULT_PORT", 80))); }}
                 />
                 {errors.port && <span className="msm-error-msg">{errors.port}</span>}
               </div>

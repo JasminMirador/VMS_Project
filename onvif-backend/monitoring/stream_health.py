@@ -279,7 +279,9 @@ async def probe_camera_stream(node: dict) -> dict:
     }
 
     # 3. ONVIF probe (gives resolution/fps/bitrate/codec more reliably)
-    onvif_port = 8080 if onvif_open else (80 if http_open else None)
+    cam_default_port = int(os.environ.get("CAMERA_DEFAULT_PORT"))
+    cam_alt_port = int(os.environ.get("CAMERA_ALT_PORT"))
+    onvif_port = cam_alt_port if onvif_open else (cam_default_port if http_open else None)
     onvif_data = {}
     if onvif_port:
         onvif_data = await _probe_onvif_stream(ip, onvif_port, user, password)

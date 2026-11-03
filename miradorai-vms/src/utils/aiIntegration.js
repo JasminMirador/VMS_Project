@@ -4,6 +4,8 @@
  * call (e.g. inside AuthContext which runs before AiAnalyticsPage mounts).
  */
 
+import { apiUrl } from "../config/appConfig";
+
 const AI_IP_CACHE_KEY = "miradorai_ai_server_ip";
 const FALLBACK_IP = "192.168.126.35";
 
@@ -16,10 +18,10 @@ export async function fetchAndCacheAiIp() {
   try {
     const token =
       (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || localStorage.getItem("token");
-    const API_BASE =
-      (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) ||
-      "";
-    const res = await fetch(API_BASE + "/api/integrations", {
+
+
+
+    const res = await fetch(apiUrl("/integrations"), {
       headers: token ? { Authorization: "Bearer " + token } : {},
     });
 

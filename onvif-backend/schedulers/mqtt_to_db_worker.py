@@ -10,7 +10,7 @@ from app.utils.minio_client import upload_bytes
 
 # ── Config ─────────────────────────────────────────────────────────
 MQTT_BROKER  = os.environ["MQTT_BROKER"]
-MQTT_PORT    = int(os.environ.get("MQTT_PORT", 1883))
+MQTT_PORT    = int(os.environ.get("MQTT_PORT"))
 
 # Topics to subscribe:
 #   axis/#  → Axis cameras pushing their own MQTT events (existing)
@@ -81,7 +81,9 @@ def capture_and_append_snapshot(document, ip_slug):
     if current_time - last_time > 3.0:
         _last_snapshot_time[ip_slug] = current_time
         
-        mediamtx_host = os.environ.get("MEDIAMTX_HOST", "127.0.0.1:8554")
+        host = os.environ.get("MEDIAMTX_HOST") or os.environ.get("HOST_IP") or "127.0.0.1"
+        port = os.environ.get("MEDIAMTX_RTSP_PORT", "8554")
+        mediamtx_host = f"{host}:{port}" if ":" not in host else host
         stream_key = ip_slug
         rtsp_url = f"rtsp://{mediamtx_host}/{stream_key}"
         
@@ -103,7 +105,8 @@ def capture_and_append_snapshot(document, ip_slug):
             minio_path = f"alerts/{ip_slug}_{clean_time}.jpg"
             
             if upload_bytes(minio_path, img_bytes):
-                minio_endpoint = os.environ.get("MINIO_ENDPOINT", "192.168.1.2:9000")
+                default_minio = f"{os.environ.get('HOST_IP')}:{os.environ.get('MINIO_PORT')}"
+                minio_endpoint = os.environ.get("MINIO_ENDPOINT", default_minio)
                 minio_bucket = os.environ.get("MINIO_BUCKET", "vms-recordings")
                 document["imageUrl"] = f"http://{minio_endpoint}/{minio_bucket}/{minio_path}"
                 print(f"[MQTT] Snapshot successfully saved: {document['imageUrl']}")

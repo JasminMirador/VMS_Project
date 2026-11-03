@@ -71,7 +71,8 @@ class NetworkScanner:
         manufacturer = ""
         model = ""
 
-        if ip == "192.168.126.3":
+        switch_ip = os.environ.get("SWITCH_IP")
+        if ip == switch_ip:
             device_type = "switch"
             manufacturer = "Cisco Systems, Inc."
             model = "Cisco Switch"
@@ -85,7 +86,9 @@ class NetworkScanner:
         elif 22 in open_ports:
             device_type = "server"
         elif 80 in open_ports or 8080 in open_ports:
-            port = 80 if 80 in open_ports else 8080
+            cam_default_port = int(os.environ.get("CAMERA_DEFAULT_PORT"))
+            cam_alt_port = int(os.environ.get("CAMERA_ALT_PORT"))
+            port = cam_default_port if cam_default_port in open_ports else cam_alt_port
             dtype, mfr, mdl = _classify_device(ip, port)
             device_type = dtype if dtype != "unknown" else "web_device"
             manufacturer = mfr

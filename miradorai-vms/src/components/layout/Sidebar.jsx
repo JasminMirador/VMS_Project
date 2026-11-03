@@ -10,6 +10,7 @@ import Dock from "../shared/Dock/Dock";
 import { createPortal } from "react-dom";
 
 import "./Sidebar.css";
+import { apiUrl } from "../../config/appConfig";
 
 function SvgIcon({ html }) {
   return (
@@ -94,11 +95,11 @@ export default function Sidebar({ userRole,language = 'en' }) {
               : "",
           };
 
-          const API_BASE =
-            import.meta.env.VITE_API_URL || "";
+
+
 
           const res = await fetch(
-            `${API_BASE}/api/integrations`,
+            apiUrl("/integrations"),
             {
               headers,
             }

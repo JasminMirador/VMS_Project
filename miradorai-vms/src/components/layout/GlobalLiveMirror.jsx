@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import * as rrweb from 'rrweb';
+import { wsEventsUrl, getEnv, apiUrl } from '../../config/appConfig';
 
 export default function GlobalLiveMirror() {
   const pcRef = useRef(null);
@@ -13,11 +14,10 @@ export default function GlobalLiveMirror() {
     let globalHeartbeatInterval = null;
     let initTimeout = null;
     let mounted = true;
-    const apiBase = import.meta.env.VITE_API_URL || '';
 
     const getRtcConfig = async () => {
       try {
-        const res = await fetch(`${apiBase}/api/viewing-stations/ice-servers`);
+        const res = await fetch(apiUrl('/viewing-stations/ice-servers'));
         if (res.ok) {
           const data = await res.json();
           if (data.iceServers && data.iceServers.length > 0) {
@@ -30,23 +30,22 @@ export default function GlobalLiveMirror() {
       }
       return {
         iceServers: [
-          { urls: "stun:global.stun.twilio.com:3478" },
-          { urls: "stun:stun.l.google.com:19302" },
-          {
-            urls: "turn:global.turn.twilio.com:3478?transport=udp",
+          { urls: getEnv("STUN_SERVER") },
+          ...(getEnv("TURN_SERVER_UDP") ? [{
+            urls: getEnv("TURN_SERVER_UDP"),
             username: "d3caa20dc03b96f465cf78ae677e43a12842daa2b27febcef8d41ac2ee74db84",
             credential: "iPnaKnb4WYyxGP6nlQap2K5Adx4resPtdbt6hxK/YSw="
-          },
-          {
-            urls: "turn:global.turn.twilio.com:3478?transport=tcp",
+          }] : []),
+          ...(getEnv("TURN_SERVER_TCP") ? [{
+            urls: getEnv("TURN_SERVER_TCP"),
             username: "d3caa20dc03b96f465cf78ae677e43a12842daa2b27febcef8d41ac2ee74db84",
             credential: "iPnaKnb4WYyxGP6nlQap2K5Adx4resPtdbt6hxK/YSw="
-          },
-          {
-            urls: "turn:global.turn.twilio.com:443?transport=tcp",
+          }] : []),
+          ...(getEnv("TURN_SERVER_TLS") ? [{
+            urls: getEnv("TURN_SERVER_TLS"),
             username: "d3caa20dc03b96f465cf78ae677e43a12842daa2b27febcef8d41ac2ee74db84",
             credential: "iPnaKnb4WYyxGP6nlQap2K5Adx4resPtdbt6hxK/YSw="
-          }
+          }] : [])
         ]
       };
     };
@@ -74,26 +73,27 @@ export default function GlobalLiveMirror() {
     const checkAndConnect = () => {
       if (!mounted) return;
       
-      let sid = sessionStorage.getItem("miradorai_workstation_id");
+      let sid = localStorage.getItem("miradorai_workstation_id") || sessionStorage.getItem("miradorai_workstation_id");
       if (!sid) {
         sid = "ws-" + Math.random().toString(36).substring(2, 8);
-        sessionStorage.setItem("miradorai_workstation_id", sid);
       }
-      let sname = sessionStorage.getItem("miradorai_workstation_name");
+      localStorage.setItem("miradorai_workstation_id", sid);
+      sessionStorage.removeItem("miradorai_workstation_id");
+
+      let sname = localStorage.getItem("miradorai_workstation_name") || sessionStorage.getItem("miradorai_workstation_name");
       if (!sname) {
         sname = "Terminal " + sid.split("-")[1].toUpperCase();
-        sessionStorage.setItem("miradorai_workstation_name", sname);
       }
+      localStorage.setItem("miradorai_workstation_name", sname);
+      sessionStorage.removeItem("miradorai_workstation_name");
 
       const stationDetails = { sid, sname };
-      
-      const apiBase = import.meta.env.VITE_API_URL || '';
       
       const sendGlobalHeartbeat = async () => {
         const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
         if (!token || window.location.pathname.includes('/live-view')) return;
         try {
-          await fetch(`${apiBase}/api/viewing-stations/heartbeat`, {
+          await fetch(apiUrl('/viewing-stations/heartbeat'), {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -116,14 +116,7 @@ export default function GlobalLiveMirror() {
 
       const connect = () => {
         if (!mounted) return;
-        const apiBase = import.meta.env.VITE_API_URL || '';
-        let wsUrl = '';
-        if (apiBase) {
-          wsUrl = apiBase.replace(/^http/, 'ws') + '/ws/events?topics=station_' + stationDetails.sid;
-        } else {
-          const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-          wsUrl = protocol + '//' + window.location.host + '/ws/events?topics=station_' + stationDetails.sid;
-        }
+        const wsUrl = wsEventsUrl('station_' + stationDetails.sid);
 
         console.log("[GlobalLiveMirror] Connecting to WebSocket:", wsUrl);
         ws = new WebSocket(wsUrl);

@@ -1,4 +1,4 @@
-const API = import.meta.env.VITE_API_URL || "";
+import { apiUrl } from "../config/appConfig";
 
 /**
  * Sends the base64 snapshot data to the backend to be saved at the absolute path specified in settings.
@@ -17,7 +17,7 @@ export async function saveSnapshotToBackend(base64Data, cameraName, settings, sh
       ...(token ? { "Authorization": `Bearer ${token}` } : {})
     };
 
-    const res = await fetch(`${API}/api/snapshot/save`, {
+    const res = await fetch(apiUrl("/snapshot/save"), {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -65,7 +65,7 @@ export async function openSnapshotFolder(folderPath, showToast) {
       ...(token ? { "Authorization": `Bearer ${token}` } : {})
     };
 
-    const res = await fetch(`${API}/api/open-folder`, {
+    const res = await fetch(apiUrl("/open-folder"), {
       method: "POST",
       headers,
       body: JSON.stringify({ folder_path: folderPath })

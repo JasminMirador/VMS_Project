@@ -38,7 +38,7 @@ KEY_FILE       = os.environ.get("VIDEO_KEY_FILE", "/app/data/video.key")  # Must
 
 # On Windows host, map default container path to the actual devices_data folder in VMS_Project
 if os.name == 'nt' and KEY_FILE == "/app/data/video.key":
-    sibling_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "devices_data", "video.key"))
+    sibling_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "devices_data", "video.key"))
     if os.path.exists(sibling_path):
         KEY_FILE = sibling_path
     else:
@@ -69,7 +69,7 @@ if not _SQLITE_QUEUE_DB:
         _SQLITE_QUEUE_DB = "/app/data/local_metadata_queue.db"
     else:
         # Native Windows fallback
-        _SQLITE_QUEUE_DB = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "devices_data", "local_metadata_queue.db"))
+        _SQLITE_QUEUE_DB = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "devices_data", "local_metadata_queue.db"))
 
 # Create parent directories if they don't exist
 try:

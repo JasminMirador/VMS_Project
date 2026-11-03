@@ -15,7 +15,7 @@ for _parent in [_here.parent, *_here.parents]:
                 os.environ.setdefault(_key.strip(), _val.strip().strip("'\""))
         break
  
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
+MONGO_URI = os.environ.get("MONGO_URI")
 MONGO_DB_NAME = os.environ.get("MONGO_DB_NAME", "vms_demo")
  
 def create_database_indexes(db_instance):

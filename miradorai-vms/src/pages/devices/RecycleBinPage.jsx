@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from "react";
 import SearchBar from "../../components/shared/SearchBar";
 import "./RecycleBinPage.css";
+import { apiUrl } from "../../config/appConfig";
 
-const BACKEND =
-  import.meta.env.VITE_API_URL ??
-  `http://${import.meta.env.VITE_API_HOST}:${import.meta.env.VITE_API_PORT}`;
+
+
+
 
 /* ── Toast ── */
 function Toast({ toast }) {
@@ -85,7 +86,7 @@ function RecycleBinPage() {
     try {
       setLoading(true);
       const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || "";
-      const res = await fetch(`${BACKEND}/api/cameras/trash`, {
+      const res = await fetch(apiUrl("/cameras/trash"), {
         headers: { "Authorization": `Bearer ${token}` }
       });
       if (!res.ok) throw new Error("Failed to fetch recycle bin");
@@ -112,7 +113,7 @@ function RecycleBinPage() {
       async () => {
         try {
           const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || "";
-          const res = await fetch(`${BACKEND}/api/cameras/${cam.ip}/restore`, {
+          const res = await fetch(apiUrl(`/cameras/${cam.ip}/restore`), {
             method: "PUT",
             headers: { "Authorization": `Bearer ${token}` }
           });
@@ -137,7 +138,7 @@ function RecycleBinPage() {
       async () => {
         try {
           const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || "";
-          const res = await fetch(`${BACKEND}/api/cameras/${cam.ip}/hard`, {
+          const res = await fetch(apiUrl(`/cameras/${cam.ip}/hard`), {
             method: "DELETE",
             headers: { "Authorization": `Bearer ${token}` }
           });

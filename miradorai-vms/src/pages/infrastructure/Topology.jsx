@@ -8,8 +8,9 @@ import 'reactflow/dist/style.css';
 import SpecularButton from "../../components/shared/SpecularButton";
 import { useTheme } from "../../context/ThemeContext";
 import './Topology.css';
+import { apiUrl } from "../../config/appConfig";
 
-const API_BASE = (import.meta.env.VITE_API_URL || "") + "/api/infrastructure";
+const API_BASE = apiUrl("/infrastructure");
 
 const BW_SPIKE_THRESHOLD_MBPS = 80;
 

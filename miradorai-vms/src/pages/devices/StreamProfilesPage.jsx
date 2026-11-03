@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import "./StreamProfilesPage.css";
+import { getNumber, apiUrl } from '../../config/appConfig';
 
-const API = import.meta.env.VITE_API_URL || "";
 
 const LABEL_STYLES = {
   MAIN:  { bg: "rgba(59, 130, 246, 0.15)", color: "#60a5fa",  border: "rgba(59, 130, 246, 0.4)" },
@@ -525,7 +525,7 @@ export default function StreamProfilesPage() {
     }
 
     if (selectedIp) {
-      fetch(`${API}/api/cameras/by-ip/${encodeURIComponent(selectedIp)}`)
+      fetch(apiUrl(`/cameras/by-ip/${encodeURIComponent(selectedIp)}`))
         .then((r) => { if (!r.ok) throw new Error("not found"); return r.json(); })
         .then(applyDeviceData)
         .catch(fallbackToLocalStorage);
@@ -562,11 +562,11 @@ export default function StreamProfilesPage() {
     setApplying(true);
     setApplyResult(null);
     try {
-      const res = await fetch(`${API}/api/streams/assign`, {
+      const res = await fetch(apiUrl('/streams/assign'), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ip: camera.ip, port: camera.port || 80,
+          ip: camera.ip, port: camera.port || getNumber("CAMERA_DEFAULT_PORT", 80),
           username: camera.username || "",
           manufacturer: camera.manufacturer || "",
           model: camera.model || "",

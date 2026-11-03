@@ -2,15 +2,16 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import * as XLSX from "xlsx";
 import { useI18n } from "../../i18n";
 import "../Dashboard/DashboardNewPage.css";
+import { apiUrl } from "../../config/appConfig";
 
 /* ───────────────────────── data helpers ───────────────────────── */
-const API_BASE = import.meta.env.VITE_API_URL || "";
 const getAuthHeaders = () => {
   const token = localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token");
   return token ? { Authorization: "Bearer " + token } : {};
 };
 const api = async (path) => {
-  const res = await fetch(API_BASE + path, { headers: getAuthHeaders() });
+  const cleanPath = path.startsWith("/api") ? path.slice(4) : path;
+  const res = await fetch(apiUrl(cleanPath), { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(path + " " + res.status);
   return res.json();
 };

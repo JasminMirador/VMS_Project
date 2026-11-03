@@ -27,7 +27,9 @@ async def async_capture_snapshot(alert, ip_slug):
     
     if current_time - last_time > 3.0:
         _last_snapshot_time[ip_slug] = current_time
-        mediamtx_host = os.environ.get("MEDIAMTX_HOST", "127.0.0.1:8554")
+        host = os.environ.get("MEDIAMTX_HOST") or os.environ.get("HOST_IP") or "127.0.0.1"
+        port = os.environ.get("MEDIAMTX_RTSP_PORT", "8554")
+        mediamtx_host = f"{host}:{port}" if ":" not in host else host
         rtsp_url = f"rtsp://{mediamtx_host}/{ip_slug}"
         cmd = ["ffmpeg", "-y", "-rtsp_transport", "tcp", "-i", rtsp_url, "-vframes", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-"]
         success, img_bytes, err = await run_ffmpeg_async(cmd, timeout=5, capture_stdout=True)
@@ -35,7 +37,8 @@ async def async_capture_snapshot(alert, ip_slug):
             clean_time = datetime.now().strftime("%Y%m%d_%H%M%S")
             minio_path = f"alerts/{ip_slug}_{clean_time}.jpg"
             if minio_client.upload_bytes(minio_path, img_bytes):
-                minio_endpoint = os.environ.get("MINIO_ENDPOINT", "192.168.1.200:9000")
+                default_minio = f"{os.environ.get('HOST_IP')}:{os.environ.get('MINIO_PORT')}"
+                minio_endpoint = os.environ.get("MINIO_ENDPOINT", default_minio)
                 minio_bucket = os.environ.get("MINIO_BUCKET", "vms-recordings")
                 alert["imageUrl"] = f"http://{minio_endpoint}/{minio_bucket}/{minio_path}"
 

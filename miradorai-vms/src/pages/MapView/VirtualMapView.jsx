@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import "./VirtualMapView.css";
 import WebRTCPlayer_MediaMTX from "../../components/shared/WebRTCPlayer_MediaMTX";
+import { apiUrl } from "../../config/appConfig";
 
-const API = import.meta.env.VITE_API_URL || "";
+
 
 function getAuthHeaders() {
   const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || localStorage.getItem("token") || "";
@@ -88,7 +89,7 @@ export default function VirtualMapView({
   useEffect(() => {
     const fetchRecordingStatus = async () => {
       try {
-        const res = await fetch(`${API}/api/recordings/status`, {
+        const res = await fetch(apiUrl("/recordings/status"), {
           headers: getAuthHeaders()
         });
         if (res.ok) {
@@ -332,7 +333,7 @@ function ExpandedFeed({ cam, marker, onClose }) {
     if (tab !== "alerts") return;
     setLA(true);
     const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || localStorage.getItem("token") || "";
-    fetch(`${API}/api/alerts?camera_ip=${cam.ip}&limit=100`, {
+    fetch(apiUrl(`/alerts?camera_ip=${cam.ip}&limit=100`), {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
       .then(r => r.ok ? r.json() : null)

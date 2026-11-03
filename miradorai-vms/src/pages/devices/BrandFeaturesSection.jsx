@@ -12,8 +12,8 @@
  */
 
 import { useState, useEffect } from "react";
+import { getNumber, apiUrl } from '../../config/appConfig';
 
-const API = import.meta.env.VITE_API_URL;
 
 // Brand display config — purely cosmetic
 const BRAND_META = {
@@ -76,7 +76,7 @@ export default function BrandFeaturesSection({ device, caps, showToast }) {
 
         // 1. Get brand capabilities
         const capData = await safeFetch(
-          `${API}/api/camera/brand/capabilities/${device.ip}?${authQuery}`
+          apiUrl(`/camera/brand/capabilities/${device.ip}?${authQuery}`)
         );
 
         if (!capData) {
@@ -94,7 +94,7 @@ export default function BrandFeaturesSection({ device, caps, showToast }) {
         // 2. Get motion state
         if (capabilities.motion_detect) {
           const mData = await safeFetch(
-            `${API}/api/camera/brand/motion/${device.ip}?${authQuery}`
+            apiUrl(`/camera/brand/motion/${device.ip}?${authQuery}`)
           );
           if (mData?.success) {
             setMotion(mData.motion || null);
@@ -103,7 +103,7 @@ export default function BrandFeaturesSection({ device, caps, showToast }) {
 
         // 3. Get smart events state
         const evData = await safeFetch(
-          `${API}/api/camera/brand/smart-events/${device.ip}?${authQuery}`
+          apiUrl(`/camera/brand/smart-events/${device.ip}?${authQuery}`)
         );
         if (evData?.success) {
           setSmartEvents(evData.smart_events || {});
@@ -121,12 +121,12 @@ export default function BrandFeaturesSection({ device, caps, showToast }) {
   const toggleMotion = async (enabled) => {
     setApplying(a => ({ ...a, motion: true }));
     try {
-      const data = await safeFetch(`${API}/api/camera/brand/motion/set`, {
+      const data = await safeFetch(apiUrl('/camera/brand/motion/set'), {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ip:          device.ip,
-          port:        device.port || 80,
+          port:        device.port || getNumber("CAMERA_DEFAULT_PORT", 80),
           username:    device.username || "",
           password:    device.password || "",
           enabled,
@@ -153,12 +153,12 @@ export default function BrandFeaturesSection({ device, caps, showToast }) {
   const toggleSmartEvent = async (eventType, enabled) => {
     setApplying(a => ({ ...a, [eventType]: true }));
     try {
-      const data = await safeFetch(`${API}/api/camera/brand/smart-events/set`, {
+      const data = await safeFetch(apiUrl('/camera/brand/smart-events/set'), {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ip:         device.ip,
-          port:       device.port || 80,
+          port:       device.port || getNumber("CAMERA_DEFAULT_PORT", 80),
           username:   device.username || "",
           password:   device.password || "",
           event_type: eventType,
@@ -195,7 +195,7 @@ export default function BrandFeaturesSection({ device, caps, showToast }) {
         `username=${encodeURIComponent(device.username || "")}&password=${encodeURIComponent(device.password || "")}`;
 
       const data = await safeFetch(
-        `${API}/api/camera/brand/snapshot/${device.ip}?${authQuery}`
+        apiUrl(`/camera/brand/snapshot/${device.ip}?${authQuery}`)
       );
 
       if (!data) {
@@ -219,12 +219,12 @@ export default function BrandFeaturesSection({ device, caps, showToast }) {
   const applySensitivity = async (value) => {
     setApplying(a => ({ ...a, sensitivity: true }));
     try {
-      const data = await safeFetch(`${API}/api/camera/brand/motion/set`, {
+      const data = await safeFetch(apiUrl('/camera/brand/motion/set'), {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ip:          device.ip,
-          port:        device.port || 80,
+          port:        device.port || getNumber("CAMERA_DEFAULT_PORT", 80),
           username:    device.username || "",
           password:    device.password || "",
           enabled:     motion?.enabled ?? true,

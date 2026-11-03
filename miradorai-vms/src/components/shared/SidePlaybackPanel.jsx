@@ -8,8 +8,8 @@ import { logUIAction } from "../../hooks/useActivityLogger";
 import { formatEventName } from "../../pages/liveview/LiveViewPage";
 import { createPortal } from "react-dom";
 import "./SidePlaybackPanel.css";
+import { externalAiUrl, apiUrl } from '../../config/appConfig';
 
-const API = import.meta.env.VITE_API_URL || "";
 function getToken() {
   return (
     (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) ||
@@ -153,7 +153,7 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
       if (alertSource === "external") {
         const readerId = camera?.reader_id;
         if (!readerId) return; // no reader_id registered for this camera yet
-        const res = await fetch(`/external-ai-api/getalert?readerIds=${encodeURIComponent(readerId)}&page=1&size=500`, {
+        const res = await fetch(externalAiUrl(`/getalert?readerIds=${encodeURIComponent(readerId)}&page=1&size=500`), {
           headers: {
             "Authorization": localStorage.getItem('miradorai_sso_token') || '',
             "Content-Type": "application/json"
@@ -191,7 +191,7 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
         }
       } else {
         const urlParam = alertSource === "mqtt_ai" ? "&source=external_ai" : "";
-        const res = await fetch(`${API}/api/alerts?limit=5000${urlParam}`, {
+        const res = await fetch(apiUrl(`/alerts?limit=5000${urlParam}`), {
           headers: getAuthHeaders()
         });
         if (res.ok) {
@@ -262,7 +262,7 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
       setFiles([]);
       try {
         const res = await fetch(
-          `${API}/api/recordings/${streamKey}?date=${selectedDate}`,
+          apiUrl(`/recordings/${streamKey}?date=${selectedDate}`),
           { headers: getAuthHeaders() }
         );
         if (!cancelled && res.ok) {
@@ -407,7 +407,7 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
     const fetchMotionAlerts = async () => {
       try {
         if (!cameraIp) return;
-        const res = await fetch(`${API}/api/alerts?limit=1000&include_software_motion=true`, {
+        const res = await fetch(apiUrl('/alerts?limit=1000&include_software_motion=true'), {
           headers: getAuthHeaders()
         });
         if (res.ok && !cancelled) {
@@ -521,7 +521,7 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
 
     const cb = Date.now();
     const tk = getToken();
-    const url = `${API}/api/recordings/play`
+    const url = apiUrl('/recordings/play')
       + `?camera_id=${encodeURIComponent(file.camera_id)}`
       + `&date=${encodeURIComponent(file.date)}`
       + `&start_time=${encodeURIComponent(file.start_time)}`
@@ -550,7 +550,7 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
       const time = alert.time || alert.received_at;
       if (!time) throw new Error("Alert has no timestamp");
 
-      const url = `${API}/api/event-playback`
+      const url = apiUrl('/event-playback')
         + `?ip=${encodeURIComponent(playbackIp)}`
         + `&time=${encodeURIComponent(time)}`;
 
@@ -665,7 +665,7 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
     const safeTime = playingFile.start_time.replace(/[:\/]/g, "-");
     const safeDate = playingFile.date.replace(/[:\/]/g, "-");
     const filename = `${playingFile.camera_id}_${safeDate}_${safeTime}.zip`;
-    const url = `${API}/api/recordings/download`
+    const url = apiUrl('/recordings/download')
       + `?camera_id=${encodeURIComponent(playingFile.camera_id)}`
       + `&date=${encodeURIComponent(playingFile.date)}`
       + `&start_time=${encodeURIComponent(playingFile.start_time)}`;

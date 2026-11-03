@@ -4,6 +4,8 @@ import "./SplashScreen.css";
 
 export default function SplashScreen({
   onDone,
+  title,
+  subtitle,
   language = localStorage.getItem("mirador_language") || "en",
 }) {
   const [phase, setPhase] = useState("idle");
@@ -18,13 +20,19 @@ export default function SplashScreen({
   // SPLASH TEXT
   // =========================================================
 
-  const displayTitle = isArabic
-    ? "ميرادور في إم إس"
-    : "MIRADOR VMS";
+  const displayTitle =
+    title !== undefined && title !== null
+      ? title
+      : isArabic
+      ? "ميرادور في إم إس"
+      : "MIRADOR VMS";
 
-  const displaySubtitle = isArabic
-    ? "نظام إدارة الفيديو"
-    : "VIDEO MANAGEMENT SYSTEM";
+  const displaySubtitle =
+    subtitle !== undefined && subtitle !== null
+      ? subtitle
+      : isArabic
+      ? "نظام إدارة الفيديو"
+      : "VIDEO MANAGEMENT SYSTEM";
 
   // =========================================================
   // SPLASH ANIMATION
@@ -103,7 +111,7 @@ export default function SplashScreen({
         >
           <img
             src={logoImg}
-            alt="Mirador VMS"
+            alt={displayTitle || "Mirador VMS"}
             className="splash__logo"
           />
 
@@ -153,19 +161,21 @@ export default function SplashScreen({
             SUBTITLE
             =================================================== */}
 
-        <div
-          className={`splash__sub ${
-            phase === "text" ||
-            phase === "line" ||
-            phase === "exit"
-              ? "splash__sub--in"
-              : ""
-          }`}
-          dir={isArabic ? "rtl" : "ltr"}
-          lang={isArabic ? "ar" : "en"}
-        >
-          {displaySubtitle}
-        </div>
+        {Boolean(displaySubtitle) && (
+          <div
+            className={`splash__sub ${
+              phase === "text" ||
+              phase === "line" ||
+              phase === "exit"
+                ? "splash__sub--in"
+                : ""
+            }`}
+            dir={isArabic ? "rtl" : "ltr"}
+            lang={isArabic ? "ar" : "en"}
+          >
+            {displaySubtitle}
+          </div>
+        )}
 
 
         {/* ===================================================

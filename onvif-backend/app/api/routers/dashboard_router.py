@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, Response, HTTPException, Request, Query, UploadFile, File, Form
 from typing import Optional, List
 import json
+import re
 from app.core.database import db as _db, analytics_col, watch_collection, cameras_col
 from app.core.security import verify_token
 from bson import ObjectId
 import math
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from recorder import rtsp_recorder as recorder
 from recorder import encrypt_service
 
@@ -43,6 +44,10 @@ def get_dashboard_summary():
     ram = latest_health.get("ram", 0) if latest_health else 0
     disk = latest_health.get("disk", 0) if latest_health else 0
 
+    import psutil
+    cpu_cores = latest_health.get("cpu_cores") if latest_health and latest_health.get("cpu_cores") else (psutil.cpu_count(logical=True) or 1)
+    cpu_used_cores = round((cpu / 100.0) * cpu_cores, 1)
+    cpu_free_cores = round(max(0.0, cpu_cores - cpu_used_cores), 1)
     # 🔥 ADD ALERT LOGIC
     alerts = []
 
@@ -62,18 +67,61 @@ def get_dashboard_summary():
     elif cpu > 60 or ram > 60 or disk > 75:
         status = "Warning"
 
+    # Real hourly alarm counts for today
+    hourly_alarms = [0] * (datetime.utcnow().hour + 1)
+    try:
+        today_events = list(analytics_col.find(
+            {"received_at": {"$gte": today_start_iso}, "is_deleted": {"$ne": True}},
+            {"received_at": 1, "_id": 0}
+        ))
+        for ev in today_events:
+            rat = ev.get("received_at")
+            if rat:
+                if isinstance(rat, str):
+                    try:
+                        clean_rat = rat.replace("Z", "+00:00").replace(" ", "T")
+                        ev_dt = datetime.fromisoformat(clean_rat)
+                        h = ev_dt.hour
+                        if 0 <= h < len(hourly_alarms):
+                            hourly_alarms[h] += 1
+                    except Exception:
+                        pass
+                elif isinstance(rat, datetime):
+                    if 0 <= rat.hour < len(hourly_alarms):
+                        hourly_alarms[rat.hour] += 1
+    except Exception as ev_err:
+        print(f"[SUMMARY] Error calculating hourly alarms: {ev_err}")
+
+    # Real CPU history from health_logs
+    cpu_history = []
+    try:
+        health_docs = list(_db["health_logs"].find(
+            {"type": "system"},
+            {"cpu": 1, "_id": 0}
+        ).sort("timestamp", -1).limit(24))
+        health_docs.reverse()
+        cpu_history = [round(float(h.get("cpu", 0)), 1) for h in health_docs]
+    except Exception as h_err:
+        print(f"[SUMMARY] Error fetching cpu history: {h_err}")
+
     return {
         "total_cameras": total_cameras,
         "active_streams": active_streams,
         "alarms_today": alarms_today,
 
         "cpu": cpu,
+        "cpu_cores": cpu_cores,
+        "cpu_used_cores": cpu_used_cores,
+        "cpu_free_cores": cpu_free_cores,
         "ram": ram,
         "disk": disk,
 
         "alerts": alerts,
-        "status": status
+        "status": status,
+        "cpu_history": cpu_history,
+        "hourly_alarms": hourly_alarms
     }
+
 
 @router.get("/action-rules", )
 def get_action_rules():
@@ -314,6 +362,11 @@ def get_alert_thumbnail(ip: str, time: str, crop: int = 1, request: Request = No
 
     # Helper function for fallback SVG silhouette
     def fallback_svg(alert_type="Alert"):
+        headers = {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+        }
         svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 90" width="120" height="90">
   <rect width="120" height="90" fill="#0F172A" rx="4"/>
   <circle cx="60" cy="40" r="16" fill="#1E293B" stroke="#38BDF8" stroke-width="1.5"/>
@@ -913,12 +966,14 @@ def update_alert_status(alert_id: str, payload: dict):
 
             if updated_doc:
                 updated_doc['_id'] = str(updated_doc['_id'])
+                import os
                 import redis
                 import json
                 import uuid
                 from datetime import datetime, timezone
-                r = redis.Redis(host='127.0.0.1', port=6379, decode_responses=True)
-                import os
+                redis_host = os.environ.get("REDIS_HOST")
+                redis_port = int(os.environ.get("REDIS_PORT"))
+                r = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
                 stream_name = os.environ.get("REDIS_STREAM_OTHER_EVENTS", "vms:events:otherevent")
                 msg = {
                     "version": "1.0",

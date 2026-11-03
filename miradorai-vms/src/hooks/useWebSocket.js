@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { wsEventsUrl } from '../config/appConfig';
 
 /**
  * Custom React hook for connecting to the VMS WebSocket events stream.
@@ -24,21 +25,9 @@ export function useWebSocket(initialTopics = ['alerts', 'camera_status', 'system
   const reconnectAttemptsRef = useRef(0);
   const topicsRef = useRef(initialTopics);
 
-  // Compute WebSocket URL derived from window location or VITE_API_URL
+  // Compute WebSocket URL derived from runtime config
   const getWebSocketUrl = useCallback(() => {
-    const apiBase = import.meta.env.VITE_API_URL || '';
-    let wsUrl = '';
-
-    if (apiBase) {
-      wsUrl = apiBase.replace(/^http/, 'ws');
-    } else {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      wsUrl = `${protocol}//${window.location.host}`;
-    }
-
-    const cleanBase = wsUrl.endsWith('/') ? wsUrl.slice(0, -1) : wsUrl;
-    const topicQuery = topicsRef.current.length > 0 ? `?topics=${topicsRef.current.join(',')}` : '';
-    return `${cleanBase}/ws/events${topicQuery}`;
+    return wsEventsUrl(topicsRef.current.join(','));
   }, []);
 
   const connect = useCallback(() => {

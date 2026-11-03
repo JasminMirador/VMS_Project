@@ -5,7 +5,8 @@ from minio.error import S3Error
 from minio.commonconfig import ComposeSource
 
 # Load MinIO configuration from environment variables
-MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "192.168.1.100:9000")
+default_minio = f"{os.environ.get('HOST_IP')}:{os.environ.get('MINIO_PORT')}"
+MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", default_minio)
 # Remove http/https prefix if present, as Minio client expects raw endpoint
 if "://" in MINIO_ENDPOINT:
     MINIO_ENDPOINT = MINIO_ENDPOINT.split("://")[1]
@@ -42,13 +43,13 @@ def upload_file(object_name: str, file_path: str) -> bool:
         return False
     try:
         minio_client.fput_object(MINIO_BUCKET, object_name, file_path)
-        print(f"[MINIO] ✅ Uploaded {file_path} to {object_name}")
+        print(f"[MINIO] [OK] Uploaded {file_path} to {object_name}")
         return True
     except S3Error as e:
-        print(f"[MINIO] ❌ Upload failed for {file_path}: {e}")
+        print(f"[MINIO] [FAILED] Upload failed for {file_path}: {e}")
         return False
     except Exception as e:
-        print(f"[MINIO] ❌ Unexpected error uploading {file_path}: {e}")
+        print(f"[MINIO] [FAILED] Unexpected error uploading {file_path}: {e}")
         return False
 
 
@@ -64,7 +65,7 @@ def get_file_stream(object_name: str):
         response = minio_client.get_object(MINIO_BUCKET, object_name)
         return response
     except S3Error as e:
-        print(f"[MINIO] ❌ Get file stream failed for {object_name}: {e}")
+        print(f"[MINIO] [FAILED] Get file stream failed for {object_name}: {e}")
         raise
 
 
@@ -79,7 +80,7 @@ def list_objects(prefix: str):
         objects = minio_client.list_objects(MINIO_BUCKET, prefix=prefix, recursive=True)
         return [obj.object_name for obj in objects]
     except S3Error as e:
-        print(f"[MINIO] ❌ List objects failed for prefix {prefix}: {e}")
+        print(f"[MINIO] [FAILED] List objects failed for prefix {prefix}: {e}")
         return []
 
 
@@ -90,10 +91,10 @@ def delete_object(object_name: str) -> bool:
         return False
     try:
         minio_client.remove_object(MINIO_BUCKET, object_name)
-        print(f"[MINIO] 🗑️ Deleted {object_name}")
+        print(f"[MINIO] [DELETED] Deleted {object_name}")
         return True
     except S3Error as e:
-        print(f"[MINIO] ❌ Delete object failed for {object_name}: {e}")
+        print(f"[MINIO] [FAILED] Delete object failed for {object_name}: {e}")
         return False
 
 def upload_bytes(object_name: str, data: bytes) -> bool:
@@ -109,13 +110,13 @@ def upload_bytes(object_name: str, data: bytes) -> bool:
             data_stream,
             length=len(data)
         )
-        print(f"[MINIO] ✅ Uploaded bytes to {object_name}")
+        print(f"[MINIO] [OK] Uploaded bytes to {object_name}")
         return True
     except S3Error as e:
-        print(f"[MINIO] ❌ Upload bytes failed for {object_name}: {e}")
+        print(f"[MINIO] [FAILED] Upload bytes failed for {object_name}: {e}")
         return False
     except Exception as e:
-        print(f"[MINIO] ❌ Unexpected error uploading bytes for {object_name}: {e}")
+        print(f"[MINIO] [FAILED] Unexpected error uploading bytes for {object_name}: {e}")
         return False
 
 def compose_object(destination: str, sources: list[str]) -> bool:
@@ -125,10 +126,10 @@ def compose_object(destination: str, sources: list[str]) -> bool:
     try:
         compose_sources = [ComposeSource(MINIO_BUCKET, src) for src in sources]
         minio_client.compose_object(MINIO_BUCKET, destination, compose_sources)
-        print(f"[MINIO] ✅ Composed {len(sources)} parts into {destination}")
+        print(f"[MINIO] [OK] Composed {len(sources)} parts into {destination}")
         return True
     except Exception as e:
-        print(f"[MINIO] ❌ Compose failed for {destination}: {e}")
+        print(f"[MINIO] [FAILED] Compose failed for {destination}: {e}")
         raise
 
 def object_exists(object_name: str) -> bool:

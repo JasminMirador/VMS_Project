@@ -3,6 +3,7 @@ import Button from "../../components/shared/Button";
 import SearchBar from "../../components/shared/SearchBar";
 import WebRTCPlayer from "../../components/shared/WebRTCPlayer_MediaMTX";
 import "./PTZPresetsPage.css";
+import { getNumber, apiUrl } from '../../config/appConfig';
 
 function loadDevices() {
   try {
@@ -11,17 +12,16 @@ function loadDevices() {
   } catch { return []; }
 }
 
-const PTZ_API = import.meta.env.VITE_API_URL || "";
 
 async function sendPTZMove(device, pan, tilt, zoom) {
   if (!device?.ip) return;
   try {
-    await fetch(`${PTZ_API}/api/onvif/ptz/move`, {
+    await fetch(apiUrl('/onvif/ptz/move'), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ip:       device.ip,
-        port:     80,
+        port:     device.port || getNumber("CAMERA_DEFAULT_PORT", 80),
         username: device.username || "",
         password: device.password || "",
         pan:      parseFloat((pan  / 180).toFixed(3)),

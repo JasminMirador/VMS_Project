@@ -8,10 +8,11 @@ import {
 } from 'react-icons/fa';
 import SpecularButton from "../../components/shared/SpecularButton";
 import { useTheme } from "../../context/ThemeContext";
+import { apiUrl, getNumber } from "../../config/appConfig";
 import './BackupPage.css';
 
-const API = (import.meta.env.VITE_API_URL || "") + "/api/backup";
-const CAM_API = (import.meta.env.VITE_API_URL || "") + "/api/cameras";
+const API = apiUrl("/backup");
+const CAM_API = apiUrl("/cameras");
 
 // ── Destination options ───────────────────────────────────────────────────────
 const DEST_TYPES = [
@@ -206,7 +207,7 @@ export default function BackupPage() {
   const [activeTab, setActiveTab]         = useState('storage');
 
   const [network, setNetwork] = useState({
-    protocol: 'SMB', ip: '', port: 445, username: '', password: '', path: ''
+    protocol: 'SMB', ip: '', port: getNumber("SMB_PORT", 445), username: '', password: '', path: ''
   });
 
   const [manual, setManual] = useState({
@@ -358,7 +359,7 @@ export default function BackupPage() {
     if (enabled && !networkSaved) return notify('error', 'Save network first.');
     setAutoEnabled(enabled);
     try {
-      const res = await fetch(`${API}/auto/config`, {
+      const res = await fetch(apiUrl("/auto/config"), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled })
       });

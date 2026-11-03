@@ -14,6 +14,8 @@ import "./CamerasPage.css";
 import useActivityLogger from "../../hooks/useActivityLogger";
 import EdgeManualConfigModal from "./EdgeManualConfigModal";
 import Toast from "../../components/shared/Toast";
+import Loader from "../../components/shared/Loader";
+
 
 import EdgeDevicesSection, {
 isEdgeCamera,
@@ -23,7 +25,6 @@ EdgeCredentialsModal,
 SectionHead,
 } from "./Edgedevices";
 
-const STREAM_API = import.meta.env.VITE_API_URL;
 // Map backend status values to frontend-expected values for StatusBadge
 function normalizeStatus(raw) {
   if (!raw) return "Offline";
@@ -37,23 +38,41 @@ function getAuthHeaders() {
   const t = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
   return t ? { Authorization: `Bearer ${t}`, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
 }
+function loadPersistedDevices() {
+  try {
+    const saved = localStorage.getItem("miradorai_devices");
+    return saved ? JSON.parse(saved) : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePersistedDevices(devices) {
+  try {
+    localStorage.setItem("miradorai_devices", JSON.stringify(devices));
+  } catch {}
+}
 
 // ─── Persisted Devices ───────────────────────────────────────────────────────
 function usePersistedDevices() {
-  const [devices, setDevices] = useState([]);
+  const [devices, setDevices] = useState(loadPersistedDevices);
 
   const updateDevices = useCallback((updater) => {
-    setDevices((prev) => (typeof updater === "function" ? updater(prev) : updater));
-  }, []);
+    setDevices((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      savePersistedDevices(next);
+      return next;
+    });  }, []);
 
   return [devices, updateDevices];
 }
 
 import useGroups from "../../hooks/useGroups";
+import { getNumber, getEnv, apiUrl } from '../../config/appConfig';
 
 
 // ─── Empty State ─────────────────────────────────────────────────────────────
-function EmptyState() {
+function EmptyState({ title = "No devices enrolled yet" }) {
   return (
     <div className="add-dev__empty">
       <div className="add-dev__empty-icon">
@@ -68,7 +87,7 @@ function EmptyState() {
         </svg>
         <div className="add-dev__empty-pulse" />
       </div>
-      <p className="add-dev__empty-title">No devices enrolled yet</p>
+      <p className="add-dev__empty-title">{title}</p>
     </div>
   );
 }
@@ -344,7 +363,7 @@ export function EditDeviceModal({ device, groups, onClose, onSave }) {
                   className="modal-input"
                   value={form.clean_rtsp_url}
                   onChange={set("clean_rtsp_url")}
-                  placeholder="rtsp://192.168.1.64:554/live"
+                  placeholder={`rtsp://192.168.1.64:${getEnv("CAMERA_RTSP_PORT")}/live`}
                   style={{ fontFamily: "var(--font-mono, monospace)", fontSize: "12.5px" }}
                 />
               </div>
@@ -681,8 +700,9 @@ function AddEdgeDeviceModal({ onClose, onConnected }) {
     setError("");
 
     try {
+      const edgePort = getEnv("EDGE_PORT", "8000");
       const response = await fetch(
-        `http://${ip}:8000/api/edge/info`
+        `http://${ip}:${edgePort}/api/edge/info`
       );
 
       if (!response.ok) {
@@ -1345,6 +1365,7 @@ export default function AddDevicesPage({ onNavigate }) {
   const [showEdgeCredentials, setShowEdgeCredentials] = useState(false);
   const [selectedEdgeChannels, setSelectedEdgeChannels] = useState([]);
   const [showEdgeConfigModal, setShowEdgeConfigModal] = useState(false);
+  const [edgeToConfigure, setEdgeToConfigure] = useState(null);
 
   
   const [isDeletingGroup, setIsDeletingGroup] = useState(false);
@@ -1385,6 +1406,7 @@ export default function AddDevicesPage({ onNavigate }) {
   const [refreshing, setRefreshing] = useState(false);
   const [successEnrollData, setSuccessEnrollData] = useState(null);
   const [devices, setDevices] = usePersistedDevices();
+  const [loadingDevices, setLoadingDevices] = useState(true);
   const [groups, setGroups, fetchGroups] = useGroups();
   const [ctxMenu, setCtxMenu] = useState(null);
   const [editDevice, setEditDevice] = useState(null);
@@ -1406,7 +1428,7 @@ export default function AddDevicesPage({ onNavigate }) {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
     try {
-      const res = await fetch(`${STREAM_API}/api/cameras`, {
+      const res = await fetch(apiUrl('/cameras'), {
         headers: getAuthHeaders(),
       });
       if (res.ok) {
@@ -1471,6 +1493,8 @@ export default function AddDevicesPage({ onNavigate }) {
       console.error("Failed to fetch latest devices/shards from backend:", err);
     } finally {
       isFetchingRef.current = false;
+      setLoadingDevices(false);
+
     }
   }, [setDevices]);
 
@@ -1506,7 +1530,7 @@ export default function AddDevicesPage({ onNavigate }) {
           );
           
           if (previewDevice.ip) {
-            fetch(`${STREAM_API}/api/cameras/by-ip/${previewDevice.ip}`, {
+            fetch(apiUrl(`/cameras/by-ip/${previewDevice.ip}`), {
               method: "PUT",
               headers: getAuthHeaders(),
               body: JSON.stringify({ thumbnail: dataUrl }),
@@ -1573,7 +1597,7 @@ export default function AddDevicesPage({ onNavigate }) {
   const handleCreateGroupSubmit = async (name) => {
     try {
       const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/groups`, {
+      const res = await fetch(apiUrl("/groups"), {
         method: "POST",
         headers: {
           "Authorization": token ? `Bearer ${token}` : "",
@@ -1596,7 +1620,7 @@ export default function AddDevicesPage({ onNavigate }) {
     
     try {
       const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
-      await fetch(`${import.meta.env.VITE_API_URL}/api/groups/${groupId}`, {
+      await fetch(apiUrl(`/groups/${groupId}`), {
         method: "DELETE",
         headers: { "Authorization": token ? `Bearer ${token}` : "" }
       });
@@ -1640,7 +1664,7 @@ export default function AddDevicesPage({ onNavigate }) {
       }
       const { name, ...payload } = updated;
       const targetIp = updated.ip || updated.ip_address || "unknown";
-      await fetch(`${STREAM_API}/api/cameras/by-ip/${encodeURIComponent(targetIp)}`, {
+      await fetch(apiUrl(`/cameras/by-ip/${encodeURIComponent(targetIp)}`), {
         method: "PUT",
         headers: getAuthHeaders(),
         body: JSON.stringify({
@@ -1665,7 +1689,7 @@ export default function AddDevicesPage({ onNavigate }) {
     );
     if (!device) return;
     try {
-      const res = await fetch(`${STREAM_API}/api/cameras/delete-by-rtsp`, { 
+      const res = await fetch(apiUrl('/cameras/delete-by-rtsp'), { 
         method: "DELETE",
         headers: getAuthHeaders(),
         body: JSON.stringify({
@@ -1716,7 +1740,7 @@ export default function AddDevicesPage({ onNavigate }) {
     if (!edgeId) return;
 
     try {
-      const res = await fetch(`${STREAM_API}/api/edge-config/${encodeURIComponent(edgeId)}`, {
+      const res = await fetch(apiUrl(`/edge-config/${encodeURIComponent(edgeId)}`), {
         method: "DELETE",
         headers: getAuthHeaders(),
       });
@@ -1907,12 +1931,12 @@ export default function AddDevicesPage({ onNavigate }) {
         setEnrollProgress(startPct);
         setEnrollMsg(`Registering channel ${i + 1} of ${totalCount} (${ip})…`);
 
-        const probeRes = await fetch(`${STREAM_API}/api/onvif/probe`, {
+        const probeRes = await fetch(apiUrl('/onvif/probe'), {
           method: "POST",
           headers: getAuthHeaders(),
           body: JSON.stringify({ 
             ip, 
-            port: Number(port) || 80, 
+            port: Number(port) || getNumber("CAMERA_DEFAULT_PORT", 80), 
             username: user, 
             password: pass, 
             channel: safeChannel, 
@@ -2045,7 +2069,7 @@ export default function AddDevicesPage({ onNavigate }) {
               : `Stream @ ${ip}`);
 
         try {
-          const res = await fetch(`${STREAM_API}/api/streams/register`, {
+          const res = await fetch(apiUrl('/streams/register'), {
             method: "POST",
             headers: getAuthHeaders(),
             body: JSON.stringify({ rtsp_url: url, group_id: groupId, device_name: streamName }),
@@ -2202,8 +2226,9 @@ const handleEdgeCredentialsSubmit = async (cameras) => {
       // ============================================================
       // STEP 1 — Register camera on Raspberry Pi Edge
       // ============================================================
+      const edgePort = getEnv("EDGE_PORT", "8000");
       const edgeResponse = await fetch(
-        `http://${connectedEdge.ip}:8000/api/edge/cameras/register`,
+        `http://${connectedEdge.ip}:${edgePort}/api/edge/cameras/register`,
         {
           method: "POST",
           headers: {
@@ -2255,7 +2280,7 @@ const handleEdgeCredentialsSubmit = async (cameras) => {
       );
 
       const vmsResponse = await fetch(
-        `${STREAM_API}/api/streams/register`,
+        apiUrl('/streams/register'),
         {
           method: "POST",
           headers: getAuthHeaders(),
@@ -2265,8 +2290,13 @@ const handleEdgeCredentialsSubmit = async (cameras) => {
             group_id: selectedGroupId,
             device_name: cameraName,
             source: "edge",
+            edge_id: connectedEdge.id || connectedEdge.edge_id || "",
             edge_ip: connectedEdge.ip,
             edge_name: edgeName,
+            camera_id: edgeData.camera_id || "",
+            channel: edgeData.channel || "",
+            source_rtsp: camera.rtsp_url || "",
+            recording_rtsp: edgeStreamUrl,
             manufacturer: edgeData.manufacturer || "Unknown",
             model: edgeData.model || "Unknown",
             mac: edgeData.mac || "",
@@ -2460,7 +2490,8 @@ const handleEdgeCredentialsSubmit = async (cameras) => {
     setShowEdgeDetails(true);
 
     try {
-      const baseUrl = `http://${edge.ip}:8000`;
+      const edgePort = getEnv("EDGE_PORT", "8000");
+      const baseUrl = `http://${edge.ip}:${edgePort}`;
 
       const [infoResponse, channelsResponse] = await Promise.all([
         fetch(`${baseUrl}/api/edge/info`),
@@ -2525,8 +2556,9 @@ const handleEdgeCredentialsSubmit = async (cameras) => {
     setShowEdgeChannels(true);
 
     try {
+      const edgePort = getEnv("EDGE_PORT", "8000");
       const response = await fetch(
-        `http://${connectedEdge.ip}:8000/api/edge/discover`
+        `http://${connectedEdge.ip}:${edgePort}/api/edge/discover`
       );
 
       if (!response.ok) {
@@ -2559,7 +2591,7 @@ const handleEdgeCredentialsSubmit = async (cameras) => {
     );
 
     try {
-      await fetch(`${STREAM_API}/api/edge-devices/rename`, {
+      await fetch(apiUrl('/edge-devices/rename'), {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({ edge_ip: edgeIp, edge_name: trimmed }),
@@ -2610,7 +2642,10 @@ const handleEdgeCredentialsSubmit = async (cameras) => {
             <button
               className="m-btn m-btn--elevated"
               // onClick={() => setShowEdgeDevice(true)}
-              onClick={() => setShowEdgeConfigModal(true)}
+              onClick={() => {
+                setEdgeToConfigure(null);
+                setShowEdgeConfigModal(true);
+              }}
 
             >
               <svg
@@ -2724,8 +2759,11 @@ const handleEdgeCredentialsSubmit = async (cameras) => {
 
         {(filtered.length > 0 || !hasEdge) && (
         <div className={`add-dev__table-wrap card ${hasEdge ? "add-dev__table-wrap--has-edge" : ""}`}>
-          {filtered.length === 0 ? (
-            <EmptyState />
+          {loadingDevices && devices.length === 0 ? (
+            <Loader variant="area" text="Loading enrolled devices..." />
+          ) : filtered.length === 0 ? (
+            <EmptyState title={filter ? "No devices match your search" : "No devices enrolled yet"} />
+
           ) : (
             <table className="m-table">
               <thead>
@@ -2863,6 +2901,10 @@ const handleEdgeCredentialsSubmit = async (cameras) => {
           onContextMenu={handleRowContextMenu}
           onRenameEdge={handleRenameEdge}
           onDeleteEdge={setEdgeToRemove}
+          onAddCamera={(edge) => {
+            setEdgeToConfigure(edge);
+            setShowEdgeConfigModal(true);
+          }}
         />
 
 
@@ -2873,10 +2915,15 @@ const handleEdgeCredentialsSubmit = async (cameras) => {
       {/* ── Modals ──────────────────────────────────────────────────────────── */}
       {showEdgeConfigModal && (
         <EdgeManualConfigModal
-          apiBase={STREAM_API}
+          apiBase=""
           authHeaders={getAuthHeaders}
           existingDevices={devices}
-          onClose={() => setShowEdgeConfigModal(false)}
+          initialEdge={edgeToConfigure}
+          initialOpenAddCamera={Boolean(edgeToConfigure)}
+          onClose={() => {
+            setShowEdgeConfigModal(false);
+            setEdgeToConfigure(null);
+          }}
           onSaved={(savedData) => {
             fetchLatestDevices();
             setToastNotification({

@@ -252,7 +252,7 @@ def send_scheduled_report(schedule: dict):
     
     # ── SMTP Connection & Dispatch ──────────────────────────────────
     smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.environ.get("SMTP_PORT", 587))
+    smtp_port = int(os.environ.get("SMTP_PORT"))
     smtp_user = os.environ.get("SMTP_USER", "zjasmin.pro@gmail.com")
     smtp_pass = os.environ.get("SMTP_PASSWORD", "xkdk fmaj ofcz leso")
     
@@ -278,7 +278,7 @@ def send_scheduled_report(schedule: dict):
 
 def send_manual_email(recipients: list, subject: str, body_text: str, attachments: list = None):
     smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.environ.get("SMTP_PORT", 587))
+    smtp_port = int(os.environ.get("SMTP_PORT"))
     smtp_user = os.environ.get("AUTH_SMTP_USER") or os.environ.get("SMTP_USER", "")
     smtp_pass = os.environ.get("AUTH_SMTP_PASSWORD") or os.environ.get("SMTP_PASSWORD", "")
     sender_email = os.environ.get("AUTH_SMTP_USER") or os.environ.get("ALERT_EMAIL_FROM", smtp_user or "noreply@vms.local")

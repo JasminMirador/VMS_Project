@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
+import { apiUrl, getEnv } from '../../config/appConfig';
 /**
  * AiAlertModal
  * Restructured per wireframe:
@@ -67,7 +68,6 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
 
 
 
-  const API = import.meta.env.VITE_API_URL || '';
   function getAuthHeaders() {
     const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || localStorage.getItem('token') || localStorage.getItem('authToken');
     return token ? { Authorization: `Bearer ${token}` } : {};
@@ -77,7 +77,7 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
   useEffect(() => {
     const fetchAiIp = async () => {
       try {
-        const res = await fetch(`${API}/api/integrations`, { headers: getAuthHeaders() });
+        const res = await fetch(apiUrl('/integrations'), { headers: getAuthHeaders() });
         if (res.ok) {
           const data = await res.json();
           const aiInt = data.find(i => i.isActive && (i.type?.toLowerCase().includes('ai') || i.serverName?.toLowerCase().includes('ai')));
@@ -159,17 +159,20 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
     findImageLocation(dataObj) ||
     null;
 
-  const effectiveAiIp = aiIp || '192.168.126.35';
+  const minioPort = getEnv("MINIO_PORT");
+  const externalAiHost = getEnv("EXTERNAL_AI_HOST");
+  const externalAiServicePort = getEnv("EXTERNAL_AI_SERVICE_PORT");
+  const effectiveAiIp = aiIp || getEnv("EXTERNAL_AI_HOST");
 
   const buildPaths = (rawPath) => {
     if (!rawPath) return [];
     if (rawPath.startsWith('http')) return [rawPath];
     const clean = rawPath.replace(/^\//, '');
     return [
-      `http://${effectiveAiIp}:9000/${clean}`,
+      `http://${effectiveAiIp}:${minioPort}/${clean}`,
       `http://${effectiveAiIp}/minio/${clean}`,
-      `http://192.168.126.201:8006/${clean}`,
-      `${API}/${clean}`,
+      `http://${externalAiHost}:${externalAiServicePort}/${clean}`,
+      apiUrl(`/${clean}`),
       `/${clean}`
     ];
   };
@@ -192,7 +195,7 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
     null;
 
   const fallbackSnapshotUrl = (alertIpRaw && alertTime) 
-    ? `${API}/api/event-playback/snapshot?ip=${encodeURIComponent(alertIpRaw)}&time=${encodeURIComponent(alertTime)}` 
+    ? apiUrl(`/event-playback/snapshot?ip=${encodeURIComponent(alertIpRaw)}&time=${encodeURIComponent(alertTime)}`) 
     : null;
 
   const thumbPaths = [
@@ -250,7 +253,7 @@ const AiAlertModal = ({ alert, onClose, onPrev, onNext }) => {
       }
       const id = alert.id || alert._id || alert.alert_id;
       if (id) {
-        await fetch(`${API}/api/alerts/${id}/status`, {
+        await fetch(apiUrl(`/alerts/${id}/status`), {
           method: 'PUT',
           headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: newStatus, action: showConfirm, note }),

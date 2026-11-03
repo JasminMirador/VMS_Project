@@ -439,8 +439,9 @@ export const MASKING_CSS = `
 `;
 import { useState, useEffect, useRef, useCallback } from "react";
 import WebRTCPlayer from "../../components/shared/WebRTCPlayer_MediaMTX";
+import { apiUrl } from "../../config/appConfig";
 
-const API = import.meta.env.VITE_API_URL;
+
 const CANVAS_W = 640;
 const CANVAS_H = 360;
 
@@ -481,7 +482,7 @@ export default function MaskingSection({ device, showToast, onMasksChange }) {
     (async () => {
       setLoading(true);
       try {
-        const res = await fetch(`${API}/api/masks/${encodeURIComponent(device.ip)}`);
+        const res = await fetch(apiUrl(`/masks/${encodeURIComponent(device.ip)}`));
         const data = await res.json();
         const loadedMasks = data.masks || [];
         setMasks(loadedMasks);
@@ -641,7 +642,7 @@ export default function MaskingSection({ device, showToast, onMasksChange }) {
     const updatedMasks = [...masks, m];
     setSaving(true);
     try {
-      const res = await fetch(`${API}/api/masks/${encodeURIComponent(device.ip)}/all`, {
+      const res = await fetch(apiUrl(`/masks/${encodeURIComponent(device.ip)}/all`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ masks: updatedMasks, apply_to_recordings: applyToRecordings }),
@@ -716,7 +717,7 @@ export default function MaskingSection({ device, showToast, onMasksChange }) {
     const updatedMasks = masks.filter(m => m.id !== id);
     setSaving(true);
     try {
-      const res = await fetch(`${API}/api/masks/${encodeURIComponent(device.ip)}/all`, {
+      const res = await fetch(apiUrl(`/masks/${encodeURIComponent(device.ip)}/all`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ masks: updatedMasks, apply_to_recordings: applyToRecordings }),
@@ -740,7 +741,7 @@ export default function MaskingSection({ device, showToast, onMasksChange }) {
     const updatedMasks = masks.map(m => m.id === id ? { ...m, enabled: !m.enabled } : m);
     setSaving(true);
     try {
-      const res = await fetch(`${API}/api/masks/${encodeURIComponent(device.ip)}/all`, {
+      const res = await fetch(apiUrl(`/masks/${encodeURIComponent(device.ip)}/all`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ masks: updatedMasks, apply_to_recordings: applyToRecordings }),
@@ -763,7 +764,7 @@ export default function MaskingSection({ device, showToast, onMasksChange }) {
     const newVal = !applyToRecordings;
     setSaving(true);
     try {
-      const res = await fetch(`${API}/api/masks/${encodeURIComponent(device.ip)}/all`, {
+      const res = await fetch(apiUrl(`/masks/${encodeURIComponent(device.ip)}/all`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ masks: masks, apply_to_recordings: newVal }),
@@ -792,7 +793,7 @@ export default function MaskingSection({ device, showToast, onMasksChange }) {
     }
     setSaving(true);
     try {
-      const res = await fetch(`${API}/api/masks/${encodeURIComponent(device.ip)}/all`, {
+      const res = await fetch(apiUrl(`/masks/${encodeURIComponent(device.ip)}/all`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ masks }),

@@ -6,13 +6,13 @@ export default defineConfig(({ mode }) => {
   // '' prefix = load ALL variables from .env, not only VITE_ ones
   const env = loadEnv(mode, process.cwd(), "");
 
-  const API_HOST = env.VITE_API_HOST;
-  const API_PORT = env.VITE_API_PORT || "8000";
+  const API_HOST = env.VITE_API_HOST || env.API_HOST || "localhost";
+  const API_PORT = env.VITE_API_PORT || env.API_PORT || "8000";
 
   const BACKEND_HTTP = `http://${API_HOST}:${API_PORT}`;
   const BACKEND_WS   = `ws://${API_HOST}:${API_PORT}`;
-  const EXTERNAL_AI  = `http://${env.EXTERNAL_AI_HOST}:${env.EXTERNAL_AI_PORT}`;
-  const MEDIAMTX     = `http://${env.MEDIAMTX_HOST}:${env.MEDIAMTX_PORT}`;
+  const EXTERNAL_AI  = `http://${env.EXTERNAL_AI_HOST || "localhost"}:${env.EXTERNAL_AI_PORT || "8080"}`;
+  const MEDIAMTX     = `http://${env.MEDIAMTX_HOST || "localhost"}:${env.MEDIAMTX_PORT || "8889"}`;
 
   return {
     plugins: [

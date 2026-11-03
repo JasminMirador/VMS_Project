@@ -30,10 +30,13 @@ _BACKEND_DIR = Path(__file__).resolve().parents[3]
 CAMERAS_FILE = Path(os.getenv("EDGE_CAMERAS_FILE", _BACKEND_DIR / "devices_data" / "edge_cameras.json"))
 
 # Address the Pi pushes to (MediaMTX RTSP port) - the VMS public IP.
-PUBLIC_HOST = os.getenv("VMS_PUBLIC_HOST", "14.99.8.170")
-PUBLISH_BASE = os.getenv("VMS_PUBLISH_BASE", f"rtsp://{PUBLIC_HOST}:8554")
-WEBRTC_BASE = os.getenv("VMS_WEBRTC_BASE", f"http://{PUBLIC_HOST}:8889")
-HLS_BASE = os.getenv("VMS_HLS_BASE", f"http://{PUBLIC_HOST}:8888")
+PUBLIC_HOST = os.getenv("VMS_PUBLIC_HOST", os.getenv("PRIMARY_IP"))
+RTSP_PORT = os.getenv("MEDIAMTX_RTSP_PORT")
+WEBRTC_PORT = os.getenv("MEDIAMTX_PORT")
+HLS_PORT = os.getenv("MEDIAMTX_HLS_PORT")
+PUBLISH_BASE = os.getenv("VMS_PUBLISH_BASE", f"rtsp://{PUBLIC_HOST}:{RTSP_PORT}")
+WEBRTC_BASE = os.getenv("VMS_WEBRTC_BASE", f"http://{PUBLIC_HOST}:{WEBRTC_PORT}")
+HLS_BASE = os.getenv("VMS_HLS_BASE", f"http://{PUBLIC_HOST}:{HLS_PORT}")
 ONLINE_WINDOW_SEC = 60
 
 _status_lock = Lock()

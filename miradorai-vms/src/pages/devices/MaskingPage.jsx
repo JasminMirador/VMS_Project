@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback } from "react";
 import SearchBar from "../../components/shared/SearchBar";
 import MaskingSection from "./MaskingSection";
 import "./MaskingPage.css";
+import { apiUrl } from "../../config/appConfig";
 
-const API = import.meta.env.VITE_API_URL;
+
 
 export default function MaskingPage() {
   const [cameras, setCameras] = useState([]);
@@ -42,7 +43,7 @@ export default function MaskingPage() {
       await Promise.all(
         devs.map(async (cam) => {
           try {
-            const res = await fetch(`${API}/api/masks/${encodeURIComponent(cam.ip)}`);
+            const res = await fetch(apiUrl(`/masks/${encodeURIComponent(cam.ip)}`));
             const data = await res.json();
             counts[cam.ip] = data.masks ? data.masks.length : 0;
           } catch (e) {

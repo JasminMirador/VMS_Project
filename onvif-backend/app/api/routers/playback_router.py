@@ -10,7 +10,7 @@ from recorder import encrypt_service
 from app.utils.ffmpeg_utils import FFMPEG_BIN
 
 HOST_IP      = os.environ["HOST_IP"]
-BACKEND_PORT = os.environ.get("BACKEND_PORT", "8000")
+BACKEND_PORT = os.environ.get("BACKEND_PORT")
 FALLBACK_BASE_URL = os.environ.get("PUBLIC_BASE_URL") or f"http://{HOST_IP}:{BACKEND_PORT}"
 
 router = APIRouter(tags=["playback"])

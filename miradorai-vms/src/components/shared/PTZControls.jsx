@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import "./PTZControls.css";
+import { getNumber, apiUrl } from '../../config/appConfig';
 
-const API = import.meta.env.VITE_API_URL || "";
 
 function getAuthHeaders() {
   const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
@@ -13,12 +13,12 @@ function getAuthHeaders() {
 // ─────────────────────────────────────────────────
 async function apiPTZMove(camera, pan, tilt, zoom) {
   try {
-    await fetch(`${API}/api/onvif/ptz/move`, {
+    await fetch(apiUrl('/onvif/ptz/move'), {
       method: "POST",
       headers: { "Content-Type": "application/json", ...getAuthHeaders() },
       body: JSON.stringify({
         ip:       camera.ip || camera.address || "",
-        port:     camera.port || 80,
+        port:     camera.port || getNumber("CAMERA_DEFAULT_PORT", 80),
         username: camera.username || "admin",
         password: camera.password || "",
         pan, tilt, zoom,
@@ -31,12 +31,12 @@ async function apiPTZMove(camera, pan, tilt, zoom) {
 
 async function apiPTZHome(camera) {
   try {
-    await fetch(`${API}/api/camera/ptz/home`, {
+    await fetch(apiUrl('/camera/ptz/home'), {
       method: "POST",
       headers: { "Content-Type": "application/json", ...getAuthHeaders() },
       body: JSON.stringify({
         ip:       camera.ip || camera.address || "",
-        port:     camera.port || 80,
+        port:     camera.port || getNumber("CAMERA_DEFAULT_PORT", 80),
         username: camera.username || "admin",
         password: camera.password || "",
       }),
@@ -49,12 +49,12 @@ async function apiPTZHome(camera) {
 
 async function apiGotoPreset(camera, presetToken) {
   try {
-    await fetch(`${API}/api/camera/ptz/preset/goto`, {
+    await fetch(apiUrl('/camera/ptz/preset/goto'), {
       method: "POST",
       headers: { "Content-Type": "application/json", ...getAuthHeaders() },
       body: JSON.stringify({
         ip:           camera.ip || camera.address || "",
-        port:         camera.port || 80,
+        port:         camera.port || getNumber("CAMERA_DEFAULT_PORT", 80),
         username:     camera.username || "admin",
         password:     camera.password || "",
         preset_token: presetToken,
@@ -67,12 +67,12 @@ async function apiGotoPreset(camera, presetToken) {
 
 async function apiSavePreset(camera, presetName) {
   try {
-    const res = await fetch(`${API}/api/camera/ptz/preset/save`, {
+    const res = await fetch(apiUrl('/camera/ptz/preset/save'), {
       method: "POST",
       headers: { "Content-Type": "application/json", ...getAuthHeaders() },
       body: JSON.stringify({
         ip:          camera.ip || camera.address || "",
-        port:        camera.port || 80,
+        port:        camera.port || getNumber("CAMERA_DEFAULT_PORT", 80),
         username:    camera.username || "admin",
         password:    camera.password || "",
         preset_name: presetName,

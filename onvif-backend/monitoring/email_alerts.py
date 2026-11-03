@@ -27,7 +27,7 @@ ALERT_FROM    = os.environ.get("ALERT_EMAIL_FROM", "alerts@vms_db.local")
 ALERT_TO_RAW  = os.environ.get("ALERT_EMAIL_TO", "")
 ALERT_TO      = [e.strip() for e in ALERT_TO_RAW.split(",") if e.strip()]
 SMTP_HOST     = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT     = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_PORT     = int(os.environ.get("SMTP_PORT"))
 SMTP_USER     = os.environ.get("SMTP_USER", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 EMAILS_ENABLED = os.environ.get("ALERT_EMAILS_ENABLED", "true").lower() != "false"
@@ -205,7 +205,7 @@ def alert_device_offline(device_name: str, ip: str):
 
 
 def alert_nvr_unreachable(device_name: str, ip: str):
-    """Fired when the NVR management port (80) becomes unreachable."""
+    """Fired when the NVR management service becomes unreachable."""
     _send_email(
         subject=f"🟠 NVR Unreachable: {device_name} ({ip})",
         html_body=_base_template(
@@ -214,7 +214,7 @@ def alert_nvr_unreachable(device_name: str, ip: str):
             rows=[
                 ("Device", device_name),
                 ("IP Address", ip),
-                ("Port", "80 (NVR management)"),
+                ("Port", f"{os.environ.get('CAMERA_DEFAULT_PORT')} (NVR management)"),
                 ("Status", "<span style='color:#f97316'>UNREACHABLE</span>"),
                 ("Time", _ts()),
                 ("Action", "Verify NVR service is running on the device."),

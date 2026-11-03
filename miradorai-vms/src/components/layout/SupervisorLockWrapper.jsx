@@ -1,14 +1,15 @@
 import React, { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import "./SupervisorLockWrapper.css";
+import { apiUrl } from "../../config/appConfig";
 
-const API_BASE = (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL)
-  ?? `http://${import.meta.env.VITE_API_HOST}:${import.meta.env.VITE_API_PORT}`;
+
+
 
 export default function SupervisorLockWrapper({ pageName, children }) {
   const { user } = useAuth();
   const [isUnlocked, setIsUnlocked] = useState(() => {
-    return sessionStorage.getItem(`unlocked_${pageName}`) === "true";
+    return (localStorage.getItem(`unlocked_${pageName}`) || sessionStorage.getItem(`unlocked_${pageName}`)) === "true";
   });
   const [showModal, setShowModal] = useState(false);
   const [email, setEmail] = useState("");
@@ -35,7 +36,7 @@ export default function SupervisorLockWrapper({ pageName, children }) {
     setLoading(true);
 
     try {
-      const res = await fetch(`${API_BASE}/api/auth/verify-supervisor`, {
+      const res = await fetch(apiUrl("/auth/verify-supervisor"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
@@ -48,7 +49,8 @@ export default function SupervisorLockWrapper({ pageName, children }) {
       }
 
       // Success
-      sessionStorage.setItem(`unlocked_${pageName}`, "true");
+      localStorage.setItem(`unlocked_${pageName}`, "true");
+      sessionStorage.removeItem(`unlocked_${pageName}`);
       setIsUnlocked(true);
       setShowModal(false);
     } catch (err) {

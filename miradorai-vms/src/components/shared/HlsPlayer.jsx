@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, memo } from "react";
 import Hls from "hls.js";
+import { hlsBaseUrl } from "../../config/appConfig";
 import { Volume2, VolumeX } from "lucide-react";
 import { useImageConfig } from "../../hooks/useImageConfig";
 import LiveSpinner from "./LiveSpinner";
@@ -19,7 +20,7 @@ function HlsPlayer({ streamKey, streamUrl, muted = true, autoplay = true, classN
   const { cssFilter, cssTransform } = useImageConfig(streamKey);
 
   // Use env var if provided, otherwise fallback to standard MediaMTX HLS on the same hostname
-  const HLS_BASE_URL = import.meta.env.VITE_HLS_BASE_URL || `${window.location.protocol}//${window.location.hostname}/hls`;
+  const HLS_BASE_URL = hlsBaseUrl();
 
   useEffect(() => {
     const video = videoRef.current;

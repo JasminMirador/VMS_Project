@@ -1,10 +1,10 @@
-const API_BASE = import.meta.env.VITE_API_URL;
+import { apiUrl } from "../config/appConfig";
 
 export const logUI = async ({ action, category, details = {} }) => {
   try {
     const user = JSON.parse(localStorage.getItem("user"));
 
-    await fetch(`${API_BASE}/api/logs/ui`, {
+    await fetch(apiUrl("/logs/ui"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

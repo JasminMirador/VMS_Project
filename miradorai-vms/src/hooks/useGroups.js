@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
+import { apiUrl } from "../config/appConfig";
 
-const API_BASE = import.meta.env.VITE_API_URL;
+
 
 function loadGroups() {
   try {
@@ -15,7 +16,7 @@ export default function useGroups() {
   const fetchGroups = async () => {
     try {
       const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
-      const res = await fetch(`${API_BASE}/api/groups`, {
+      const res = await fetch(apiUrl("/groups"), {
         headers: {
           "Authorization": token ? `Bearer ${token}` : "",
           "Content-Type": "application/json"

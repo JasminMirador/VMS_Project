@@ -1,4 +1,5 @@
 import forge from "node-forge";
+import { apiUrl } from "../config/appConfig";
 
 export async function encryptPassword(password, pubKeyStr) {
   if (!pubKeyStr) {
@@ -25,7 +26,7 @@ export async function getPublicKey(apiBase = "") {
   if (cachedPublicKey) return cachedPublicKey;
   
   try {
-    const res = await fetch(`${apiBase}/api/auth/public-key`);
+    const res = await fetch(apiBase ? `${apiBase}/api/auth/public-key` : apiUrl('/auth/public-key'));
     if (!res.ok) throw new Error("Failed to fetch public key");
     const data = await res.json();
     cachedPublicKey = data.public_key;

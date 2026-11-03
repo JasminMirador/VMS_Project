@@ -103,6 +103,55 @@ def register_stream(stream_name, rtsp_url, codec=None, sub_stream_rtsp=None):
         }
 
 
+def register_publisher_stream(stream_name):
+    """
+    Register a path in MediaMTX to accept incoming RTSP publishers (e.g. Raspberry Pi).
+    MediaMTX will NOT pull RTSP from an external camera; it awaits incoming push streams.
+    """
+    payload = {
+        "source": "publisher"
+    }
+
+    try:
+        res = requests.post(
+            f"{MEDIAMTX_API}/v3/config/paths/add/{stream_name}",
+            json=payload,
+            timeout=10
+        )
+        print(f"MEDIAMTX PUBLISHER STATUS [{stream_name}]:", res.status_code)
+        print("MEDIAMTX RESPONSE:", res.text)
+
+        if res.status_code not in [200, 201]:
+            # If path already exists, ensure its source is set to 'publisher'
+            patch_res = requests.patch(
+                f"{MEDIAMTX_API}/v3/config/paths/patch/{stream_name}",
+                json=payload,
+                timeout=10
+            )
+            print(f"MEDIAMTX PUBLISHER PATCH STATUS [{stream_name}]:", patch_res.status_code)
+            print("MEDIAMTX PATCH RESPONSE:", patch_res.text)
+            if patch_res.status_code not in [200, 201]:
+                return {
+                    "status": "error",
+                    "message": f"Add: {res.text} | Patch: {patch_res.text}",
+                    "statusCode": res.status_code
+                }
+            res = patch_res
+
+        return {
+            "status": "ok",
+            "transcoded_stream": None,
+            "sub_stream_key": None,
+            "statusCode": res.status_code
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "statusCode": 0
+        }
+
+
 def get_stream_info(stream_name):
     """Get runtime information about a stream including active readers."""
     try:
@@ -159,3 +208,76 @@ def stream_exists(stream_name):
         return res.status_code == 200
     except Exception:
         return False
+
+# ── Self-healing: keep every camera's _sub path registered in MediaMTX ──────
+import threading
+import time
+
+_sub_sync_started = False
+
+
+def _sync_sub_streams_once():
+    from app.core.database import cameras_col
+
+    if cameras_col is None:
+        return
+    res = requests.get(
+        f"{MEDIAMTX_API}/v3/config/paths/list?itemsPerPage=1000", timeout=5
+    )
+    if res.status_code != 200:
+        return
+    existing = {p["name"] for p in res.json().get("items", [])}
+
+    for cam in cameras_col.find({
+        "is_deleted": {"$ne": True},
+        "enabled": {"$ne": False}
+    }):
+        # Skip Edge cameras because their streams are published by the Raspberry Pi.
+        # Do not register their original physical-camera RTSP URLs in MediaMTX.
+        if (
+            cam.get("source") == "edge"
+            or cam.get("is_edge_camera") is True
+        ):
+            continue
+
+        key = cam.get("sub_stream_key")
+        rtsp = cam.get("sub_stream_rtsp")
+
+        if not key or not rtsp or key in existing:
+            continue
+
+        body = {"source": rtsp, "sourceOnDemand": False}
+
+        try:
+            r = requests.post(
+                f"{MEDIAMTX_API}/v3/config/paths/add/{key}",
+                json=body,
+                timeout=10
+            )
+            print(
+                f"[SUB-SYNC] re-registered {key}: "
+                f"{r.status_code} {r.text}"
+            )
+        except Exception as e:
+            print(f"[SUB-SYNC] failed to register {key}: {e}")
+
+
+def _sub_sync_loop():
+    time.sleep(10)
+    while True:
+        try:
+            _sync_sub_streams_once()
+        except Exception as e:
+            print("[SUB-SYNC] error:", e)
+        time.sleep(30)
+
+
+def start_sub_stream_sync():
+    global _sub_sync_started
+    if _sub_sync_started:
+        return
+    _sub_sync_started = True
+    threading.Thread(target=_sub_sync_loop, daemon=True).start()
+
+
+start_sub_stream_sync()

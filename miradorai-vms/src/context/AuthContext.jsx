@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import { encryptPassword, getPublicKey } from "../utils/crypto";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { fetchAndCacheAiIp } from "../utils/aiIntegration";
-import { unsecureUrl, getEnv } from '../config/appConfig';
+import { unsecureUrl, getEnv, apiUrl } from '../config/appConfig';
 
 const AuthContext = createContext();
 
@@ -22,8 +22,6 @@ export const useAuth = () => {
 };
 
 // Change this to your backend URL if different
-const API_BASE = (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL)
-  || "";
 
 // Mirador Analytics AI — key-based SSO
 const SSO_APP_NAME = "vms";
@@ -51,7 +49,7 @@ const fetchSsoToken = async (accessToken) => {
     let ssoAccessToken = "uUlAaZ3xCg8zc5C4_MfvngOtWuWfQdazAB53K5M4Zcc";
     try {
       const tokenForApi = getAuthItem("token") || getAuthItem("miradorai_token");
-      const integRes = await fetch(`${API_BASE}/api/integrations`, {
+      const integRes = await fetch(apiUrl('/integrations'), {
         headers: { Authorization: tokenForApi ? `Bearer ${tokenForApi}` : "" }
       });
       if (integRes.ok) {
@@ -111,17 +109,19 @@ const fetchSsoToken = async (accessToken) => {
 
 const AUTH_KEYS = ["miradorai_user", "miradorai_token", "miradorai_session_id"];
 
-// Read from either storage (localStorage = "keep me logged in", sessionStorage = tab only)
+// Read auth item (always prefers localStorage, falls back to sessionStorage for legacy migration)
 export const getAuthItem = (key) =>
   localStorage.getItem(key) || sessionStorage.getItem(key);
 
-// Save into the chosen storage and remove from the other one
-const setAuthItems = (items, keep) => {
-  const target = keep ? localStorage : sessionStorage;
+// Always save into localStorage and ensure sessionStorage is clean
+const setAuthItems = (items) => {
   Object.entries(items).forEach(([key, value]) => {
-    localStorage.removeItem(key);
     sessionStorage.removeItem(key);
-    if (value != null) target.setItem(key, value);
+    if (value != null) {
+      localStorage.setItem(key, value);
+    } else {
+      localStorage.removeItem(key);
+    }
   });
 };
 
@@ -193,7 +193,7 @@ export const AuthProvider = ({ children }) => {
 
     // Call backend
     try {
-      const res = await fetch(`${API_BASE}/api/auth/signup`, {
+      const res = await fetch(apiUrl('/auth/signup'), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, role }),
@@ -230,10 +230,10 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
-      const pubKey = await getPublicKey(API_BASE);
+      const pubKey = await getPublicKey();
       const encryptedPassword = await encryptPassword(password, pubKey);
 
-      const res = await fetch(`${API_BASE}/api/auth/signup/finalize`, {
+      const res = await fetch(apiUrl('/auth/signup/finalize'), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, otp, password: encryptedPassword }),
@@ -277,11 +277,11 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
-      const pubKey = await getPublicKey(API_BASE);
+      const pubKey = await getPublicKey();
       const encryptedPassword = await encryptPassword(password, pubKey);
       const encryptedConfirm = await encryptPassword(confirmPassword, pubKey);
 
-      const res = await fetch(`${API_BASE}/api/auth/signup/password`, {
+      const res = await fetch(apiUrl('/auth/signup/password'), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -323,13 +323,13 @@ export const AuthProvider = ({ children }) => {
 
     try {
             // 1. Fetch public key
-      const pubKey = await getPublicKey(API_BASE);
+      const pubKey = await getPublicKey();
 
       // 2. Encrypt password using RSA
       const encryptedPassword = await encryptPassword(password, pubKey);
 
       // 3. Submit login request
-      const res = await fetch(`${API_BASE}/api/auth/login`, {
+      const res = await fetch(apiUrl('/auth/login'), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -439,7 +439,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
-      const res = await fetch(`${API_BASE}/api/auth/forgot-password`, {
+      const res = await fetch(apiUrl('/auth/forgot-password'), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, captcha_id: captchaId, captcha_text: captchaText }),
@@ -484,10 +484,10 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
-      const pubKey = await getPublicKey(API_BASE);
+      const pubKey = await getPublicKey();
       const encryptedNew = await encryptPassword(newPassword, pubKey);
       const encryptedConfirm = await encryptPassword(confirmPassword, pubKey);
-      const res = await fetch(`${API_BASE}/api/auth/reset-password`, {
+      const res = await fetch(apiUrl('/auth/reset-password'), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -562,7 +562,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const token = getAuthItem("miradorai_token");
       if (token) {
-        await fetch(`${API_BASE}/api/auth/logout`, {
+        await fetch(apiUrl('/auth/logout'), {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${token}`

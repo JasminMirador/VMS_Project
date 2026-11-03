@@ -20,6 +20,7 @@ from app.services.camera.onvif_service import (
 )
 from app.services.camera.mediamtx_service import (
     register_stream,
+    register_publisher_stream,
     remove_stream,
     stream_exists
 )
@@ -256,20 +257,52 @@ async def enable_camera_by_ip(ip: str = Path(..., max_length=255, pattern=r"^[a-
             )
 
     started = []
+
     for device in matched:
         stream_name = device.get("stream_key")
-        rtsp_url    = device.get("rtsp_url")
-        sub_stream_rtsp = device.get("sub_stream_rtsp")
-        if not stream_name or not rtsp_url:
+        if not stream_name:
             continue
+
+        is_edge = (
+            device.get("source") == "edge"
+            or device.get("is_edge_camera") is True
+        )
+
         device["enabled"] = True
+
         try:
-            register_stream(stream_name, rtsp_url, sub_stream_rtsp=sub_stream_rtsp)
+            if is_edge:
+                # Edge camera: MediaMTX must accept the Raspberry Pi publisher.
+                result = register_publisher_stream(stream_name)
+                print(f"[ENABLE] Edge publisher registration [{stream_name}]: {result}")
+            else:
+                # Normal camera: retain direct RTSP registration.
+                rtsp_url = device.get("rtsp_url")
+                if not rtsp_url:
+                    print(f"[ENABLE] Missing RTSP URL for {stream_name}")
+                    continue
+
+                result = register_stream(
+                    stream_name,
+                    rtsp_url,
+                    sub_stream_rtsp=device.get("sub_stream_rtsp")
+                )
+                print(f"[ENABLE] RTSP registration [{stream_name}]: {result}")
+
+            if result.get("status") != "ok":
+                print(
+                    f"[ENABLE] Registration failed for {stream_name}: "
+                    f"{result.get('message', 'Unknown error')}"
+                )
+                continue
+
+            started.append(stream_name)
+
         except Exception as e:
-            print(f"[ENABLE] OME re-register failed for {stream_name}: {e}")
-        started.append(stream_name)
-        print(f"[ENABLE] ✅ {stream_name} enabled. Recording will be started by the assigned worker process.")
+            print(f"[ENABLE] Re-registration failed for {stream_name}: {e}")
+
     save_devices(devices)
+
     if cameras_col is not None:
         cameras_col.update_many({"$or": [{"ip": ip}, {"ip_address": ip}]}, {"$set": {"enabled": True}})
     if cameras_col is not None:
@@ -1066,6 +1099,118 @@ async def register_rtsp_stream(req: StreamRegisterRequest):
     base_stream_name = normalize_stream_name(host, None, getattr(req, "device_name", None))
     stream_name = base_stream_name
 
+    is_edge = req.source == "edge" or bool(req.edge_id)
+
+    if is_edge:
+        # 1. Preserve exact Raspberry Pi channel name
+        if req.channel and req.channel.strip():
+            stream_name = req.channel.strip()
+        elif req.edge_id and req.camera_id:
+            safe_camera_id = re.sub(r"[^A-Za-z0-9_.-]", "_", str(req.camera_id).strip())
+            stream_name = f"{req.edge_id}_camera_{safe_camera_id}"
+        else:
+            try:
+                from urllib.parse import urlparse
+                p = urlparse(rtsp).path.lstrip("/").strip()
+                if p and "/" not in p and (req.edge_id and p.startswith(f"{req.edge_id}_camera_")):
+                    stream_name = p
+                elif req.edge_id and req.ip:
+                    safe_ip = re.sub(r"[^A-Za-z0-9_.-]", "_", str(req.ip).strip())
+                    stream_name = f"{req.edge_id}_camera_{safe_ip}"
+                else:
+                    stream_name = base_stream_name
+            except Exception:
+                stream_name = base_stream_name
+
+        existing = next(
+            (d for d in devices if d.get("stream_key") == stream_name or (d.get("edge_id") == req.edge_id and req.camera_id and d.get("camera_id") == req.camera_id)),
+            None
+        )
+
+        is_currently_active = existing.get("enabled", False) if existing else False
+        if not is_currently_active:
+            max_cameras = license_manager.get_max_cameras()
+            active_count = cameras_col.count_documents({"enabled": True, "is_deleted": {"$ne": True}}) if cameras_col is not None else len([d for d in devices if d.get("enabled") is True])
+            if active_count >= max_cameras:
+                return JSONResponse(
+                    status_code=409,
+                    content={
+                        "success": False,
+                        "message": "Camera license limit reached.",
+                        "licensed": max_cameras,
+                        "current": active_count
+                    }
+                )
+
+        # 2. Register path in MediaMTX as a publisher source (accepting 720p@15fps H.264 push from Pi)
+        try:
+            print(f"[EDGE] Registering publisher stream path in MediaMTX: {stream_name}")
+            ome_response = register_publisher_stream(stream_name)
+            print(f"[EDGE] MediaMTX publisher response: {ome_response}")
+        except Exception as e:
+            print(f"[EDGE] ❌ MediaMTX publisher registration failed: {e}")
+            return {"success": False, "error": str(e)}
+
+        if ome_response.get("status") != "ok":
+            return {
+                "success": False,
+                "error": ome_response.get("message", "MediaMTX publisher registration failed"),
+                "ws_url": None,
+            }
+
+        host = os.environ.get("MEDIAMTX_HOST") or os.environ.get("HOST_IP") or "127.0.0.1"
+        port = os.environ.get("MEDIAMTX_RTSP_PORT", "8554")
+        mediamtx_host = f"{host}:{port}" if ":" not in host else host
+        rec_rtsp = f"rtsp://{mediamtx_host}/{stream_name}"
+        cam_record = {
+            "ip":             host,
+            "stream_key":     stream_name,
+            "channel":        stream_name,
+            "rtsp_url":       rtsp,
+            "recording_rtsp": rec_rtsp,
+            "source_rtsp":    rtsp,
+            "manufacturer":   req.manufacturer or "Edge",
+            "model":          req.model or "Edge Camera",
+            "mac":            req.mac,
+            "device_name":    req.device_name or f"Edge Camera @ {host}",
+            "port":           req.port,
+            "username":       req.username,
+            "password":       req.password,
+            "added_at":       datetime.utcnow(),
+            "status":         "streaming",
+            "live_stream":    stream_name,
+            "active_rec_profile": "MAIN_STREAM",
+            "recording_profile":  "MAIN_STREAM",
+            "enabled":        True,
+            "source":         "edge",
+            "is_edge_camera": True,
+            "edge_id":        req.edge_id,
+            "edge_ip":        req.edge_ip,
+            "edge_name":      req.edge_name,
+            "camera_id":      req.camera_id or "",
+            "group_id":       req.group_id,
+            "live_codec":     "H.264",
+            "codec":          "h264",
+        }
+
+        if not existing:
+            devices.append(cam_record.copy())
+        else:
+            existing.update(cam_record)
+        save_devices(devices)
+        save_camera_to_db(cam_record)
+
+        _watchdog_failures[stream_name] = 0
+        print(f"[EDGE] 🎥 Recording will pull from MediaMTX publisher path {stream_name} ({rec_rtsp})")
+        return {
+            "success":    True,
+            "stream_key": stream_name,
+            "ws_url":     f"{os.environ['MEDIAMTX_PUBLIC_URL']}/{stream_name}",
+            "status":     "streaming",
+            "rtsp_url":   rtsp,
+            "channel":    stream_name,
+        }
+
     if req.manufacturer == "Unknown" or not req.manufacturer:
         inferred_info = await asyncio.to_thread(infer_camera_info_from_rtsp, rtsp)
         if inferred_info.get("manufacturer") != "Unknown":
@@ -1296,12 +1441,26 @@ async def assign_streams(req: StreamAssignRequest):
     print(f"[ASSIGN] After credential injection: live_rtsp={req.live_rtsp!r}")
     print(f"[ASSIGN] After credential injection: rec_rtsp={req.recording_rtsp!r}")
     # ---------------------------------------------------    
-    
+    sub_stream_rtsp = existing.get("sub_stream_rtsp") if existing else None
+    sub_stream_key = existing.get("sub_stream_key") if existing else None
+
+    # Fallback to database if missing from in-memory cache
+    if not sub_stream_rtsp and cameras_col is not None:
+        try:
+            db_cam = cameras_col.find_one({"$or": [{"ip": host}, {"ip_address": host}]})
+            if db_cam and db_cam.get("sub_stream_rtsp"):
+                sub_stream_rtsp = db_cam.get("sub_stream_rtsp")
+                sub_stream_key = db_cam.get("sub_stream_key") or sub_stream_key
+        except Exception:
+            pass
+
     stream_name = existing.get("stream_key") if existing else base_stream_name
     current_live_rtsp = existing.get("rtsp_url") if existing else None
     live_rtsp_changed = current_live_rtsp != req.live_rtsp
+    sub_key_name = sub_stream_key or f"{stream_name}_sub"
+    sub_missing = bool(sub_stream_rtsp and not stream_exists(sub_key_name))
 
-    if live_rtsp_changed or not stream_exists(stream_name):
+    if live_rtsp_changed or not stream_exists(stream_name) or sub_missing:
         print(f"[ASSIGN] Live RTSP changed or stream missing — re-registering OME")
         try:
             try:
@@ -1311,14 +1470,17 @@ async def assign_streams(req: StreamAssignRequest):
 
             time.sleep(0.5)
 
-            ome_response = register_stream(stream_name, req.live_rtsp)
-
+            sub_desc = f" and substream '{sub_key_name}'" if sub_stream_rtsp else ""
+            print(f"[ASSIGN] Registering main stream '{stream_name}'{sub_desc} in MediaMTX...")
+            ome_response = register_stream(stream_name, req.live_rtsp, codec=req.live_codec, sub_stream_rtsp=sub_stream_rtsp)
             if ome_response.get("status") != "ok":
                 print(f"[ASSIGN] ⚠ MediaMTX registration failed: {ome_response}")
+            else:
+                print(f"[ASSIGN] ✓ Successfully registered '{stream_name}'{sub_desc} in MediaMTX")
         except Exception as e:
             print(f"[ASSIGN] ⚠ OME error (non-fatal): {e} — continuing")
     else:
-        print(f"[ASSIGN] Live RTSP unchanged and stream exists — skipping OME re-register")
+        print(f"[ASSIGN] Live RTSP unchanged and streams exist — skipping OME re-register")
 
     if existing:
         existing["rtsp_url"]            = req.live_rtsp
@@ -1330,13 +1492,17 @@ async def assign_streams(req: StreamAssignRequest):
         existing["fps"]                 = req.fps
         existing["resolution"]          = req.resolution
         existing["bitrate"]             = req.bitrate
-        existing["bitrate_type"]        = req.bitrate_type
-        device_entry = existing
+        if sub_stream_rtsp:
+            existing["sub_stream_rtsp"] = sub_stream_rtsp
+            existing["sub_stream_key"]  = sub_key_name        
+            device_entry = existing
     else:
         device_entry = {
             "stream_key":           stream_name,
             "rtsp_url":             req.live_rtsp,
             "recording_rtsp":       req.recording_rtsp,
+            "sub_stream_rtsp":      sub_stream_rtsp,
+            "sub_stream_key":       sub_key_name if sub_stream_rtsp else None,
             "ip":                   host,
             "port":                 req.port,
             "username":             req.username,
@@ -1354,27 +1520,31 @@ async def assign_streams(req: StreamAssignRequest):
 
     save_devices(devices)
 
-    save_camera_to_db({
-    "ip":                   host,
-    "stream_key":           stream_name,
-    "rtsp_url":             req.live_rtsp,
-    "recording_rtsp":       req.recording_rtsp,
-    "manufacturer":         req.manufacturer,
-    "model":                req.model,
-    "mac":                  req.mac,
-    "device_name":          req.device_name or f"Camera @ {host}",
-    "port":                 req.port,
-    "username":             req.username,
-    "active_live_profile":  req.live_profile,
-    "active_rec_profile":   req.recording_profile,
-    "recording_profile":    req.recording_profile,
-    "live_codec":           req.live_codec,
-    "fps":                  req.fps,
-    "resolution":           req.resolution,
-    "bitrate":              req.bitrate,
-    "bitrate_type":         req.bitrate_type,
-    "updated_at":           datetime.utcnow(),
-})
+    db_doc = {
+        "ip":                   host,
+        "stream_key":           stream_name,
+        "rtsp_url":             req.live_rtsp,
+        "recording_rtsp":       req.recording_rtsp,
+        "manufacturer":         req.manufacturer,
+        "model":                req.model,
+        "mac":                  req.mac,
+        "device_name":          req.device_name or f"Camera @ {host}",
+        "port":                 req.port,
+        "username":             req.username,
+        "active_live_profile":  req.live_profile,
+        "active_rec_profile":   req.recording_profile,
+        "recording_profile":    req.recording_profile,
+        "live_codec":           req.live_codec,
+        "fps":                  req.fps,
+        "resolution":           req.resolution,
+        "bitrate":              req.bitrate,
+        "bitrate_type":         req.bitrate_type,
+        "updated_at":           datetime.utcnow(),
+    }
+    if sub_stream_rtsp:
+        db_doc["sub_stream_rtsp"] = sub_stream_rtsp
+        db_doc["sub_stream_key"] = sub_key_name
+    save_camera_to_db(db_doc)
 
     print(f"[ASSIGN] ✅ Recording profile updated for {stream_name} to: {req.recording_rtsp}")
 
@@ -1455,7 +1625,7 @@ async def set_encoder_profile_settings(req: VideoEncoderSettingRequest):
         raise HTTPException(status_code=400, detail=result.get("error", "Failed to update video encoder configuration"))
     
     probe_res = await asyncio.to_thread(
-        probe_camera, req.ip, req.port, req.username, req.password
+        probe_camera, req.ip, req.port, req.username, req.password, full_capabilities=True
     )
     
     if probe_res.get("success"):
@@ -1482,7 +1652,7 @@ async def set_encoder_profile_settings(req: VideoEncoderSettingRequest):
 async def get_camera_capabilities(req: CameraCredentials):
     print(f"[FEATURES] Full capability probe: {req.ip}:{req.port}")
     result = await asyncio.to_thread(
-        probe_camera, req.ip, req.port, req.username, req.password
+        probe_camera, req.ip, req.port, req.username, req.password, full_capabilities=True
     )
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("error", "Probe failed"))

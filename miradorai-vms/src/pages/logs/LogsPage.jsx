@@ -8,8 +8,8 @@ import 'jspdf-autotable';
 import html2canvas from 'html2canvas';
 import useActivityLogger from "../../hooks/useActivityLogger";
 import "./LogsPage.css";
+import { apiUrl } from "../../config/appConfig";
 
-const API_BASE = import.meta.env.VITE_API_URL || "";
 function getAuthHeaders() {
   const token = localStorage.getItem("miradorai_token") || localStorage.getItem("token") || localStorage.getItem("authToken");
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -239,7 +239,7 @@ export default function LogsPage() {
       }
       // recordings tab uses /api/logs/ui with category=recording
       const endpoint = activeTab === "recordings" ? "ui" : activeTab;
-      const response = await fetch(`${API_BASE}/api/logs/${endpoint}?${queryParams.toString()}`, {
+      const response = await fetch(apiUrl(`/logs/${endpoint}?${queryParams.toString()}`), {
         headers: getAuthHeaders()
       });
       const data = await response.json();
@@ -576,7 +576,7 @@ export default function LogsPage() {
                             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                               {log.details?.face_url && (
                                 <img
-                                  src={`${API_BASE}${log.details.face_url}`}
+                                  src={log.details.face_url.startsWith('http') ? log.details.face_url : apiUrl(log.details.face_url.replace(/^\/api/, ''))}
                                   alt="Detected Face"
                                   style={{
                                     width: "56px",
@@ -624,7 +624,7 @@ export default function LogsPage() {
                             log.details && Object.keys(log.details).length > 0 ? (
                               log.details.face_url ? (
                                 <img 
-                                  src={`${API_BASE}${log.details.face_url}`}
+                                  src={log.details.face_url.startsWith('http') ? log.details.face_url : apiUrl(log.details.face_url.replace(/^\/api/, ''))}
                                   alt="Face Crop"
                                   style={{ 
                                     width: "60px", 

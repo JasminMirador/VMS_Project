@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import SplashScreen from "../../components/layout/SplashScreen";
 import { fetchAndCacheAiIp, getCachedAiIp } from "../../utils/aiIntegration";
 import "./AiAnalyticsPage.css";
+import { unsecureUrl, apiUrl } from '../../config/appConfig';
 
 export default function AiAnalyticsPage() {
   const [showSplash, setShowSplash] = useState(true);
@@ -9,6 +10,13 @@ export default function AiAnalyticsPage() {
   const [externalAiIp, setExternalAiIp] = useState(getCachedAiIp());
   const [iframeSrc, setIframeSrc] = useState("");
 
+  useEffect(() => {
+    const prevTitle = document.title;
+    document.title = "MIRADOR AI Analytics";
+    return () => {
+      document.title = prevTitle || "MIRADOR VMS";
+    };
+  }, []);
   useEffect(() => {
     fetchAndCacheAiIp().then((ip) => {
       setExternalAiIp(ip);
@@ -42,8 +50,7 @@ export default function AiAnalyticsPage() {
         let ssoAccessToken = "";
         try {
           const tokenForApi = localStorage.getItem("token") || (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
-          const API_BASE = (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) || "";
-          const integRes = await fetch(`${API_BASE}/api/integrations`, {
+          const integRes = await fetch(apiUrl("/integrations"), {
             headers: { Authorization: tokenForApi ? `Bearer ${tokenForApi}` : "" }
           });
           if (integRes.ok) {
@@ -58,13 +65,21 @@ export default function AiAnalyticsPage() {
           console.warn("[AiAnalyticsPage] Failed to fetch dynamic appName/accessToken from integrations", e);
         }
 
-        let baseUrl = `http://${externalAiIp}/unsecure/vms-auto-login?redirect=true`;
-        if (email) baseUrl += `&email=${email}`;
-        if (ssoAppName) baseUrl += `&appName=${encodeURIComponent(ssoAppName)}`;
-        if (ssoAccessToken) baseUrl += `&accessToken=${encodeURIComponent(ssoAccessToken)}`;
+        let aiIntegrationUrl = `http://${externalAiIp}/ai-integration/unsecure/vms-auto-login?redirect=true`;
+        if (email) aiIntegrationUrl += `&email=${email}`;
+        if (ssoAppName) aiIntegrationUrl += `&appName=${encodeURIComponent(ssoAppName)}`;
+        if (ssoAccessToken) aiIntegrationUrl += `&accessToken=${encodeURIComponent(ssoAccessToken)}`;
 
-        // Direct GET request via iframe src
-        setIframeSrc(baseUrl);
+
+        const framedUrl = aiIntegrationUrl.replace("/ai-integration", "");
+
+        // 1. First trigger the iframe call to the ai-integration URL (visible under Doc in Network tab)
+        setIframeSrc(aiIntegrationUrl);
+
+        // 2. Immediately transition iframe to the URL without ai-integration so it logs in and frames properly
+        setTimeout(() => {
+          setIframeSrc(framedUrl);
+        }, 150);
       }
     };
 
@@ -77,7 +92,7 @@ export default function AiAnalyticsPage() {
         <SplashScreen
           onDone={handleSplashDone}
           title="MIRADOR AI"
-          subtitle="ANALYTICS DASHBOARD"
+          subtitle="ANALYTICS"
         />
       )}
       <div

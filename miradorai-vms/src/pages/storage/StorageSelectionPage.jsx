@@ -3,9 +3,10 @@ import DataTable from "../../components/shared/DataTable";
 import Button from "../../components/shared/Button";
 import Toggle from "../../components/shared/Toggle";
 import "./StorageSelectionPage.css";
-const BACKEND =
-  import.meta.env.VITE_API_URL ??
-  `http://${import.meta.env.VITE_API_HOST}:${import.meta.env.VITE_API_PORT}`;
+import { apiUrl } from "../../config/appConfig";
+
+
+
 
 export default function StorageSelectionPage() {
   const [rows, setRows]         = useState([]);
@@ -20,7 +21,7 @@ export default function StorageSelectionPage() {
   const [failover, setFailover]   = useState(false);
 
   const fetchData = () => {
-    fetch(`${BACKEND}/api/storage/selection`)
+    fetch(apiUrl("/storage/selection"))
       .then(r => r.json())
       .then(data => {
         setRows(data.map((cam, i) => ({
@@ -56,7 +57,7 @@ export default function StorageSelectionPage() {
     const sel = rows.find(r => r.id === selected)?.raw;
     if (!sel) return;
     setSaving(true);
-    await fetch(`${BACKEND}/api/storage/selection`, {
+    await fetch(apiUrl("/storage/selection"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

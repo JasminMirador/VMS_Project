@@ -28,8 +28,9 @@ import {
   buildAdvancedCalibration,
   layoutToWorld
 } from "./LayoutCalibrationEngine";
+import { apiUrl } from "../../config/appConfig";
 // ── Constants ─────────────────────────────────────────────────────────────────
-const API = import.meta.env.VITE_API_URL || "";
+
 const MAP_ID = "default";
 const FLOOR_ID = "floor_1";
 const PIXELS_PER_METRE = 22;
@@ -117,7 +118,7 @@ async function apiSaveLayout({ placed, zones, ppm, floorPlan = null, slides = nu
     if (activeSlideId) {
       bodyObj.active_slide_id = activeSlideId;
     }
-    await fetch(`${API}/api/designer`, {
+    await fetch(apiUrl("/designer"), {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify(bodyObj),
@@ -129,7 +130,7 @@ async function apiSaveLayout({ placed, zones, ppm, floorPlan = null, slides = nu
 
 async function apiSaveZones(zones) {
   try {
-    await fetch(`${API}/api/designer/zones?map_id=${MAP_ID}&floor_id=${FLOOR_ID}`, {
+    await fetch(apiUrl(`/designer/zones?map_id=${MAP_ID}&floor_id=${FLOOR_ID}`), {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify((zones || []).map(z => ({ id: z.id, name: z.name, color: z.color, polygon: z.polygon, isShape: z.isShape || false, isBoomBarrier: z.isBoomBarrier || false }))),
@@ -141,7 +142,7 @@ async function apiSaveZones(zones) {
 
 async function apiDeleteZone(zoneId) {
   try {
-    await fetch(`${API}/api/designer/zones/${zoneId}?map_id=${MAP_ID}&floor_id=${FLOOR_ID}`, {
+    await fetch(apiUrl(`/designer/zones/${zoneId}?map_id=${MAP_ID}&floor_id=${FLOOR_ID}`), {
       method: "DELETE",
       headers: getAuthHeaders(),
     });
@@ -153,7 +154,7 @@ async function apiDeleteZone(zoneId) {
 async function apiSaveFloorPlan(floorPlanDataUrl) {
   if (!floorPlanDataUrl) return;
   try {
-    await fetch(`${API}/api/designer/floor-plan`, {
+    await fetch(apiUrl("/designer/floor-plan"), {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify({ map_id: MAP_ID, floor_id: FLOOR_ID, floor_plan: floorPlanDataUrl }),
@@ -166,7 +167,7 @@ async function apiSaveFloorPlan(floorPlanDataUrl) {
 // ── NEW: Delete floor plan from backend ───────────────────────────────────────
 async function apiDeleteFloorPlan() {
   try {
-    await fetch(`${API}/api/designer/floor-plan?map_id=${MAP_ID}&floor_id=${FLOOR_ID}`, {
+    await fetch(apiUrl(`/designer/floor-plan?map_id=${MAP_ID}&floor_id=${FLOOR_ID}`), {
       method: "DELETE",
       headers: getAuthHeaders(),
     });
@@ -177,7 +178,7 @@ async function apiDeleteFloorPlan() {
 
 async function apiLoadLayout() {
   try {
-    const r = await fetch(`${API}/api/designer?map_id=${MAP_ID}&floor_id=${FLOOR_ID}`, {
+    const r = await fetch(apiUrl(`/designer?map_id=${MAP_ID}&floor_id=${FLOOR_ID}`), {
       headers: getAuthHeaders(),
     });
     if (!r.ok) return null;
@@ -193,7 +194,7 @@ async function fetchCameraModels({ brand = null, type = null, search = "" } = {}
   if (brand) params.append("brand", brand);
   if (type) params.append("type", type);
   if (search) params.append("search", search);
-  const r = await fetch(`${API}/api/designer/camera-models?${params}`, { headers: getAuthHeaders() });
+  const r = await fetch(apiUrl(`/designer/camera-models?${params}`), { headers: getAuthHeaders() });
   if (!r.ok) throw new Error(r.status);
   return r.json();
 }
@@ -2981,7 +2982,7 @@ export default function DesignerView({ onBack }) {
         bodyObj.active_slide_id = finalActiveId;
       }
 
-      const response = await fetch(`${API}/api/designer`, {
+      const response = await fetch(apiUrl("/designer"), {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify(bodyObj),
@@ -3828,7 +3829,7 @@ export default function DesignerView({ onBack }) {
       formData.append("file", file);
       if (overwriteFlag) formData.append("overwrite", "true");
       
-      return await fetch(`${API}/api/designer/upload-datasheet`, {
+      return await fetch(apiUrl("/designer/upload-datasheet"), {
         method: "POST",
         headers: {
           Authorization: "Bearer " + ((localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || "")
@@ -7067,7 +7068,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
       const headers = { "Content-Type": "application/json" };
       if (token) headers["Authorization"] = "Bearer " + token;
 
-      const res = await fetch(`${API}/api/maps/export-cad`, {
+      const res = await fetch(apiUrl("/maps/export-cad"), {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -7747,7 +7748,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                         try {
                           const activeSlide = slides.find(s => s.id === activeSlideId);
                           const currentFloorPlan = activeSlide?.floorPlan || null;
-                          const r = await fetch(`${API}/api/designer/detect-zones`, {
+                          const r = await fetch(apiUrl("/designer/detect-zones"), {
                             method: "POST",
                             headers: getAuthHeaders(),
                             body: JSON.stringify({

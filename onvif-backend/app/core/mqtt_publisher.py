@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 # ── Config ───────────────────────────────────────────────────────────────────
 MQTT_BROKER = os.environ["MQTT_BROKER"]
-MQTT_PORT   = int(os.environ.get("MQTT_PORT", 1883))
+MQTT_PORT   = int(os.environ.get("MQTT_PORT"))
 IST         = timezone(timedelta(hours=5, minutes=30))
 
 

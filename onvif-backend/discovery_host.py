@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
 SUBNET  = os.environ.get("HOST_SUBNET", "192.168.126")
-PORTS   = [554]   # Only scan port 554 (RTSP) to prevent WSL2 NAT congestion/packet drops
+PORTS   = [int(os.environ.get('RTSP_PORT'))]   # Scan RTSP port to prevent WSL2 NAT congestion/packet drops
 TIMEOUT = 1.5     # Increased to 1.5s to account for virtualization latency
 MAX_WORKERS = 100 # Reduced from 200 to lower connection rate and avoid firewalls/NAT limit
 
@@ -45,19 +45,23 @@ def start_discovery_host_server():
     def run_server():
         try:
             subnet = os.environ.get("HOST_SUBNET", SUBNET)
-            server = HTTPServer(("0.0.0.0", 19999), H)
-            print(f"[HOST-SCAN] Running on port 19999 (subnet={subnet})")
+            host = os.environ.get("DISCOVERY_HOST_BIND", "0.0.0.0")
+            port = int(os.environ.get("DISCOVERY_HOST_PORT"))
+            server = HTTPServer((host, port), H)
+            print(f"[HOST-SCAN] Running on port {port} (subnet={subnet})")
             server.serve_forever()
         except OSError as e:
-            print(f"[HOST-SCAN] ⚠ Port 19999 already in use or unavailable: {e}. Skipping host-scan server startup.")
+            print(f"[HOST-SCAN] ⚠ Port {os.environ.get('DISCOVERY_HOST_PORT')} already in use or unavailable: {e}. Skipping host-scan server startup.")
 
     t = threading.Thread(target=run_server, daemon=True)
     t.start()
 
 if __name__ == "__main__":
     subnet = os.environ.get("HOST_SUBNET", SUBNET)
-    print(f"[HOST-SCAN] Running standalone on port 19999 (subnet={subnet})")
+    host = os.environ.get("DISCOVERY_HOST_BIND", "0.0.0.0")
+    port = int(os.environ.get("DISCOVERY_HOST_PORT"))
+    print(f"[HOST-SCAN] Running standalone on port {port} (subnet={subnet})")
     try:
-        HTTPServer(("0.0.0.0", 19999), H).serve_forever()
+        HTTPServer((host, port), H).serve_forever()
     except KeyboardInterrupt:
         print("[HOST-SCAN] Stopping server...")

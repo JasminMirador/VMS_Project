@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import Modal from './Modal';
 import './ServerFolderPicker.css';
+import { apiUrl } from "../../config/appConfig";
 
-const API = import.meta.env.VITE_API_URL || "";
+
 
 function ServerFolderPicker({ isOpen, onClose, onSelect, initialPath = "" }) {
   const [currentPath, setCurrentPath] = useState(initialPath);
@@ -17,7 +18,7 @@ function ServerFolderPicker({ isOpen, onClose, onSelect, initialPath = "" }) {
     try {
       const token = localStorage.getItem("token") || sessionStorage.getItem("token");
       const headers = token ? { "Authorization": `Bearer ${token}` } : {};
-      const res = await fetch(`${API}/api/browse-directories?path=${encodeURIComponent(path)}`, { headers });
+      const res = await fetch(apiUrl(`/browse-directories?path=${encodeURIComponent(path)}`), { headers });
       if (!res.ok) throw new Error("Failed to fetch directory");
       const data = await res.json();
       if (data.success) {

@@ -4,9 +4,8 @@ import { useNavigate } from "react-router-dom";
 import Button from "../../components/shared/Button";
 import "./UserManagementPage.css";
 
-const API = import.meta.env.VITE_API_URL || "";
-
 import { encryptPassword, getPublicKey } from "../../utils/crypto";
+import { apiUrl } from "../../config/appConfig";
 
 function getAuthHeaders() {
   const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
@@ -83,7 +82,7 @@ export default function UserManagementPage() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${API}/api/auth/users`, {
+      const res = await fetch(apiUrl("/auth/users"), {
         headers: getAuthHeaders()
       });
       const data = await res.json();
@@ -131,9 +130,9 @@ export default function UserManagementPage() {
     }
 
     try {
-      const pubKey = await getPublicKey(API);
+      const pubKey = await getPublicKey();
       const encryptedPassword = await encryptPassword(createForm.password, pubKey);
-      const res = await fetch(`${API}/api/auth/users`, {
+      const res = await fetch(apiUrl("/auth/users"), {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({ ...createForm, password: encryptedPassword })
@@ -191,12 +190,12 @@ export default function UserManagementPage() {
       allowedCameras: editForm.allowedCameras
     };
     if (editForm.newPassword) {
-      const pubKey = await getPublicKey(API);
+      const pubKey = await getPublicKey();
       payload.password = await encryptPassword(editForm.newPassword, pubKey);
     }
 
     try {
-      const res = await fetch(`${API}/api/auth/users/${encodeURIComponent(selectedUser.email)}`, {
+      const res = await fetch(apiUrl(`/auth/users/${encodeURIComponent(selectedUser.email)}`), {
         method: "PATCH",
         headers: getAuthHeaders(),
         body: JSON.stringify(payload)
@@ -219,7 +218,7 @@ export default function UserManagementPage() {
     setError("");
     setSuccess("");
     try {
-      const res = await fetch(`${API}/api/auth/users/${encodeURIComponent(user.email)}`, {
+      const res = await fetch(apiUrl(`/auth/users/${encodeURIComponent(user.email)}`), {
         method: "PATCH",
         headers: getAuthHeaders(),
         body: JSON.stringify({ is_blocked: !user.is_blocked })
@@ -244,7 +243,7 @@ export default function UserManagementPage() {
     setError("");
     setSuccess("");
     try {
-      const res = await fetch(`${API}/api/auth/users/${encodeURIComponent(user.email)}`, {
+      const res = await fetch(apiUrl(`/auth/users/${encodeURIComponent(user.email)}`), {
         method: "DELETE",
         headers: getAuthHeaders()
       });

@@ -5,10 +5,10 @@ Auto-detects network subnet and finds ONLY real ONVIF cameras with accurate bran
 Key discovery & filtering strategy:
   1. Multicast WS-Discovery bound to active network interface (IP_MULTICAST_IF)
      extracts unauthenticated self-reported brand and hardware model scopes directly from devices.
-  2. RTSP port 554 check -- real cameras streaming RTSP video have this open; PCs/workstations do NOT.
+  2. RTSP stream check -- real cameras streaming RTSP video have this open; PCs/workstations do NOT.
   3. ARP table MAC extraction + OUI vendor lookup identifies manufacturer even when auth is required.
   4. Local host IP exclusion ensures VMS server and local MediaMTX are never detected as cameras.
-  5. Concurrent subnet scan fallback catches any camera with port 554 open and ONVIF/RTSP signatures.
+  5. Concurrent subnet scan fallback catches any camera with RTSP open and ONVIF/RTSP signatures.
 """
 
 import socket
@@ -147,7 +147,7 @@ def get_local_subnet() -> str:
 
 
 # -----------------------------------------------------------------------------
-# RTSP port 554 check
+# RTSP stream check
 # Real IP cameras ALWAYS listen on 554.
 # -----------------------------------------------------------------------------
 
@@ -354,7 +354,7 @@ def _classify_device(ip: str, port: int, mac: str = "") -> tuple[str, str, str]:
                 model_hint = t[:40]
 
         mfg = rtsp_mfg or "Unknown"
-        if rtsp_mfg or (port == 554):
+        if rtsp_mfg or (port == int(os.environ.get('RTSP_PORT'))):
             return "camera", mfg, model_hint
 
     if rtsp_mfg:
@@ -379,7 +379,7 @@ def probe_onvif_device(
     """
     Validates camera and gathers metadata.
       Gate 1 -> Skip local host IPs
-      Gate 2 -> RTSP port 554 must be open
+      Gate 2 -> RTSP stream must be open
       Gate 3 -> ONVIF probe or classify as auth-required camera
     """
     local_ips = get_local_ips()
@@ -389,7 +389,7 @@ def probe_onvif_device(
         return None
 
     if not _has_rtsp_port(ip):
-        print(f"[DISCOVERY] [X] {ip} -- port 554 CLOSED -- not a streaming camera")
+        print(f"[DISCOVERY] [X] {ip} -- RTSP closed -- not a streaming camera")
         return None
 
     if not mac or mac == "Unknown":
@@ -453,7 +453,7 @@ def probe_onvif_device(
             }
 
         else:
-            # ONVIF probe failed (usually authentication required) but port 554 IS open
+            # ONVIF probe failed (usually authentication required) but RTSP stream IS open
             if ip in topology_non_cams:
                 return None
 
@@ -498,7 +498,7 @@ def probe_onvif_device(
             }
 
     except Exception as e:
-        print(f"[DISCOVERY] [WARN] {ip} -- port 554 open, ONVIF exception: {e}")
+        print(f"[DISCOVERY] [WARN] {ip} -- RTSP open, ONVIF exception: {e}")
         manufacturer = _normalize_vendor_name(known_mfg) or _oui_lookup(mac) or "Generic ONVIF"
         model = known_model or f"{manufacturer} Camera"
 
@@ -558,7 +558,7 @@ def discover_onvif_devices(timeout: int = 3) -> list:
             sock.bind(("", 0))
 
         MCAST_GRP  = '239.255.255.250'
-        MCAST_PORT = 3702
+        MCAST_PORT = int(os.environ.get('ONVIF_MCAST_PORT'))
 
         print(f"[DISCOVERY] WS-Discovery probe via {active_ip} (timeout={timeout}s)...")
         sock.sendto(probe_message, (MCAST_GRP, MCAST_PORT))
@@ -661,11 +661,12 @@ def discover_onvif_devices_simple(
     open_ips: dict[str, int] = {}
     try:
         import urllib.request, json as _json
-        url = "http://127.0.0.1:19999"
+        disc_port = os.environ.get("DISCOVERY_HOST_PORT")
+        url = os.environ.get("DISCOVERY_HOST_URL") or f"http://{os.environ.get('HOST_IP')}:{disc_port}"
         with urllib.request.urlopen(url, timeout=2) as r:
             ips = _json.loads(r.read()).get("ips", [])
         if ips:
-            open_ips = {ip: 554 for ip in ips if ip not in local_ips}
+            open_ips = {ip: int(os.environ.get("RTSP_PORT")) for ip in ips if ip not in local_ips}
             print(f"[DISCOVERY] Host proxy found {len(open_ips)} IPs: {list(open_ips)}")
     except Exception:
         pass

@@ -32,8 +32,9 @@ import {
   calculatePhysicalDistance,
   getPixelDistance,
 } from "./LayoutCalibrationEngine";
+import { apiUrl } from "../../config/appConfig";
 
-const API = import.meta.env.VITE_API_URL;
+
 const MAP_ID = "default";
 
 // ── Auth ──────────────────────────────────────────────────────────────
@@ -163,7 +164,7 @@ function lsZoneLoad() {
 
 // ── API ───────────────────────────────────────────────────────────────
 async function apiGetMap() {
-  const r = await fetch(`${API}/api/maps?map_id=${MAP_ID}`, { headers: getAuthHeaders() });
+  const r = await fetch(apiUrl(`/maps?map_id=${MAP_ID}`), { headers: getAuthHeaders() });
   if (!r.ok) throw new Error(r.status);
   return r.json();
 }
@@ -235,7 +236,7 @@ async function apiSaveMap(floors, clientId = null) {
     throw new Error("PAYLOAD_TOO_LARGE");
   }
 
-  const r = await fetch(`${API}/api/maps`, {
+  const r = await fetch(apiUrl("/maps"), {
     method: "POST",
     headers: getAuthHeaders(),
     body,
@@ -245,7 +246,7 @@ async function apiSaveMap(floors, clientId = null) {
 }
 
 async function apiDeleteFloor(floorId) {
-  const r = await fetch(`${API}/api/maps/floor?map_id=${MAP_ID}&floor_id=${floorId}`, {
+  const r = await fetch(apiUrl(`/maps/floor?map_id=${MAP_ID}&floor_id=${floorId}`), {
     method: "DELETE",
     headers: getAuthHeaders(),
   });
@@ -256,7 +257,7 @@ async function apiDeleteFloor(floorId) {
 
 // ── NEW: Save zones to backend ────────────────────────────────────────
 async function apiSaveZones(zones, clientId = null) {
-  const r = await fetch(`${API}/api/maps/zones`, {
+  const r = await fetch(apiUrl("/maps/zones"), {
     method: "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify({ map_id: MAP_ID, client_id: clientId, zones }),
@@ -423,7 +424,7 @@ const StreamModal = React.memo(function StreamModal({ cam, onClose }) {
       return;
     }
     setLoad(true);
-    fetch(`${API}/api/alerts?camera_ip=${ref.current.ip}&limit=50`, {
+    fetch(apiUrl(`/alerts?camera_ip=${ref.current.ip}&limit=50`), {
       headers: getAuthHeaders(),
     })
       .then(r => (r.ok ? r.json() : null))
@@ -1155,7 +1156,7 @@ export default function MapViewPage() {
   // Fetch active alert counts on mount (or fallback polling)
   const loadCounts = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/api/alerts?limit=1000`, {
+      const res = await fetch(apiUrl("/alerts?limit=1000"), {
         headers: getAuthHeaders()
       });
       const data = await res.json();
@@ -1510,7 +1511,7 @@ export default function MapViewPage() {
 
       let models = [];
       try {
-        const mr = await fetch(`${API}/api/designer/camera-models`, { headers: getAuthHeaders() });
+        const mr = await fetch(apiUrl("/designer/camera-models"), { headers: getAuthHeaders() });
         if (mr.ok) {
           const mj = await mr.json();
           models = mj.cameras || [];
@@ -3291,7 +3292,7 @@ export default function MapViewPage() {
       const headers = { "Content-Type": "application/json" };
       if (token) headers["Authorization"] = "Bearer " + token;
 
-      const res = await fetch(`${API}/api/maps/export-cad`, {
+      const res = await fetch(apiUrl("/maps/export-cad"), {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -3572,7 +3573,7 @@ export default function MapViewPage() {
                       const currentFloorPlan = floors[activeFloor]?.imageDataUrl || null;
                       setIsDetectingZones(true);
                       try {
-                        const r = await fetch(`${API}/api/designer/detect-zones`, {
+                        const r = await fetch(apiUrl("/designer/detect-zones"), {
                           method: "POST",
                           headers: getAuthHeaders(),
                           body: JSON.stringify({
