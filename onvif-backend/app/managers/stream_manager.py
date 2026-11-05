@@ -94,8 +94,12 @@ def save_camera_to_db(data: dict):
     except Exception as e:
         print("[MONGO] ERROR: Save failed:", e)
         return False
+_migration_completed = False
+
 
 def load_devices():
+    global _migration_completed
+
     if cameras_col is not None:
         try:
             try:

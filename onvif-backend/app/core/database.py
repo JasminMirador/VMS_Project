@@ -1,22 +1,42 @@
 import os
 from pathlib import Path
 from pymongo import MongoClient, ASCENDING, DESCENDING
+# ── .env loader ────────────────────────────────────────────────────
+# Walks upward from this file (app/core -> app -> onvif-backend -> ...)
+# and reads every .env it finds, nearest first. os.environ.setdefault()
+# never overwrites, so the nearest file wins for any duplicated key.
+# It keeps going until MONGO_URI has been found, so a stray .env in a
+# closer folder cannot hide the real one.
+def _load_env_files() -> list:
+    searched = []
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        candidate = parent / ".env"
+        if not candidate.is_file():
+            continue
+        searched.append(str(candidate))
+        for line in candidate.read_text(encoding="utf-8-sig").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, val = line.split("=", 1)
+            os.environ.setdefault(key.strip(), val.strip().strip("'\""))
+        if "MONGO_URI" in os.environ:
+            break
+    return searched
+
+
+_env_files_read = _load_env_files()
  
-# Load .env directly here so this module never depends on import order
-# or on whichever entry-point script happened to parse .env first.
-_here = Path(__file__).resolve()
-for _parent in [_here.parent, *_here.parents]:
-    _candidate = _parent / ".env"
-    if _candidate.exists():
-        for _line in _candidate.read_text(encoding="utf-8").splitlines():
-            _line = _line.strip()
-            if _line and not _line.startswith("#") and "=" in _line:
-                _key, _val = _line.split("=", 1)
-                os.environ.setdefault(_key.strip(), _val.strip().strip("'\""))
-        break
+for _required in ("MONGO_URI", "MONGO_DB_NAME"):
+    if _required not in os.environ:
+        raise RuntimeError(
+            f"{_required} is not set. .env files read: {_env_files_read or 'none found'}. "
+            f"Add {_required}=... to your backend .env (e.g. onvif-backend/.env)."
+        )
  
-MONGO_URI = os.environ.get("MONGO_URI")
-MONGO_DB_NAME = os.environ.get("MONGO_DB_NAME", "vms_demo")
+MONGO_URI = os.environ["MONGO_URI"]
+MONGO_DB_NAME = os.environ["MONGO_DB_NAME"]
  
 def create_database_indexes(db_instance):
     """Creates optimized indexes on MongoDB collections to eliminate full table scans and high CPU load."""
@@ -67,6 +87,21 @@ def create_database_indexes(db_instance):
 
         # 10. Signup Requests Index
         db_instance["signup_requests"].create_index("email", unique=True)
+        # 11. Performance Test Lab Collections
+        perf_runs = db_instance["performance_test_runs"]
+        perf_runs.create_index("run_id", unique=True)
+        perf_runs.create_index([("created_at", DESCENDING)])
+        perf_runs.create_index("status")
+
+        perf_stages = db_instance["performance_test_stages"]
+        perf_stages.create_index([("run_id", ASCENDING), ("stage_index", ASCENDING)], unique=True)
+
+        perf_samples = db_instance["performance_test_samples"]
+        perf_samples.create_index([("run_id", ASCENDING), ("timestamp", ASCENDING)])
+        perf_samples.create_index([("run_id", ASCENDING), ("stage_index", ASCENDING), ("timestamp", ASCENDING)])
+
+        perf_events = db_instance["performance_test_events"]
+        perf_events.create_index([("run_id", ASCENDING), ("timestamp", DESCENDING)])
  
         print("[MONGO] All database indexes created successfully.")
     except Exception as err:
@@ -98,6 +133,12 @@ try:
     process_lifecycle_col = db["process_lifecycle_logs"]
     signup_requests_col = db["signup_requests"]
 
+    # Performance Test Collections
+    perf_runs_col = db["performance_test_runs"]
+    perf_stages_col = db["performance_test_stages"]
+    perf_samples_col = db["performance_test_samples"]
+    perf_events_col = db["performance_test_events"]
+
     # Ensure optimized indexes are built
     create_database_indexes(db)
  
@@ -117,4 +158,9 @@ except Exception as e:
     recordings_col = None
     event_clips_col = None
     health_logs_col = None
-    signup_requests_col = None
+    process_lifecycle_col = None
+    signup_requests_col = None 
+    perf_runs_col = None
+    perf_stages_col = None
+    perf_samples_col = None
+    perf_events_col = None

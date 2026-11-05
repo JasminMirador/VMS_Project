@@ -68,7 +68,7 @@ features_router = APIRouter(prefix="/api/camera", tags=["camera-features"], depe
 @router.get("/cameras", dependencies=[Depends(verify_token)])
 async def get_all_cameras():
     # Existing regular-camera inventory.
-    cameras = list(load_devices())
+    cameras = await asyncio.to_thread(load_devices)
     existing_stream_keys = {
         c.get("stream_key") for c in cameras if c.get("stream_key")
     }

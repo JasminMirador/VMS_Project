@@ -2,8 +2,18 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import Button from "../../components/shared/Button";
 import Toggle from "../../components/shared/Toggle";
+import Loader from "../../components/shared/Loader";
+
 import "./IntegrationPage.css";
 import { apiUrl } from "../../config/appConfig";
+function loadStoredIntegrations() {
+  try {
+    const saved = localStorage.getItem("miradorai_integrations");
+    return saved ? JSON.parse(saved) : [];
+  } catch {
+    return [];
+  }
+}
 
 function generateRandomId() {
   return Math.random().toString().slice(2, 18).padEnd(16, "0");
@@ -62,7 +72,8 @@ export default function IntegrationPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [connections, setConnections] = useState([]);
+  const [connections, setConnections] = useState(loadStoredIntegrations);
+  const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [formErrors, setFormErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
@@ -117,6 +128,8 @@ export default function IntegrationPage() {
   };
 
   const fetchIntegrations = async () => {
+    setIsLoading(true);
+
     try {
       const token = localStorage.getItem("token") || (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
       const headers = { Authorization: token ? `Bearer ${token}` : "" };
@@ -124,13 +137,16 @@ export default function IntegrationPage() {
       const res = await fetch(apiUrl("/integrations"), { headers });
       if (res.ok) {
         const data = await res.json();
-        setConnections(data);
-
+        const list = Array.isArray(data) ? data : [];
+        setConnections(list);
+        try {
+          localStorage.setItem("miradorai_integrations", JSON.stringify(list));
+        } catch {}
         // Sync with route param if present
         const parts = location.pathname.split("/").filter(Boolean);
         if (parts[0] === "integration" && parts[1] && parts[1] !== "new") {
           const targetId = decodeURIComponent(parts[1]);
-          const found = data.find(
+          const found = list.find(
             (c) =>
               c.id === targetId ||
               c._id === targetId ||
@@ -148,6 +164,8 @@ export default function IntegrationPage() {
       }
     } catch (err) {
       console.error("Failed to fetch integrations", err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -504,14 +522,15 @@ export default function IntegrationPage() {
                 Configured Connections
               </h2>
               <span className="integration-count-badge">
-                {connections.length} {connections.length === 1 ? "Active" : "Total"}
+                {isLoading && connections.length === 0 ? "…" : `${connections.length} ${connections.length === 1 ? "Active" : "Total"}`}
               </span>
             </div>
             <Button label="+ New Connection" onClick={handleNewConnection} />
           </div>
 
-          {connections.length === 0 ? (
-            <div className="integration-empty">
+          {isLoading && connections.length === 0 ? (
+            <Loader variant="area" text="Loading configured connections..." />
+          ) : connections.length === 0 ? (            <div className="integration-empty">
               <div className="integration-empty__icon">
                 <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M9 9l6 6M4.93 19.07l3.54-3.54M19.07 4.93l-3.54 3.54"></path>

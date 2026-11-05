@@ -4,6 +4,8 @@ from jose import JWTError, jwt, jwe
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import uuid
+import time
+
 
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
@@ -50,10 +52,12 @@ def get_or_create_keys():
 
 PRIVATE_KEY, PUBLIC_KEY = get_or_create_keys()
 ALGORITHM = "RS256"
-# ACCESS_TOKEN_EXPIRE_MINUTES = 365 * 24 * 60 # 365 days
+# ACCESS_TOKEN_EXPIRE_MINUTES = 365 * 24 * 60  # 365 days
 ACCESS_TOKEN_EXPIRE_MINUTES = 365 * 24 * 60  # 365 days
 
 security_scheme = HTTPBearer(auto_error=False)
+# In-memory session validation cache to prevent flooding MongoDB with 80+ session checks per page load
+_session_cache = {}  # {session_key: (is_valid, timestamp, reason)}
 
 def create_token(user_id: str, role: str, session_id: str = None):
     to_encode = {"sub": user_id, "role": role}
@@ -102,26 +106,50 @@ def verify_token(request: Request, credentials: HTTPAuthorizationCredentials = D
             session_id = payload.get("sid")
             user_id = payload.get("sub")
             if session_id and user_id:
-                session_doc = active_sessions.find_one({"user_id": user_id, "session_id": session_id})
-                if not session_doc:
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Session expired or invalid",
-                        headers={"WWW-Authenticate": "Bearer"},
-                    )
-                if session_doc.get("is_invalidated"):
-                    reason = session_doc.get("invalidated_reason", "unknown")
-                    if reason == "concurrent_login":
+                cache_key = f"{user_id}:{session_id}"
+                now_ts = time.time()
+                cached = _session_cache.get(cache_key)
+                
+                if cached and (now_ts - cached[1] < 60.0):
+                    is_valid, _, reason = cached
+                    if not is_valid:
+                        if reason == "concurrent_login":
+                            raise HTTPException(
+                                status_code=status.HTTP_401_UNAUTHORIZED,
+                                detail="Session expired or invalid",
+                                headers={"WWW-Authenticate": "Bearer"},
+                            )
+                        raise HTTPException(
+                            status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Session expired or invalid",
+                            headers={"WWW-Authenticate": "Bearer"},
+                        )
+                else:
+                    session_doc = active_sessions.find_one({"user_id": user_id, "session_id": session_id})
+                    if not session_doc:
+                        _session_cache[cache_key] = (False, now_ts, "not_found")
+                        raise HTTPException(
+                            status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Session expired or invalid",
+                            headers={"WWW-Authenticate": "Bearer"},
+                        )
+                    if session_doc.get("is_invalidated"):
+                        reason = session_doc.get("invalidated_reason", "unknown")
+                        _session_cache[cache_key] = (False, now_ts, reason)
+                        if reason == "concurrent_login":
+                            raise HTTPException(
+                                status_code=status.HTTP_401_UNAUTHORIZED,
+                                detail="Session expired: Another session has been initiated under this account.",
+                                headers={"WWW-Authenticate": "Bearer"},
+                            )
+
                         raise HTTPException(
                             status_code=status.HTTP_401_UNAUTHORIZED,
                             detail="Session expired: Another session has been initiated under this account.",
                             headers={"WWW-Authenticate": "Bearer"},
                         )
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Session expired or invalid",
-                        headers={"WWW-Authenticate": "Bearer"},
-                    )
+                    _session_cache[cache_key] = (True, now_ts, "ok")
+
         return payload
     except JWTError:
         raise HTTPException(

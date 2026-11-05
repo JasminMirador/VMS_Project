@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, Response, HTTPException, Request, Query,
 from typing import Optional, List
 import json
 import re
+import psutil
+
 from app.core.database import db as _db, analytics_col, watch_collection, cameras_col
 from app.core.security import verify_token
 from bson import ObjectId
@@ -43,6 +45,9 @@ def get_dashboard_summary():
     cpu = latest_health.get("cpu", 0) if latest_health else 0
     ram = latest_health.get("ram", 0) if latest_health else 0
     disk = latest_health.get("disk", 0) if latest_health else 0
+    cpu_cores = latest_health.get("cpu_cores") if latest_health and latest_health.get("cpu_cores") else (psutil.cpu_count(logical=True) or 1)
+    cpu_used_cores = round((cpu / 100.0) * cpu_cores, 1)
+    cpu_free_cores = round(max(0.0, cpu_cores - cpu_used_cores), 1)
 
     import psutil
     cpu_cores = latest_health.get("cpu_cores") if latest_health and latest_health.get("cpu_cores") else (psutil.cpu_count(logical=True) or 1)
@@ -110,6 +115,9 @@ def get_dashboard_summary():
         "alarms_today": alarms_today,
 
         "cpu": cpu,
+        "cpu_cores": cpu_cores,
+        "cpu_used_cores": cpu_used_cores,
+        "cpu_free_cores": cpu_free_cores,
         "cpu_cores": cpu_cores,
         "cpu_used_cores": cpu_used_cores,
         "cpu_free_cores": cpu_free_cores,

@@ -70,9 +70,15 @@ async def system_health_collector():
                             vms_ram_mb += proc.info['memory_info'].rss / (1024 * 1024)
             except Exception:
                 pass
+            total_cores = psutil.cpu_count(logical=True) or 1
+            used_cores = round((cpu / 100.0) * total_cores, 1)
+            free_cores = round(max(0.0, total_cores - used_cores), 1)
 
             metrics_payload = {
                 "cpu": cpu,
+                "cpu_cores": total_cores,
+                "cpu_used_cores": used_cores,
+                "cpu_free_cores": free_cores,
                 "ram": ram,
                 "disk": disk,
                 "ffmpeg_count": ffmpeg_count,

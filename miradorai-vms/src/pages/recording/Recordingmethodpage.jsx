@@ -27,7 +27,7 @@ function loadGroups() {
 }
 
 function getAuthHeaders() {
-  const token = localStorage.getItem("miradorai_token");
+  const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
   return token ? { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
 }
 
@@ -70,10 +70,12 @@ export default function RecordingMethodPage() {
       const profiles = cam.stream_profiles || [];
       let pVal = cam.active_rec_profile || cam.recording_profile || "MAIN_STREAM";
       if (profiles.length > 0 && pVal !== "MAIN_STREAM" && pVal !== "SUB_STREAM") {
-        const sortedMain = [...profiles].sort((a, b) => ((b.width || 0) * (b.height || 0)) - ((a.width || 0) * (a.height || 0)) || (b.bitrate || 0) - (a.bitrate || 0));
-        const sortedSub = [...profiles].sort((a, b) => ((a.width || 0) * (a.height || 0)) - ((b.width || 0) * (b.height || 0)) || (a.bitrate || 0) - (b.bitrate || 0));
-        if (pVal === sortedMain[0]?.token) pVal = "MAIN_STREAM";
-        else if (pVal === sortedSub[0]?.token) pVal = "SUB_STREAM";
+        const videoProfiles = profiles.filter(p => !p.encoding || !p.encoding.toUpperCase().includes("JPEG"));
+        const effectiveProfiles = videoProfiles.length > 0 ? videoProfiles : profiles;
+        const sortedMain = [...effectiveProfiles].sort((a, b) => ((b.width || 0) * (b.height || 0)) - ((a.width || 0) * (a.height || 0)) || (b.bitrate || 0) - (a.bitrate || 0));
+        const sortedSub = [...effectiveProfiles].sort((a, b) => ((a.width || 0) * (a.height || 0)) - ((b.width || 0) * (b.height || 0)) || (a.bitrate || 0) - (b.bitrate || 0));
+        if (pVal === sortedMain[0]?.token || pVal === sortedMain[0]?.name) pVal = "MAIN_STREAM";
+        else if (pVal === sortedSub[0]?.token || pVal === sortedSub[0]?.name) pVal = "SUB_STREAM";
       }
       settings[cam.stream_key] = {
         continuous: {
@@ -323,16 +325,19 @@ export default function RecordingMethodPage() {
 
         const data = template.continuous;
         let targetProfile = null;
+        const rawProfiles = cam.stream_profiles || [];
+        const videoProfiles = rawProfiles.filter(p => !p.encoding || !p.encoding.toUpperCase().includes("JPEG"));
+        const effectiveProfiles = videoProfiles.length > 0 ? videoProfiles : rawProfiles;
 
         if (data.profile === "MAIN_STREAM") {
-          targetProfile = [...(cam.stream_profiles || [])].sort((a, b) => {
+          targetProfile = [...effectiveProfiles].sort((a, b) => {
             const resA = (a.width || 0) * (a.height || 0);
             const resB = (b.width || 0) * (b.height || 0);
             if (resB !== resA) return resB - resA;
             return (b.bitrate || 0) - (a.bitrate || 0);
           })[0];
         } else if (data.profile === "SUB_STREAM") {
-          targetProfile = [...(cam.stream_profiles || [])].sort((a, b) => {
+          targetProfile = [...effectiveProfiles].sort((a, b) => {
             const resA = (a.width || 0) * (a.height || 0);
             const resB = (b.width || 0) * (b.height || 0);
             if (resA !== resB) return resA - resB;
@@ -340,7 +345,7 @@ export default function RecordingMethodPage() {
           })[0];
         } else {
           const templateProfile = template.continuous.availableProfiles?.find(p => p.token === data.profile);
-          targetProfile = cam.stream_profiles?.find(p => p.label === templateProfile?.label) || cam.stream_profiles?.[0];
+          targetProfile = effectiveProfiles?.find(p => p.label === templateProfile?.label) || effectiveProfiles?.[0];
         }
 
         let authedRtsp = null;
