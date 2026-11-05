@@ -92,7 +92,7 @@ function StreamCell({ d }) {
 }
 
 /* ─── Edge section: one block per edge box, with its cameras inside ───────── */
-export default function EdgeDevicesSection({ devices, groups, onPreview, onContextMenu, onRenameEdge, onDeleteEdge }) {
+export default function EdgeDevicesSection({ devices, groups, onPreview, onContextMenu, onRenameEdge, onDeleteEdge, onAddCamera }) {
   const [collapsed, setCollapsed] = useState({});
   const [editingEdgeIp, setEditingEdgeIp] = useState(null);
   const [editingName, setEditingName] = useState("");
@@ -106,11 +106,12 @@ export default function EdgeDevicesSection({ devices, groups, onPreview, onConte
       }
       const key = edgeId || d.edge_ip || d.edge_name || "mirador-edge";
       if (!map.has(key)) {
-        map.set(key, { edge_id: edgeId, ip: d.edge_ip || "", name: "", cameras: [] });
+        map.set(key, { edge_id: edgeId, ip: d.edge_ip || "", name: "", cameras: [], token: d.token || "" });
       }
       const edge = map.get(key);
       if (edgeId && !edge.edge_id) edge.edge_id = edgeId;
       if (d.edge_ip && !edge.ip) edge.ip = d.edge_ip;
+      if (d.token && !edge.token) edge.token = d.token;
 
       // Prioritize explicit custom names over generic fallback "Mirador Edge"
       if (d.edge_name && d.edge_name !== "Mirador Edge") {
@@ -213,6 +214,22 @@ export default function EdgeDevicesSection({ devices, groups, onPreview, onConte
                 ) : (
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <span className="edge-box__name">{edge.name}</span>
+                    {onAddCamera && (
+                      <button
+                        type="button"
+                        className="edge-box__add-btn"
+                        title={`Add camera to ${edge.name}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAddCamera(edge);
+                        }}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" width="13" height="13">
+                          <line x1="12" y1="5" x2="12" y2="19" />
+                          <line x1="5" y1="12" x2="19" y2="12" />
+                        </svg>
+                      </button>
+                    )}
                     {onRenameEdge && (
                       <button
                         type="button"

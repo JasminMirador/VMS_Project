@@ -1,5 +1,5 @@
 /* Loader.css - Universal loader styling for Mirador VMS */
- 
+
 .mirador-loader {
     display: flex;
     flex-direction: column;
@@ -9,15 +9,15 @@
     position: relative;
     box-sizing: border-box;
 }
- 
-/* ── Variants ── */
+
+/* Variants */
 .mirador-loader--area {
     width: 100%;
     min-height: 240px;
     padding: 48px 24px;
     background: transparent;
 }
- 
+
 .mirador-loader--overlay {
     position: absolute;
     inset: 0;
@@ -27,7 +27,7 @@
     -webkit-backdrop-filter: blur(4px);
     border-radius: inherit;
 }
- 
+
 .mirador-loader--fullscreen {
     position: fixed;
     inset: 0;
@@ -36,7 +36,7 @@
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
 }
- 
+
 .mirador-loader--inline {
     display: inline-flex;
     flex-direction: row;
@@ -46,22 +46,23 @@
     padding: 0;
     vertical-align: middle;
 }
- 
-/* ── Spinner Ring ── */
+
+/* Spinner */
 .mirador-loader__spinner-box {
     position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
+    flex: 0 0 auto;
 }
- 
+
 .mirador-loader__ring {
     border-radius: 50%;
     border-style: solid;
     animation: mirador-spin 0.9s cubic-bezier(0.55, 0.15, 0.45, 0.85) infinite;
+    box-sizing: border-box;
 }
- 
-/* Sizes */
+
 .mirador-loader--sm .mirador-loader__ring {
     width: 22px;
     height: 22px;
@@ -70,7 +71,7 @@
     border-top-color: var(--brand, #22d3ee);
     border-right-color: var(--teal, #10b981);
 }
- 
+
 .mirador-loader--md .mirador-loader__ring {
     width: 44px;
     height: 44px;
@@ -79,7 +80,7 @@
     border-top-color: var(--brand, #22d3ee);
     border-right-color: var(--teal, #10b981);
 }
- 
+
 .mirador-loader--lg .mirador-loader__ring {
     width: 60px;
     height: 60px;
@@ -88,8 +89,8 @@
     border-top-color: var(--brand, #22d3ee);
     border-right-color: var(--teal, #10b981);
 }
- 
-/* Glow Effect */
+
+/* Glow */
 .mirador-loader__glow {
     position: absolute;
     inset: -6px;
@@ -98,12 +99,12 @@
     animation: mirador-pulse 2s ease-in-out infinite;
     pointer-events: none;
 }
- 
+
 .mirador-loader--sm .mirador-loader__glow {
     display: none;
 }
- 
-/* Text */
+
+/* Loading text */
 .mirador-loader__text {
     font-size: 13px;
     font-weight: 500;
@@ -112,25 +113,26 @@
     text-align: center;
     animation: mirador-fade 1.8s ease-in-out infinite;
 }
- 
+
 .mirador-loader--sm .mirador-loader__text {
     font-size: 12px;
 }
- 
+
 .mirador-loader--lg .mirador-loader__text {
     font-size: 14px;
     font-weight: 600;
 }
- 
-/* ── Skeleton Table Rows ── */
+
+/* Skeleton rows */
 .mirador-loader__skeleton {
     width: 100%;
     display: flex;
     flex-direction: column;
     gap: 12px;
     padding: 16px 20px;
+    box-sizing: border-box;
 }
- 
+
 .mirador-loader__skeleton-row {
     display: flex;
     align-items: center;
@@ -145,50 +147,62 @@
     border-radius: 6px;
     animation: mirador-shimmer 1.8s ease-in-out infinite;
 }
- 
-/* ── Keyframes ── */
+
+/* Animations */
 @keyframes mirador-spin {
-    0% {
+    from {
         transform: rotate(0deg);
     }
- 
-    100% {
+
+    to {
         transform: rotate(360deg);
     }
 }
- 
+
 @keyframes mirador-pulse {
- 
+
     0%,
     100% {
         opacity: 0.3;
         transform: scale(0.92);
     }
- 
+
     50% {
         opacity: 0.8;
         transform: scale(1.12);
     }
 }
- 
+
 @keyframes mirador-fade {
- 
+
     0%,
     100% {
         opacity: 0.65;
     }
- 
+
     50% {
         opacity: 1;
     }
 }
- 
+
 @keyframes mirador-shimmer {
     0% {
         background-position: 200% 0;
     }
- 
+
     100% {
         background-position: -200% 0;
+    }
+}
+
+/* Respect reduced-motion preferences. */
+@media (prefers-reduced-motion: reduce) {
+
+    .mirador-loader__ring,
+    .mirador-loader__glow,
+    .mirador-loader__text,
+    .mirador-loader__skeleton-row {
+        animation-duration: 0.01ms;
+        animation-iteration-count: 1;
     }
 }
