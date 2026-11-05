@@ -1603,18 +1603,25 @@ export default function Topology() {
     });
   }, [fetchTopology, setNodes, setEdges]);
 
-  const applyTopologyTemplate = useCallback(async (templateType) => {
+  const applyTopologyTemplate = useCallback(async (templateType, customNodes = null) => {
+    // Target ONLY the nodes currently placed in the canvas (unless customNodes is explicitly passed, e.g. from Place All)
+    const targetNodes = customNodes && customNodes.length > 0
+      ? customNodes
+      : nodes.map(n => ({
+          ...(n.data || {}),
+          id: n.id,
+          type: n.data?.type || 'unknown',
+          position: n.position
+        }));
+    const N = targetNodes.length;
+    if (N === 0) {
+      alert("No devices placed on the canvas to arrange. Place devices on the canvas first.");
+      return;
+    }
+
     setActiveTemplate(templateType);
     setStatusFilter(null);
     setTypeFilter(null);
-
-    // Arrange all scanned nodes (or placed nodes if canvas has any)
-    const targetNodes = scannedNodes.length > 0 ? scannedNodes : nodes.map(n => n.data);
-    const N = targetNodes.length;
-    if (N === 0) {
-      alert("No network devices available to arrange.");
-      return;
-    }
 
     const newPositions = {};
     const newEdges = [];
@@ -1740,11 +1747,13 @@ export default function Topology() {
       targetNodes.forEach((node, idx) => {
         const angle = (idx * 2 * Math.PI) / N;
         newPositions[node.id] = {
-          x: Math.round(centerX + radius * Math.cos(angle)),
-          y: Math.round(centerY + radius * Math.sin(angle))
+          x: Math.round(centerX + (N === 1 ? 0 : radius * Math.cos(angle))),
+          y: Math.round(centerY + (N === 1 ? 0 : radius * Math.sin(angle)))
         };
-        const nextNode = targetNodes[(idx + 1) % N];
-        newEdges.push({ source: node.id, target: nextNode.id, type: 'default', inferred: false });
+        if (N > 1) {
+          const nextNode = targetNodes[(idx + 1) % N];
+          newEdges.push({ source: node.id, target: nextNode.id, type: 'default', inferred: false });
+        }
       });
     } else if (templateType === 'bus') {
       // ── BUS TOPOLOGY ──
@@ -1770,8 +1779,8 @@ export default function Topology() {
       targetNodes.forEach((node, idx) => {
         const angle = (idx * 2 * Math.PI) / N;
         newPositions[node.id] = {
-          x: Math.round(centerX + radius * Math.cos(angle)),
-          y: Math.round(centerY + radius * Math.sin(angle))
+          x: Math.round(centerX + (N === 1 ? 0 : radius * Math.cos(angle))),
+          y: Math.round(centerY + (N === 1 ? 0 : radius * Math.sin(angle)))
         };
       });
 
@@ -1837,7 +1846,7 @@ export default function Topology() {
 
     setNodes(reactNodes);
     setEdges(reactEdges);
-    setScannedNodes(targetNodes.map(n => ({ ...n, position: newPositions[n.id] })));
+    setScannedNodes(prev => prev.map(n => newPositions[n.id] ? { ...n, position: newPositions[n.id] } : n));
 
     // ── Fast Atomic Persistence in background ──
     try {
@@ -1849,11 +1858,11 @@ export default function Topology() {
         console.error("Topology template persistence note:", err);
       });
     } catch {}
-  }, [scannedNodes, nodes, removeNodeFromCanvas]);
+  }, [nodes, removeNodeFromCanvas]);
 
   const placeAllDevices = useCallback(async () => {
     if (scannedNodes.length === 0) return;
-    applyTopologyTemplate('tree');
+    applyTopologyTemplate('tree', scannedNodes);
   }, [scannedNodes, applyTopologyTemplate]);
 
 

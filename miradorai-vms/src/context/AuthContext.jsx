@@ -169,13 +169,60 @@ export const AuthProvider = ({ children }) => {
       if (!currentSession) return; // ignore if we don't have a session locally
 
       if (lastEvent.data?.user_email === user.email && lastEvent.data?.session_id !== currentSession) {
-        alert("Session expired: Another session has been initiated under this account.");
+        const removed =
+          lastEvent.data?.reason === "account_removed" || lastEvent.data?.session_id == null;
+        alert(
+          removed
+            ? "Your account has been removed or is no longer active. You have been logged out."
+            : "Session expired: Another session has been initiated under this account."
+        );
         setUser(null);
         setSupervisorUnlocked(false);
         clearAuthItems();
       }
     }
   }, [lastEvent, user]);
+
+  // Clear everything locally (no backend call; the account may already be gone)
+  const forceLogoutLocal = React.useCallback((message) => {
+    setUser(null);
+    setSupervisorUnlocked(false);
+    clearAuthItems();
+    localStorage.removeItem(SSO_TOKEN_KEY);
+    localStorage.removeItem(SSO_TOKEN_EXPIRY_KEY);
+    if (message) alert(message);
+  }, []);
+
+  // Verify the session with the backend on load, on tab focus, and every 60s
+  useEffect(() => {
+    if (!user) return;
+    const token = getAuthItem("miradorai_token");
+    if (!token) return; // mock OAuth users have no backend token
+
+    let cancelled = false;
+    const verify = async () => {
+      try {
+        const res = await fetch(apiUrl('/auth/me'), {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const isJson = (res.headers.get("content-type") || "").includes("application/json");
+        if (!cancelled && (res.status === 401 || res.status === 403 || (res.ok && !isJson))) {
+          forceLogoutLocal("Your account is no longer active. You have been logged out.");
+        }
+      } catch (e) {
+        // Network error: don't log anyone out
+      }
+    };
+
+    verify();
+    const id = setInterval(verify, 60000);
+    window.addEventListener("focus", verify);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      window.removeEventListener("focus", verify);
+    };
+  }, [user, forceLogoutLocal]);
 
   // ------------------------------------------------------------------
   // Sign Up — saves to MongoDB via backend
