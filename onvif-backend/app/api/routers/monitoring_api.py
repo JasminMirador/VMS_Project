@@ -58,10 +58,9 @@ live_metrics = {
 }
 
 # Metrics history
-# We keep history at different resolutions
-history_1h = []  # 5s interval -> max 720 points
+history_1h = []   # 5s interval -> max 720 points
 history_24h = []  # 2m interval -> max 720 points
-history_7d = []  # 15m interval -> max 672 points
+history_7d = []   # 15m interval -> max 672 points
 
 history_lock = threading.Lock()
 
@@ -74,6 +73,11 @@ class MetricsCollectorThread(threading.Thread):
         self.last_time = None
         self.last_mongo_ops = 0
         self.last_mongo_time = None
+        self._last_heavy_db_time = 0.0
+        self._cached_obj_count = 0
+        self._cached_bucket_size_gb = 0.0
+        self._cached_db_size_mb = 0.0
+        self._cached_collections_count = 0
 
     def run(self):
         print("[METRICS-COLLECTOR] Running background metrics collector...")
@@ -96,13 +100,13 @@ class MetricsCollectorThread(threading.Thread):
                 loop_count += 1
 
                 # Update history buffers
-                if loop_count % 2 == 0:  # ~every 4-5 seconds
+                if loop_count % 2 == 0:  # ~every 9 seconds
                     self.update_history()
 
             except Exception as e:
                 print(f"[METRICS-COLLECTOR] Error in collection loop: {e}")
             
-            self.stop_event.wait(2.2)
+            self.stop_event.wait(4.5)
 
     def collect_metrics(self):
         global live_metrics
@@ -151,7 +155,6 @@ class MetricsCollectorThread(threading.Thread):
         try:
             from recorder.backup_service import backup_state
             if backup_state.get("status") == "Processing":
-                # Mock a healthy replication speed if manual/auto backup is running
                 replication_mbps = 180.0
         except:
             pass
@@ -180,10 +183,8 @@ class MetricsCollectorThread(threading.Thread):
         disk_write_mbs = round((bytes_write / (1024 * 1024)) / dt, 2)
         iops = int((reads_count + writes_count) / dt)
 
-        # Estimate queue depth
         queue_depth = 0
         try:
-            # Under Windows or Linux, calculate based on busy time or IO queue length
             queue_depth = getattr(disk_io, 'busy_time', 0) // 1000
             if queue_depth == 0:
                 queue_depth = min(5, int(iops / 150))
@@ -200,7 +201,7 @@ class MetricsCollectorThread(threading.Thread):
         # --- 3. CPU & RAM ---
         live_metrics["cpu"] = {
             "percent": psutil.cpu_percent(),
-            "aes_load": round(camera_ingest * 0.15, 1)  # Est AES load from camera stream decryption/encryption
+            "aes_load": round(camera_ingest * 0.15, 1)
         }
         ram = psutil.virtual_memory()
         live_metrics["ram"] = {
@@ -209,24 +210,30 @@ class MetricsCollectorThread(threading.Thread):
             "total_gb": round(ram.total / (1024**3), 2)
         }
 
-        # --- 4. MinIO Replication Metrics ---
-        obj_count = 0
-        bucket_size_gb = 0.0
-        try:
-            recordings_col = db["recordings"]
-            obj_count = recordings_col.count_documents({})
-            # Estimate storage size from documents
-            pipeline = [{"$group": {"_id": None, "total_size": {"$sum": "$file_size"}}}]
-            res = list(recordings_col.aggregate(pipeline))
-            if res and res[0]["total_size"]:
-                bucket_size_gb = round(res[0]["total_size"] / (1024**3), 2)
-        except:
-            pass
+        # --- 4. MinIO Replication Metrics (Cached 60s) ---
+        now_heavy = time.time()
+        if (now_heavy - self._last_heavy_db_time) >= 60.0:
+            try:
+                recordings_col = db["recordings"]
+                self._cached_obj_count = recordings_col.estimated_document_count()
+                pipeline = [{"$group": {"_id": None, "total_size": {"$sum": "$file_size"}}}]
+                res = list(recordings_col.aggregate(pipeline))
+                if res and res[0]["total_size"]:
+                    self._cached_bucket_size_gb = round(res[0]["total_size"] / (1024**3), 2)
+                db_stats = db.command("dbStats")
+                self._cached_db_size_mb = round(db_stats.get("dataSize", 0) / (1024 * 1024), 2)
+                self._cached_collections_count = db_stats.get("collections", 0)
+                self._last_heavy_db_time = now_heavy
+            except Exception:
+                pass
+
+        obj_count = self._cached_obj_count
+        bucket_size_gb = self._cached_bucket_size_gb
 
         pending_replications = 0
         failed_replications = 0
         try:
-            # Count records not fully complete or backed up if using safe-mode backup
+            recordings_col = db["recordings"]
             pending_replications = recordings_col.count_documents({"status": "RECORDING"})
         except:
             pass
@@ -255,7 +262,6 @@ class MetricsCollectorThread(threading.Thread):
         secondary = "N/A"
         ops_per_sec = 0
 
-        # Calculate Ops/sec
         try:
             status = db.command("serverStatus")
             current_ops = status.get("opcounters", {}).get("query", 0) + status.get("opcounters", {}).get("insert", 0)
@@ -268,7 +274,6 @@ class MetricsCollectorThread(threading.Thread):
             pass
 
         try:
-            # Check replica set status
             repl_status = db.command("replSetGetStatus")
             members = repl_status.get("members", [])
             primary_member = next((m for m in members if m.get("stateStr") == "PRIMARY"), None)
@@ -279,7 +284,6 @@ class MetricsCollectorThread(threading.Thread):
             if secondary_member:
                 secondary = secondary_member.get("name", "Secondary")
                 
-            # If we are secondary, compute lag
             my_member = next((m for m in members if m.get("self")), None)
             if my_member and my_member.get("stateStr") == "SECONDARY" and primary_member:
                 optime_primary = primary_member.get("optimeDate")
@@ -287,17 +291,10 @@ class MetricsCollectorThread(threading.Thread):
                 if optime_primary and optime_me:
                     lag = max(0.0, (optime_primary - optime_me).total_seconds())
         except:
-            # Single instance fallback
             pass
 
-        db_size_mb = 0.0
-        collections_count = 0
-        try:
-            db_stats = db.command("dbStats")
-            db_size_mb = round(db_stats.get("dataSize", 0) / (1024 * 1024), 2)
-            collections_count = db_stats.get("collections", 0)
-        except:
-            pass
+        db_size_mb = self._cached_db_size_mb
+        collections_count = self._cached_collections_count
 
         live_metrics["mongo"] = {
             "status": mongo_status,
@@ -328,13 +325,10 @@ class MetricsCollectorThread(threading.Thread):
         }
 
         with history_lock:
-            # 1h series
             history_1h.append(snapshot)
             if len(history_1h) > 720:
                 history_1h.pop(0)
 
-            # Let's populate 24h and 7d from 1h or direct additions
-            # To simulate historical metrics on first start, pre-populate some data:
             if len(history_24h) == 0:
                 self.prepopulate_fake_history()
 
@@ -342,7 +336,6 @@ class MetricsCollectorThread(threading.Thread):
         global history_1h, history_24h, history_7d
         now = datetime.now()
         
-        # Prepopulate 1h
         for i in range(120, 0, -1):
             t_val = now - timedelta(seconds=i * 30)
             history_1h.append({
@@ -356,7 +349,6 @@ class MetricsCollectorThread(threading.Thread):
                 "replication_speed": round(140 + (i % 15) * 3, 1)
             })
 
-        # Prepopulate 24h
         for i in range(24, 0, -1):
             t_val = now - timedelta(hours=i)
             history_24h.append({
@@ -370,7 +362,6 @@ class MetricsCollectorThread(threading.Thread):
                 "replication_speed": round(150 + (i % 4) * 6, 1)
             })
 
-        # Prepopulate 7d
         for i in range(7, 0, -1):
             t_val = now - timedelta(days=i)
             history_7d.append({
@@ -384,7 +375,6 @@ class MetricsCollectorThread(threading.Thread):
                 "replication_speed": round(155 + (i % 3) * 7, 1)
             })
 
-# Start metrics collector background thread
 collector = MetricsCollectorThread()
 
 @router.get("/network", dependencies=[Depends(verify_token)])
@@ -425,30 +415,21 @@ def get_system_history(range: str = "1h"):
 
 from pydantic import BaseModel
 class ViewModeRequest(BaseModel):
-    mode: str  # "fullscreen" or "grid"
+    mode: str
 
 @router.post("/cameras/{ip}/view-mode", dependencies=[Depends(verify_token)])
 async def set_camera_view_mode(ip: str, req: ViewModeRequest):
-    # Normalize IP to hyphenated format
     node_id = f"node-{ip.replace('.', '-').replace('_', '-')}"
-    
-    # Update view mode in infrastructure_nodes
     db["infrastructure_nodes"].update_one(
         {"id": node_id},
-        {"$set": {
-            "view_mode": req.mode
-        }}
+        {"$set": {"view_mode": req.mode}}
     )
-    
-    # Trigger broadcast to connected websockets
     try:
         from monitoring.websocket_manager import manager
         await manager.broadcast({
             "type": "NODE_UPDATE",
             "id": node_id,
-            "data": {
-                "view_mode": req.mode
-            }
+            "data": {"view_mode": req.mode}
         })
     except Exception as e:
         print(f"[METRICS] Failed to broadcast view-mode update: {e}")
