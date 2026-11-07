@@ -103,7 +103,9 @@ def load_devices():
     if cameras_col is not None:
         try:
             try:
-                cameras_col.update_many(
+                if not _migration_completed:
+                    _migration_completed = True
+                    cameras_col.update_many(                    
                     {"ip_address": {"$exists": False}, "ip": {"$exists": True}},
                     [{"$set": {"ip_address": "$ip"}}]
                 )
