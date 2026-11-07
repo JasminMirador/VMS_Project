@@ -1,3 +1,12 @@
+/* ── Page Shell ──────────────────────────────────── */
+.rm-page-wrap {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-bottom: 40px;
+}
+
 /* ── Tab bar ─────────────────────────────────────── */
 .rm-tabs {
   display: flex;
@@ -36,12 +45,13 @@
 .rm-wizard {
   display: flex;
   justify-content: center;
-  padding-top: 20px;
+  padding-top: 10px;
+  width: 100%;
 }
 
 .rm-wizard-card {
   width: 100%;
-  max-width: 640px;
+  max-width: 680px;
   padding: 24px;
   display: flex;
   flex-direction: column;
@@ -50,9 +60,21 @@
 
 .rm-wizard-desc {
   color: var(--text-secondary);
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.6;
   margin: 0;
+}
+
+.rm-wizard-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(0, 210, 180, 0.08);
+  border: 1px solid rgba(0, 210, 180, 0.25);
+  padding: 10px 14px;
+  border-radius: var(--radius-sm, 6px);
+  font-size: 14px;
+  color: var(--text-primary);
 }
 
 /* ── Device List ─────────────────────────────────── */
@@ -83,8 +105,8 @@
 }
 
 .rm-device-item--selected {
-  border-color: var(--brand);
-  background: var(--brand-tint);
+  border-color: var(--teal);
+  background: var(--teal-subtle);
 }
 
 .rm-device-left {
@@ -127,11 +149,189 @@
   display: flex;
   justify-content: flex-end;
   margin-top: 8px;
+  gap: 10px;
 }
 
-/* ── Logs viewer ─────────────────────────────────── */
+.rm-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ── Grid Layouts (Unconstrained by sm-bottom) ───── */
+.rm-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  width: 100%;
+}
+
+.rm-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+  width: 100%;
+}
+
+.rm-grid-dynamic {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 20px;
+  width: 100%;
+}
+
+@media (max-width: 1024px) {
+  .rm-grid-3, .rm-grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Card Styling ────────────────────────────────── */
+.rm-card {
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--bg-surface, #161b26);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: var(--shadow-sm);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.rm-full-card {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Alert Banners ───────────────────────────────── */
+.rm-alert-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm, 6px);
+  margin-bottom: 16px;
+  font-size: 14px;
+  line-height: 1.4;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.rm-alert-banner--danger {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+}
+
+.rm-alert-banner--warn {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #fcd34d;
+}
+
+/* ── Performance & Inferences ────────────────────── */
+.rm-perf-wrap {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.rm-inference-box {
+  background: rgba(0, 210, 180, 0.05);
+  border: 1px solid rgba(0, 210, 180, 0.25);
+  border-radius: var(--radius-sm, 6px);
+  padding: 18px;
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.rm-inference-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.rm-badge {
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.rm-badge--ok {
+  background: rgba(0, 210, 180, 0.15);
+  color: var(--teal, #00d2b4);
+  border: 1px solid rgba(0, 210, 180, 0.3);
+}
+
+.rm-badge--warn {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.rm-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+  width: 100%;
+}
+
+.rm-metric-card {
+  background: var(--bg-base, #11141c);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rm-metric-label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.rm-metric-val {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.rm-inference-desc {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  background: rgba(0, 0, 0, 0.3);
+  padding: 12px 16px;
+  border-radius: 6px;
+  border-left: 4px solid var(--teal, #00d2b4);
+}
+
+/* ── Logs toolbar & viewer ───────────────────────── */
 .rm-logs-wrap {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.rm-logs-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .rm-logs-viewer {
@@ -141,13 +341,22 @@
   padding: 16px;
   font-family: var(--font-mono);
   font-size: 13px;
-  color: var(--brand);
-
+  color: var(--teal);
   line-height: 1.7;
   white-space: pre-wrap;
-  min-height: 260px;
-  max-height: 400px;
+  min-height: 320px;
+  max-height: 540px;
   overflow-y: auto;
+}
+
+/* ── Spin Animation ──────────────────────────────── */
+.rm-spin {
+  animation: rm-rotate 1s linear infinite;
+}
+
+@keyframes rm-rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* ── Empty state ─────────────────────────────────── */
