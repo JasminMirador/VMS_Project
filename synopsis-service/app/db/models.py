@@ -4,6 +4,7 @@ from datetime import datetime
 
 class FrameMeta(BaseModel):
     frame_idx: int
+    timestamp_s: Optional[float] = None
     original_timestamp: str
     bbox: List[int] # [x, y, w, h] body bounding box
     face_bbox: Optional[List[int]] = None # [x, y, w, h] face region bounding box
@@ -97,3 +98,29 @@ class TubeSummary(BaseModel):
 
 class SynopsisSearchResponse(BaseModel):
     tubes: List[TubeSummary]
+
+
+class EmployeeCreate(BaseModel):
+    name: str
+    email: Optional[str] = ""
+    department: Optional[str] = "General"
+    status: Optional[str] = "authorised"  # "authorised" or "suspended"
+    photo_base64: Optional[str] = None
+
+class EmployeeUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    department: Optional[str] = None
+    status: Optional[str] = None  # "authorised" or "suspended"
+    photo_base64: Optional[str] = None
+
+class EmployeeResponse(BaseModel):
+    emp_id: str
+    name: str
+    email: Optional[str] = ""
+    department: Optional[str] = "General"
+    status: str = "authorised"  # "authorised" or "suspended"
+    photo_url: Optional[str] = None
+    has_face_embedding: bool = False
+    created_at: str
+    updated_at: Optional[str] = None

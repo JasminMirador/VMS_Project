@@ -31,6 +31,7 @@ import ProfilePage from "../../pages/auth/ProfilePage";
 import ClientSettingsPage from "../../pages/client/ClientSettingsPage";
 import UserSettingsPage from "../../pages/client/Usersettingspage";
 import UserManagementPage from "../../pages/client/UserManagementPage";
+import EmployeeManagementPage from "../../pages/client/EmployeeManagementPage";
 import StreamingPage from "../../pages/client/StreamingPage";
 import AboutPage from "../../pages/client/AboutPage";
 import ViewingStationsPage from "../../pages/client/ViewingStationsPage";
@@ -56,9 +57,9 @@ import DesignerView from "../../pages/Mapview/DesignerView";
 import MaskingPage from "../../pages/devices/MaskingPage";
 import ForensicSearchPage from "../../pages/forensic/ForensicSearchPage";
 import AiAnalyticsPage from "../../pages/analytics/AiAnalyticsPage";
-import SystemPerformancePage from "../../pages/diagnostics/SystemPerformancePage";
+import SystemPerformancePage from "../../pages/diagnostics/SystemPerformancePage"
 import RaidMgmtPage from "../../pages/StorageManagement";
-// import PerformanceTestPage from "../../pages/diagnostics/PerformanceTestPage";
+import PerformanceTestPage from "../../pages/diagnostics/PerformanceTestPage";
 
 import VideoSynopsis from "../../pages/analytics/VideoSynopsisPage";
 import FaceDetectionPage from "../../pages/analytics/FaceDetectionPage";
@@ -118,6 +119,7 @@ const MAP = {
     "client-settings": ClientSettingsPage,
   "user-settings": UserSettingsPage,
   "user-management": UserManagementPage,
+  "employee-management": EmployeeManagementPage,
   "integration": IntegrationPage,
   "streaming": StreamingPage,
   "about": AboutPage,
@@ -152,7 +154,10 @@ const MAP = {
   "topology-map": TopologyPage,
   "designer-view": DesignerView,
   "network-health": NetworkHealthPage,
+  "performance-test": PerformanceTestPage,
   "system-performance": SystemPerformancePage,
+  // "performance-test-lab": PerformanceTestPage,
+  // "performance-lab": PerformanceTestPage,  
   "raid-mgmt": RaidMgmtPage,
   "approvals": PendingApprovalsPage,
   // "performance-test": PerformanceTestPage,
@@ -161,8 +166,7 @@ const MAP = {
 // Pages that require supervisor unlock for CLIENT role
 const CLIENT_SUPERVISOR_PAGES = ["media-player", "multi-playback", "backup", "masking"];
 // const CLIENT_BLOCKED_PAGES = ["designer-view", "topology-map", "network-health", "system-performance", "performance-test", "raid-mgmt", "viewing-stations", "user-management"];
-const CLIENT_BLOCKED_PAGES = ["designer-view", "topology-map", "network-health", "system-performance", "raid-mgmt", "viewing-stations", "user-management"];
-
+const CLIENT_BLOCKED_PAGES = ["designer-view", "topology-map", "network-health", "system-performance", "performance-test", "raid-mgmt", "viewing-stations", "user-management"];
 
 // Pages the OPERATOR role is allowed to access
 const OPERATOR_ALLOWED_PAGES = ["live-view", "map-view", "client-settings", "profile", "ai-analytics"];
@@ -204,7 +208,7 @@ export default function PageRenderer({ activePage, onNavigate }) {
   }, [activePage, basePage, role, navigate]);
 
   useEffect(() => {
-    if ((activePage === "user-management" || basePage === "user-management") && role !== "admin") {
+    if ((activePage === "user-management" || basePage === "user-management" || activePage === "employee-management" || basePage === "employee-management") && role !== "admin") {
       navigate("/live-view", { replace: true });
     }
   }, [activePage, basePage, role, navigate]);
@@ -216,7 +220,7 @@ export default function PageRenderer({ activePage, onNavigate }) {
   if (role === "client" && (CLIENT_BLOCKED_PAGES.includes(activePage) || CLIENT_BLOCKED_PAGES.includes(basePage))) {
     return null;
   }
-  if ((activePage === "user-management" || basePage === "user-management") && role !== "admin") {
+  if ((activePage === "user-management" || basePage === "user-management" || activePage === "employee-management" || basePage === "employee-management") && role !== "admin") {
     return null;
   }
 

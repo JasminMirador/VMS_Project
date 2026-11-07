@@ -32,6 +32,7 @@ const BODY = {
   // ---- settings dropdown ----
   userSettings: `<circle cx="9" cy="8" r="3.8" ${SOFT}/><path d="M2 21a7 7 0 0110-6.3"/><circle cx="18" cy="18" r="2.2"/><path d="M18 13.8v1M18 22.2v-1M13.8 18h1M22.2 18h-1"/>`,
   userManagement: `<circle cx="9" cy="8" r="3.5" ${SOFT}/><path d="M2 20a7 7 0 0114 0"/><circle cx="17.5" cy="9" r="2.5"/><path d="M18 14.2a5.5 5.5 0 013.9 5.3"/>`,
+  employeeManagement: `<rect x="3" y="4" width="18" height="16" rx="2" ${SOFT}/><circle cx="9" cy="10" r="2.5"/><path d="M15 8h3M15 12h3M7 16h10"/>`,
   emailSchedules: `<rect x="2.5" y="5" width="19" height="14" rx="2.5" ${SOFT}/><path d="M3 7.5l9 6 9-6"/>`,
   logs: `<path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" ${SOFT}/><path d="M14 3v5h5M9 13h6M9 17h4"/>`,
   recycleBin: `<path d="M4 7h16M10 11v6M14 11v6"/><path d="M5.5 7l1 12a2 2 0 002 1.9h7a2 2 0 002-1.9l1-12" ${SOFT}/><path d="M9 7V4.5h6V7"/>`,
