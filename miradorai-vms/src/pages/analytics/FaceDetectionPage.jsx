@@ -30,6 +30,9 @@ export default function FaceDetectionPage() {
     setSelectedCameras(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
   };
 
+  // Helper: camera id -> display name
+  const getCamName = (id) => cameras?.find(c => (c.id || c._id) === id)?.name || id;
+
   const [rangeStart, setRangeStart] = useState(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -50,24 +53,210 @@ export default function FaceDetectionPage() {
   const [showHistory, setShowHistory] = useState(false);
   const [currentJobDetails, setCurrentJobDetails] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
-  
-  useEffect(() => {
-    fetchJobHistory();
-  }, []);
+  const [probeImages, setProbeImages] = useState([]);
+  const [probePreviews, setProbePreviews] = useState([]);
 
-  const fetchJobHistory = async () => {
+  const handleAddPhotos = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) {
+      const newItems = files.map(f => ({
+        file: f,
+        url: URL.createObjectURL(f),
+        id: Math.random().toString(36).substring(2, 9)
+      }));
+      setProbeImages(prev => [...prev, ...files]);
+      setProbePreviews(prev => [...prev, ...newItems]);
+    }
+    e.target.value = "";
+  };
+
+  const handleRemovePhoto = (index) => {
+    setProbeImages(prev => prev.filter((_, i) => i !== index));
+    setProbePreviews(prev => {
+      const removed = prev[index];
+      if (removed?.url) URL.revokeObjectURL(removed.url);
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+  const [similarityThreshold, setSimilarityThreshold] = useState(65);
+  const [previewImageModal, setPreviewImageModal] = useState(null);
+  const [faceStatusFilter, setFaceStatusFilter] = useState("all");
+  const [isReidentifying, setIsReidentifying] = useState(false);
+  const pollTimerRef = useRef(null);
+  const isMountedRef = useRef(true);
+
+  const SYNOPSIS_API = import.meta.env.VITE_API_HOST ? `http://${import.meta.env.VITE_API_HOST}:8005` : `http://${window.location.hostname}:8005`;
+
+  const handleReidentify = async () => {
+    const activeJobId = currentJobDetails?.job_id || localStorage.getItem('vms_active_face_job_id') || (jobHistory[0]?.job_id);
+    if (!activeJobId) {
+      setToastMessage("No active detection run to sync with employee DB.");
+      return;
+    }
+    setIsReidentifying(true);
     try {
-      const res = await fetch(`${import.meta.env.VITE_SYNOPSIS_API_URL || `http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005`}/a1/v1/synopsis/face-jobs`);
+      const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/face-jobs/${activeJobId}/identify`, {
+        method: "POST"
+      });
+      if (!res.ok) throw new Error("Sync failed");
       const data = await res.json();
-      setJobHistory((data || []).slice(0, 50));
+      if (data.faces) {
+        setFaces(data.faces);
+        setToastMessage(`Synced ${data.faces.length} detected faces with employee database!`);
+      }
     } catch (err) {
-      console.error("Error fetching job history:", err);
+      console.error(err);
+      setToastMessage("Failed to sync with employee DB: " + err.message);
+    } finally {
+      setIsReidentifying(false);
     }
   };
 
+  const pollJob = (jobId) => {
+    if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+
+    const checkStatus = async () => {
+      if (!isMountedRef.current) return;
+      try {
+        const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/face-jobs/${jobId}`);
+        if (!res.ok) throw new Error("Failed to poll job status");
+        const data = await res.json();
+        if (!isMountedRef.current) return;
+
+        setJobProgress(data.progress || 0);
+        setCurrentJobDetails(data);
+
+        if (data.status === "completed") {
+          localStorage.removeItem('vms_active_face_job_id');
+          const sortedFaces = (data.faces || []).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+          setFaces(sortedFaces);
+          setLoading(false);
+          setJobProgress(100);
+          setShowDetailsModal(false);
+          fetchJobHistory();
+        } else if (data.status === "failed") {
+          localStorage.removeItem('vms_active_face_job_id');
+          setLoading(false);
+          setToastMessage(data.error_message || "Face detection job failed");
+          fetchJobHistory();
+        } else if (data.status === "cancelled") {
+          localStorage.removeItem('vms_active_face_job_id');
+          setLoading(false);
+          setShowDetailsModal(false);
+          setToastMessage("Face detection job was cancelled.");
+          fetchJobHistory();
+        } else {
+          // Keep polling every 2.5s
+          pollTimerRef.current = setTimeout(checkStatus, 2500);
+        }
+      } catch (pollErr) {
+        if (!isMountedRef.current) return;
+        console.error("Poll error:", pollErr);
+        pollTimerRef.current = setTimeout(checkStatus, 3500);
+      }
+    };
+
+    checkStatus();
+  };
+
+  const fetchJobHistory = async () => {
+    try {
+      const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/face-jobs`);
+      if (res.ok) {
+        const data = await res.json();
+        if (isMountedRef.current) {
+          setJobHistory((data || []).slice(0, 50));
+        }
+        return data || [];
+      }
+    } catch (err) {
+      console.error("Error fetching job history:", err);
+    }
+    return [];
+  };
+
+  // Initialize and check for running or recently completed jobs across page navigation
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    const handleGlobalUpdate = (e) => {
+      if (!isMountedRef.current) return;
+      const data = e.detail;
+      if (data) {
+        setJobProgress(data.progress || 0);
+        setCurrentJobDetails(data);
+        if (data.status === 'processing' || data.status === 'queued') {
+          setLoading(true);
+        }
+      }
+    };
+
+    const handleGlobalCompleted = (e) => {
+      if (!isMountedRef.current) return;
+      const data = e.detail;
+      if (data) {
+        const sortedFaces = (data.faces || []).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+        setFaces(sortedFaces);
+        setCurrentJobDetails(data);
+        setJobProgress(100);
+        setLoading(false);
+        fetchJobHistory();
+      }
+    };
+
+    window.addEventListener('vms-face-job-update', handleGlobalUpdate);
+    window.addEventListener('vms-face-job-completed', handleGlobalCompleted);
+
+    const initializePage = async () => {
+      try {
+        const jobs = await fetchJobHistory();
+        if (!isMountedRef.current) return;
+
+        const storedActiveId = localStorage.getItem('vms_active_face_job_id');
+        const runningJobInHistory = (jobs || []).find(j => j.status === 'processing' || j.status === 'queued');
+        const activeJobId = storedActiveId || (runningJobInHistory ? runningJobInHistory.job_id : null);
+
+        if (activeJobId) {
+          // Active job is currently running on the server -> attach & resume live tracking
+          const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/face-jobs/${activeJobId}`);
+          if (res.ok && isMountedRef.current) {
+            const activeData = await res.json();
+            if (activeData.status === 'processing' || activeData.status === 'queued') {
+              setLoading(true);
+              setJobProgress(activeData.progress || 0);
+              setCurrentJobDetails(activeData);
+              if (activeData.range_start) setRangeStart(activeData.range_start);
+              if (activeData.range_end) setRangeEnd(activeData.range_end);
+              if (activeData.camera_id) {
+                const cids = Array.isArray(activeData.camera_id) ? activeData.camera_id : [activeData.camera_id];
+                setSelectedCameras(cids);
+              }
+              pollJob(activeJobId);
+              return;
+            } else {
+              localStorage.removeItem('vms_active_face_job_id');
+            }
+          }
+        }
+        localStorage.removeItem('vms_last_completed_face_job_id');
+      } catch (err) {
+        console.error("Error initializing FaceDetectionPage:", err);
+      }
+    };
+
+    initializePage();
+
+    return () => {
+      isMountedRef.current = false;
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+      window.removeEventListener('vms-face-job-update', handleGlobalUpdate);
+      window.removeEventListener('vms-face-job-completed', handleGlobalCompleted);
+    };
+  }, []);
+
   const handleRenameSubmit = async (jobId) => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_SYNOPSIS_API_URL || `http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005`}/a1/v1/synopsis/face-jobs/${jobId}`, {
+      const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/face-jobs/${jobId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ job_name: editNameValue })
@@ -80,22 +269,238 @@ export default function FaceDetectionPage() {
     }
     setEditingJobId(null);
   };
-  
+
   const [rawModal, setRawModal] = useState({ isOpen: false, item: null });
   const [rawVideoUrl, setRawVideoUrl] = useState(null);
   const [rawVideoLoading, setRawVideoLoading] = useState(false);
   const [rawVideoError, setRawVideoError] = useState(null);
+  const [showTargetBox, setShowTargetBox] = useState(true);
+  const [boxMode, setBoxMode] = useState('face'); // 'face' or 'body'
+  const overlayCanvasRef = useRef(null);
   const rawVideoRef = useRef(null);
-  
+
+  // Hardware-synchronised frame rendering loop (via requestVideoFrameCallback)
+  useEffect(() => {
+    if (!rawModal.isOpen || !rawVideoUrl || !rawVideoRef.current || !overlayCanvasRef.current) return;
+    const video = rawVideoRef.current;
+    const canvas = overlayCanvasRef.current;
+    const ctx = canvas.getContext('2d');
+    let callbackHandle = null;
+    let animHandle = null;
+    let isCancelled = false;
+
+    const resizeCanvas = () => {
+      if (canvas && video) {
+        if (canvas.width !== video.clientWidth || canvas.height !== video.clientHeight) {
+          canvas.width = video.clientWidth;
+          canvas.height = video.clientHeight;
+        }
+      }
+    };
+    resizeCanvas();
+    const ro = new ResizeObserver(resizeCanvas);
+    ro.observe(video);
+
+    const item = rawModal.item;
+    const trajectory = item?.trajectory || [];
+    const itemStatus = (item?.status || (item?.person_name && item?.person_name !== "Unknown" ? "authorised" : "unauthorised")).toLowerCase();
+    const boxColor = itemStatus === 'authorised' ? '#10b981' : itemStatus === 'suspended' ? '#f59e0b' : '#ef4444';
+    const personName = item?.person_name && item.person_name !== 'Unknown' ? item.person_name : (itemStatus === 'unauthorised' ? 'Unknown' : 'Enrolled Personnel');
+    const labelText = itemStatus === 'authorised'
+      ? `[Authorised] ${personName}${item?.match_score ? ` (${item.match_score}%)` : ''}`
+      : itemStatus === 'suspended'
+        ? `[Suspended] ${personName}`
+        : `[Unauthorised] ${personName}${item?.match_score ? ` (${item.match_score}%)` : ''}`;
+
+    const renderOverlay = (mediaTime) => {
+      if (isCancelled || !canvas || !ctx || !video) return;
+      resizeCanvas();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (!showTargetBox || !item) return;
+
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      const cw = canvas.width;
+      const ch = canvas.height;
+      if (!vw || !vh || !cw || !ch) return;
+
+      let rawBox = null;
+
+      if (trajectory && trajectory.length > 0) {
+        const firstT = trajectory[0].t;
+        const lastT = trajectory[trajectory.length - 1].t;
+
+        // If person has exited the frame or not yet entered, don't draw anything!
+        if (mediaTime >= firstT - 0.1 && mediaTime <= lastT + 0.15) {
+          // Find adjacent points for linear interpolation
+          let p1 = trajectory[0];
+          let p2 = trajectory[trajectory.length - 1];
+
+          for (let i = 0; i < trajectory.length - 1; i++) {
+            if (trajectory[i].t <= mediaTime && trajectory[i + 1].t >= mediaTime) {
+              p1 = trajectory[i];
+              p2 = trajectory[i + 1];
+              break;
+            }
+          }
+
+          const dt = p2.t - p1.t;
+          const alpha = dt > 0.001 ? Math.max(0, Math.min(1, (mediaTime - p1.t) / dt)) : 0;
+          const b1 = boxMode === 'body' && p1.bbox ? p1.bbox : (p1.face_bbox || p1.bbox);
+          const b2 = boxMode === 'body' && p2.bbox ? p2.bbox : (p2.face_bbox || p2.bbox);
+
+          if (b1 && b2 && b1.length === 4 && b2.length === 4) {
+            rawBox = [
+              b1[0] + alpha * (b2[0] - b1[0]),
+              b1[1] + alpha * (b2[1] - b1[1]),
+              b1[2] + alpha * (b2[2] - b1[2]),
+              b1[3] + alpha * (b2[3] - b1[3]),
+            ];
+          }
+        }
+      } else {
+        // Fallback for legacy items without trajectory: show around detection moment
+        if (mediaTime >= 1.8 && mediaTime <= 4.2) {
+          rawBox = boxMode === 'body' && item.bbox ? item.bbox : (item.face_bbox || item.bbox);
+        }
+      }
+
+      if (rawBox && rawBox.length === 4) {
+        const [bx, by, bw, bh] = rawBox;
+        // Letterbox projection
+        const videoRatio = vw / vh;
+        const clientRatio = cw / ch;
+        let renderW, renderH, offsetX, offsetY;
+
+        if (clientRatio > videoRatio) {
+          renderH = ch;
+          renderW = ch * videoRatio;
+          offsetX = (cw - renderW) / 2;
+          offsetY = 0;
+        } else {
+          renderW = cw;
+          renderH = cw / videoRatio;
+          offsetX = 0;
+          offsetY = (ch - renderH) / 2;
+        }
+
+        const scale = renderW / vw;
+        const x = offsetX + bx * scale;
+        const y = offsetY + by * scale;
+        const w = bw * scale;
+        const h = bh * scale;
+
+        ctx.save();
+        ctx.strokeStyle = boxColor;
+        ctx.lineWidth = 2.5;
+        ctx.shadowColor = boxColor;
+        ctx.shadowBlur = 8;
+        ctx.strokeRect(x, y, w, h);
+
+        // Tech corner brackets
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3;
+        ctx.shadowBlur = 0;
+        const clen = Math.max(6, Math.min(14, Math.min(w, h) * 0.25));
+
+        ctx.beginPath();
+        ctx.moveTo(x - 2, y + clen);
+        ctx.lineTo(x - 2, y - 2);
+        ctx.lineTo(x + clen, y - 2);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(x + w - clen, y - 2);
+        ctx.lineTo(x + w + 2, y - 2);
+        ctx.lineTo(x + w + 2, y + clen);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(x - 2, y + h - clen);
+        ctx.lineTo(x - 2, y + h + 2);
+        ctx.lineTo(x + clen, y + h + 2);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(x + w - clen, y + h + 2);
+        ctx.lineTo(x + w + 2, y + h + 2);
+        ctx.lineTo(x + w + 2, y + h - clen);
+        ctx.stroke();
+
+        // Target badge pill
+        ctx.font = 'bold 12px Inter, sans-serif';
+        const textMetrics = ctx.measureText(labelText);
+        const pillW = textMetrics.width + 18;
+        const pillH = 22;
+        const pillX = x + (w - pillW) / 2;
+        const pillY = Math.max(8, y - pillH - 6);
+
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
+        ctx.strokeStyle = boxColor;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        if (typeof ctx.roundRect === 'function') {
+          ctx.roundRect(pillX, pillY, pillW, pillH, 11);
+        } else {
+          ctx.rect(pillX, pillY, pillW, pillH);
+        }
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(labelText, pillX + 9, pillY + pillH / 2);
+
+        ctx.restore();
+      }
+    };
+
+    const onFrame = (now, metadata) => {
+      if (isCancelled) return;
+      const mediaTime = metadata?.mediaTime !== undefined ? metadata.mediaTime : video.currentTime;
+      renderOverlay(mediaTime);
+
+      if ('requestVideoFrameCallback' in video) {
+        callbackHandle = video.requestVideoFrameCallback(onFrame);
+      } else {
+        animHandle = requestAnimationFrame(() => onFrame(performance.now(), { mediaTime: video.currentTime }));
+      }
+    };
+
+    if ('requestVideoFrameCallback' in video) {
+      callbackHandle = video.requestVideoFrameCallback(onFrame);
+    } else {
+      animHandle = requestAnimationFrame(() => onFrame(performance.now(), { mediaTime: video.currentTime }));
+    }
+
+    const onSeeked = () => renderOverlay(video.currentTime);
+    video.addEventListener('seeked', onSeeked);
+    video.addEventListener('play', onSeeked);
+
+    return () => {
+      isCancelled = true;
+      ro.disconnect();
+      video.removeEventListener('seeked', onSeeked);
+      video.removeEventListener('play', onSeeked);
+      if (callbackHandle !== null && 'cancelVideoFrameCallback' in video) {
+        video.cancelVideoFrameCallback(callbackHandle);
+      }
+      if (animHandle !== null) {
+        cancelAnimationFrame(animHandle);
+      }
+    };
+  }, [rawModal.isOpen, rawVideoUrl, showTargetBox, boxMode]);
+
   const API = import.meta.env.VITE_API_URL || "";
 
   useEffect(() => {
     let hls = null;
     if (rawVideoUrl && rawVideoRef.current) {
-      const fullUrl = rawVideoUrl.startsWith('http') 
-        ? rawVideoUrl 
+      const fullUrl = rawVideoUrl.startsWith('http')
+        ? rawVideoUrl
         : `${API}${rawVideoUrl.startsWith('/') ? '' : '/'}${rawVideoUrl}`;
-        
+
       if (rawVideoUrl.includes(".m3u8") && Hls.isSupported()) {
         hls = new Hls();
         hls.loadSource(fullUrl);
@@ -107,6 +512,12 @@ export default function FaceDetectionPage() {
         });
       } else {
         rawVideoRef.current.src = fullUrl;
+        try {
+          rawVideoRef.current.load();
+          rawVideoRef.current.play().catch(() => {});
+        } catch (e) {
+          console.error(e);
+        }
       }
     }
     return () => {
@@ -115,8 +526,6 @@ export default function FaceDetectionPage() {
       }
     };
   }, [rawVideoUrl, API]);
-
-  const SYNOPSIS_API = `http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005`;
 
   const handleSearchFaces = async () => {
     const now = new Date();
@@ -131,69 +540,77 @@ export default function FaceDetectionPage() {
     setCurrentJobDetails(null);
     setShowDetailsModal(false);
     setShowHistory(false);
-    
+
     try {
-      // Create a face detection job on the synopsis-service
-      const createRes = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/face-jobs`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          camera_id: selectedCameras, // passing array of camera IDs
-          range_start: rangeStart,
-          range_end: rangeEnd
-        })
-      });
+      // Create face job: probe search (if photo uploaded) or standard detection
+      let createRes;
+      if (probeImages.length > 0) {
+        const formData = new FormData();
+        formData.append("camera_ids", JSON.stringify(selectedCameras));
+        formData.append("range_start", rangeStart);
+        formData.append("range_end", rangeEnd);
+        formData.append("similarity_threshold", (similarityThreshold / 100).toString());
+        probeImages.forEach(img => {
+          formData.append("probe_photos", img);
+        });
+
+        createRes = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/face-search-jobs`, {
+          method: "POST",
+          body: formData
+        });
+      } else {
+        createRes = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/face-jobs`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            camera_id: selectedCameras,
+            range_start: rangeStart,
+            range_end: rangeEnd
+          })
+        });
+      }
+
 
       if (!createRes.ok) {
         const errBody = await createRes.json().catch(() => ({}));
         throw new Error(errBody.detail || "Failed to start face detection job");
       }
-      
+
       const jobData = await createRes.json();
       const jobId = jobData.job_id;
       setCurrentJobDetails(jobData);
 
-      // Poll until job is completed or failed
-      const pollJob = async () => {
-        try {
-          const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/face-jobs/${jobId}`);
-          if (!res.ok) throw new Error("Failed to poll job status");
-          const data = await res.json();
-          setJobProgress(data.progress || 0);
-          setCurrentJobDetails(data);
+      // Persist active job ID to localStorage so navigation across pages won't lose it
+      localStorage.setItem('vms_active_face_job_id', jobId);
+      window.dispatchEvent(new CustomEvent('vms-face-job-started', { detail: { jobId } }));
 
-          if (data.status === "completed") {
-            const finalRes = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/face-jobs/${jobId}`);
-            const finalData = await finalRes.json();
-            const sortedFaces = (finalData.faces || []).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-            setFaces(sortedFaces);
-            setLoading(false);
-            setJobProgress(100);
-            setShowDetailsModal(false);
-            fetchJobHistory();
-          } else if (data.status === "failed") {
-            throw new Error(data.error_message || "Face detection job failed");
-          } else if (data.status === "cancelled") {
-            setLoading(false);
-            setShowDetailsModal(false);
-            setToastMessage("Face detection job was cancelled.");
-            fetchJobHistory();
-          } else {
-            setTimeout(pollJob, 2500);
-          }
-        } catch(pollErr) {
-          console.error(pollErr);
-          setToastMessage(pollErr.message || "Face detection failed.");
-          setLoading(false);
-        }
-      };
-
-      pollJob();
+      // Start local polling
+      pollJob(jobId);
 
     } catch (err) {
       console.error(err);
+      localStorage.removeItem('vms_active_face_job_id');
       setToastMessage(err.message || "Failed to search faces.");
       setLoading(false);
+    }
+  };
+
+  const handleCancelJob = async () => {
+    if (!currentJobDetails?.job_id) return;
+    try {
+      await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/face-jobs/${currentJobDetails.job_id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "cancelled", job_name: currentJobDetails.job_name || currentJobDetails.job_id })
+      });
+      localStorage.removeItem('vms_active_face_job_id');
+      window.dispatchEvent(new CustomEvent('vms-face-job-cancelled', { detail: { jobId: currentJobDetails.job_id } }));
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+      setLoading(false);
+      setToastMessage("Job cancelled");
+      fetchJobHistory();
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -203,17 +620,15 @@ export default function FaceDetectionPage() {
     setRawVideoLoading(true);
     setRawVideoError(null);
     try {
-      // Resolve IP from cameras list â€” selectedCameras is an array
+      // Resolve camera for this face - selectedCameras is an array
       const faceCamId = item.camera_id || selectedCameras[0];
-      const cam = cameras?.find(c => (c.id || c._id) === faceCamId);
-      const playbackIp = cam?.ip || cam?.serial || faceCamId;
       const time = item.timestamp;
       const formattedTime = time.replace(" ", "T");
-      
+
       const url = `${SYNOPSIS_API}/a1/v1/synopsis/event-playback?camera_id=${encodeURIComponent(faceCamId)}&timestamp=${encodeURIComponent(formattedTime)}`;
       let token = localStorage.getItem('token');
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      
+
       const res = await fetch(url, { headers });
       if (!res.ok) {
         throw new Error(`Failed to fetch raw video: ${res.statusText}`);
@@ -270,7 +685,8 @@ export default function FaceDetectionPage() {
         setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
         setToastMessage("Download started!");
       } else {
-        const response = await fetch(fullUrl, { headers });
+        const downloadUrl = fullUrl.includes('?') ? `${fullUrl}&download=true` : `${fullUrl}?download=true`;
+        const response = await fetch(downloadUrl, { headers });
         if (!response.ok) throw new Error(`Server returned ${response.status}`);
         const blob = await response.blob();
         const blobUrl = URL.createObjectURL(blob);
@@ -289,17 +705,20 @@ export default function FaceDetectionPage() {
     }
   };
 
-  // Resolve camera IP for event-playback (needs IP, not MongoDB _id)
-  // Default to first selected camera for fallback IP usage
-  const selectedCam = cameras?.find(c => (c.id || c._id) === selectedCameras[0]);
-  const camIp = selectedCam?.ip || selectedCam?.serial || selectedCameras[0];
-
   useEffect(() => {
     if (toastMessage) {
       const timer = setTimeout(() => setToastMessage(null), 5000);
       return () => clearTimeout(timer);
     }
   }, [toastMessage]);
+
+  const probePhotoUrls = (
+    currentJobDetails?.probe_photo_urls && currentJobDetails.probe_photo_urls.length > 0
+      ? currentJobDetails.probe_photo_urls
+      : (currentJobDetails?.probe_photo_url ? [currentJobDetails.probe_photo_url] : [])
+  ).map(url => `${SYNOPSIS_API}/a1/v1/synopsis${url.startsWith('/') ? '' : '/'}${url}`);
+
+  const probePhotoFullUrl = probePhotoUrls[0] || null;
 
   return (
     <div className="synopsis-page">
@@ -311,37 +730,38 @@ export default function FaceDetectionPage() {
           position: 'fixed',
           bottom: '24px',
           right: '24px',
-          backgroundColor: 'rgba(239, 68, 68, 0.95)',
-          backdropFilter: 'blur(10px)',
-          color: 'white',
-          padding: '12px 24px',
-          borderRadius: '8px',
-          boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
-          border: '1px solid rgba(255,100,100,0.3)',
+          background: 'var(--bg-surface)',
+          color: 'var(--text-primary)',
+          padding: '12px 20px',
+          borderRadius: 'var(--radius-md)',
+          boxShadow: 'var(--shadow-lg)',
+          border: '1px solid var(--border)',
+          borderLeft: '4px solid var(--teal)',
           zIndex: 99999,
           display: 'flex',
           alignItems: 'center',
           gap: '12px',
           animation: 'slideInRight 0.3s ease-out',
-          minWidth: '300px',
+          minWidth: '280px',
+          maxWidth: '420px',
           overflow: 'hidden'
         }}>
-          <span className="material-icons-outlined" style={{ fontSize: '1.4rem' }}>error_outline</span>
-          <span style={{ fontWeight: 500, fontSize: '0.95rem', flex: 1, zIndex: 1 }}>{toastMessage}</span>
-          <button 
-            onClick={() => setToastMessage(null)} 
-            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', display: 'flex', padding: 0, zIndex: 1 }}
+          <span className="material-icons-outlined" style={{ fontSize: '1.3rem', color: 'var(--teal)' }}>check_circle</span>
+          <span style={{ fontWeight: 500, fontSize: '0.88rem', flex: 1, zIndex: 1, color: 'var(--text-primary)' }}>{toastMessage}</span>
+          <button
+            onClick={() => setToastMessage(null)}
+            style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '2px', zIndex: 1 }}
             title="Close"
           >
-            <span className="material-icons-outlined" style={{ fontSize: '1.2rem' }}>close</span>
+            <span className="material-icons-outlined" style={{ fontSize: '1.1rem' }}>close</span>
           </button>
-          
+
           <div style={{
             position: 'absolute',
             bottom: 0,
             left: 0,
-            height: '4px',
-            backgroundColor: 'rgba(255, 255, 255, 0.5)',
+            height: '3px',
+            backgroundColor: 'var(--teal)',
             animation: 'toastProgress 5s linear forwards'
           }}></div>
         </div>
@@ -355,34 +775,43 @@ export default function FaceDetectionPage() {
         </header>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', flex: 1, minHeight: 0, marginBottom: 0 }}>
-          <section className="glass-panel synopsis-controls-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: 0, padding: '20px', flexShrink: 0 }}>
-            <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', width: '100%', flexWrap: 'wrap' }}>
-              <div className="form-group" style={{ width: '220px', flexShrink: 0, marginBottom: 0 }}>
-                  <label style={{ fontSize: '0.8rem', display: 'block', marginBottom: '6px' }}>Camera</label>
+
+          {/* ───────────── CONTROLS (single line) ───────────── */}
+          <section className="glass-panel face-controls-card">
+            <div className="face-controls-row">
+
+              {/* CAMERA */}
+              <div className="fc-item fc-camera form-group">
+                <label className="fc-label">Camera</label>
                 <div className="input-wrapper" ref={dropdownRef} style={{ position: 'relative' }}>
-                  <span className="material-icons-outlined input-icon" style={{ fontSize: '1rem', left: '10px', zIndex: 2, pointerEvents: 'none' }}>videocam</span>
-                  <div 
+                  <span
+                    className="material-icons-outlined input-icon"
+                    style={{ fontSize: '1rem', left: '10px', zIndex: 2, pointerEvents: 'none', color: 'var(--text-muted)' }}
+                  >videocam</span>
+                  <div
+                    className="fc-camera-trigger"
                     onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                    style={{ padding: '8px 12px 8px 34px', fontSize: '0.9rem', border: '1px solid var(--border)', borderRadius: '4px', background: 'var(--bg-base)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '100%', minHeight: '38px', color: '#f8fafc' }}
+                    title={selectedCameras.map(getCamName).join(', ')}
                   >
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {selectedCameras.length === 0 ? "Select Cameras" : 
-                       selectedCameras.length === 1 ? (cameras?.find(c => (c.id || c._id) === selectedCameras[0])?.name || selectedCameras[0]) : 
-                       `${selectedCameras.length} Cameras Selected`}
+                    <span className="fc-camera-trigger-text">
+                      {selectedCameras.length === 0
+                        ? "Select Cameras"
+                        : selectedCameras.length === 1
+                          ? getCamName(selectedCameras[0])
+                          : `${selectedCameras.length} Cameras Selected`}
                     </span>
-                    <span className="material-icons-outlined" style={{ fontSize: '1.2rem' }}>arrow_drop_down</span>
+                    <span className="material-icons-outlined" style={{ fontSize: '1.2rem', color: 'var(--text-muted)', flexShrink: 0 }}>arrow_drop_down</span>
                   </div>
                   {isDropdownOpen && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'var(--bg-base)', border: '1px solid var(--border)', borderRadius: '4px', marginTop: '4px', maxHeight: '250px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.6)' }}>
+                    <div className="fc-camera-menu">
                       {cameras && cameras.map((c) => (
-                        <div key={c.id || c._id} 
+                        <div
+                          key={c.id || c._id}
+                          className="fc-camera-option"
                           onClick={() => toggleCamera(c.id || c._id)}
-                          style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                         >
-                          <input type="checkbox" checked={selectedCameras.includes(c.id || c._id)} readOnly style={{ cursor: 'pointer', margin: 0, accentColor: '#38bdf8', width: '16px', height: '16px' }} />
-                          <span style={{ fontSize: '0.9rem', color: '#f8fafc' }}>{c.name}</span>
+                          <input type="checkbox" checked={selectedCameras.includes(c.id || c._id)} readOnly />
+                          <span>{c.name}</span>
                         </div>
                       ))}
                     </div>
@@ -390,176 +819,497 @@ export default function FaceDetectionPage() {
                 </div>
               </div>
 
-              {/* Display Camera Names next to the dropdown */}
-              <div style={{ display: 'flex', alignItems: 'center', height: '38px', paddingLeft: '8px', maxWidth: '300px' }}>
-                {selectedCameras.length > 1 && (
-                  <span style={{ fontSize: '0.85rem', color: '#38bdf8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    <i className="fa-solid fa-video" style={{ marginRight: '6px' }}></i>
-                    {selectedCameras.map(cid => cameras?.find(c => (c.id || c._id) === cid)?.name || cid).join(', ')}
-                  </span>
-                )}
+              {/* FROM */}
+              <div className="fc-item fc-date form-group">
+                <label className="fc-label">From Time</label>
+                <DateTimePicker value={rangeStart} onChange={setRangeStart} />
               </div>
 
-              <div className="form-group" style={{ flex: 1, minWidth: '220px', marginBottom: 0 }}>
-                <label style={{ fontSize: '0.8rem', display: 'block', marginBottom: '6px' }}>From Time</label>
-                <DateTimePicker 
-                  value={rangeStart} 
-                  onChange={setRangeStart} 
-                />
+              {/* TO */}
+              <div className="fc-item fc-date form-group">
+                <label className="fc-label">To Time</label>
+                <DateTimePicker value={rangeEnd} onChange={setRangeEnd} />
               </div>
 
-              <div className="form-group" style={{ flex: 1, minWidth: '220px', marginBottom: 0 }}>
-                <label style={{ fontSize: '0.8rem', display: 'block', marginBottom: '6px' }}>To Time</label>
-                <DateTimePicker 
-                  value={rangeEnd} 
-                  onChange={setRangeEnd} 
-                />
-              </div>
-
-              <div style={{ flexShrink: 0, display: 'flex', gap: '8px' }}>
-                <button className={`btn-generate ${loading ? 'loading' : ''}`} style={{ width: '160px', padding: '10px 16px', fontSize: '0.95rem', height: '38px', transition: 'width 0.3s ease', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', margin: 0 }} onClick={handleSearchFaces} disabled={loading}>
-                  {loading ? (
-                    <>
-                      <span className="spinner"></span> Detecting...
-                    </>
-                  ) : (
-                    <>
-                      <span className="material-icons-outlined" style={{ fontSize: '1.2rem' }}>search</span> Search Faces
-                    </>
-                  )}
-                </button>
-                {loading && (
-                  <button 
-                    onClick={async () => {
-                      if (currentJobDetails?.job_id) {
-                        try {
-                          await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/face-jobs/${currentJobDetails.job_id}`, {
-                            method: "PATCH",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ status: "cancelled", job_name: currentJobDetails.job_name || currentJobDetails.job_id })
-                          });
-                          setToastMessage("Job cancelled");
-                        } catch (e) {
-                          console.error(e);
-                        }
-                      }
-                    }}
-                    style={{ 
-                      width: '100px', padding: '10px 16px', fontSize: '0.95rem', height: '38px',
-                      background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid #ef4444',
-                      borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
-                    }}
+              {/* TARGET PHOTO(S) UPLOAD (Multi-Probe Search) */}
+              <div className="fc-item fc-photo">
+                <span className="fc-label">Target Photo(s) (Optional)</span>
+                <div className="fc-photo-row" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <label
+                    htmlFor="photo-upload-input"
+                    className="fc-upload-btn"
+                    title={probeImages.length > 0 ? 'Click to add more photos' : 'Upload photos to search for persons'}
+                    style={{ cursor: 'pointer' }}
                   >
-                    <span className="material-icons-outlined" style={{ fontSize: '1.1rem' }}>clear</span> Clear
+                    <span className="material-icons-outlined" style={{ fontSize: '1.1rem', flexShrink: 0 }}>
+                      {probeImages.length > 0 ? "add_photo_alternate" : "upload_file"}
+                    </span>
+                    <span className="fc-upload-name">
+                      {probeImages.length === 0 ? 'Upload Photo(s)' : `Add Photo (${probeImages.length})`}
+                    </span>
+                  </label>
+                  <input
+                    id="photo-upload-input"
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleAddPhotos}
+                    style={{ display: 'none' }}
+                  />
+
+                  {probePreviews.map((p, idx) => (
+                    <div key={p.id || idx} className="fc-thumb-wrap" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                      <img
+                        className="fc-thumb"
+                        src={p.url}
+                        alt={`Target ${idx + 1}`}
+                        onClick={() => setPreviewImageModal({ url: p.url, title: `Target Photo #${idx + 1} (${p.file.name})` })}
+                        title="Click to view full photo"
+                        style={{ width: '38px', height: '38px', borderRadius: '4px', objectFit: 'cover', border: '1px solid var(--teal)', cursor: 'pointer' }}
+                      />
+                      <button
+                        type="button"
+                        className="fc-thumb-remove"
+                        title="Remove photo"
+                        onClick={() => handleRemovePhoto(idx)}
+                        style={{
+                          position: 'absolute', top: -6, right: -6, background: '#ef4444',
+                          border: 'none', borderRadius: '50%', color: 'white', width: '16px',
+                          height: '16px', fontSize: '10px', display: 'flex', alignItems: 'center',
+                          justifyContent: 'center', cursor: 'pointer', padding: 0
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* MATCH SLIDER (only with photos) */}
+              {probeImages.length > 0 && (
+                <div className="fc-item fc-match">
+                  <span className="fc-label">Match: {similarityThreshold}%</span>
+                  <div className="fc-range-wrap">
+                    <input
+                      className="fc-range"
+                      type="range"
+                      min="50"
+                      max="95"
+                      step="5"
+                      value={similarityThreshold}
+                      onChange={(e) => setSimilarityThreshold(Number(e.target.value))}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* ACTIONS */}
+              <div className="fc-item fc-actions">
+                <span className="fc-label" style={{ visibility: 'hidden' }}>Action</span>
+                <div className="fc-action-row">
+                  <button
+                    className={`btn-primary fc-btn-search ${loading ? 'loading' : ''}`}
+                    style={{ cursor: loading ? 'not-allowed' : 'pointer' }}
+                    onClick={handleSearchFaces}
+                    disabled={loading}
+                  >
+                    {loading ? (
+                      <>
+                        <span className="spinner"></span> {probeImages.length > 0 ? "Searching..." : "Detecting..."}
+                      </>
+                    ) : (
+                      <>
+                        <span className="material-icons-outlined" style={{ fontSize: '1.2rem' }}>
+                          {probeImages.length > 0 ? "person_search" : "search"}
+                        </span>
+                        {probeImages.length === 0 ? "Search Faces" : probeImages.length === 1 ? "Search Person" : `Search Target (${probeImages.length})`}
+                      </>
+                    )}
                   </button>
-                )}
+                  {loading && (
+                    <button className="fc-btn-cancel" title="Cancel job" onClick={handleCancelJob}>
+                      <span className="material-icons-outlined" style={{ fontSize: '1.2rem' }}>clear</span>
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
             {(loading || (currentJobDetails && currentJobDetails.status === 'completed' && showDetailsModal)) && (
               <div style={{ width: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', marginTop: '4px' }}>
-                <div 
-                  className="progress-container" 
+                <div
+                  className="progress-container"
                   style={{ width: '100%', margin: 0, cursor: 'pointer', transition: 'all 0.2s' }}
                   onClick={() => setShowDetailsModal(true)}
                   title="Click to view processing details"
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)'; }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.boxShadow = 'var(--shadow-sm)'; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; }}
                 >
                   <div className="progress-stats" style={{ fontSize: '0.85rem', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <span className={`status-badge status-${currentJobDetails?.status === 'completed' ? 'completed' : 'processing'}`} style={{ fontSize: '0.7rem', padding: '3px 8px' }}>
                       {currentJobDetails?.status === 'completed' ? 'COMPLETED' : 'PROCESSING'}
                     </span>
-                    <span style={{ color: '#f8fafc', fontWeight: 500 }}>Detection Progress</span>
-                    <span style={{ fontSize: '0.75rem', color: '#ffffff', marginLeft: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>Detection Progress</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                       <i className="fa-solid fa-circle-info"></i> Click for details
                     </span>
-                    <span style={{ marginLeft: 'auto', color: '#38bdf8', fontWeight: 600, fontSize: '0.95rem' }}>{jobProgress?.toFixed(0) ?? 0}%</span>
+                    <span style={{ marginLeft: 'auto', color: 'var(--teal)', fontWeight: 600, fontSize: '0.95rem' }}>{jobProgress?.toFixed(0) ?? 0}%</span>
                   </div>
-                  <div className="progress-bar-bg" style={{ height: '6px', background: 'rgba(255,255,255,0.1)' }}>
-                    <div className="progress-bar-fill pulse" style={{ width: `${jobProgress ?? 0}%`, height: '100%', borderRadius: '4px' }}></div>
+                  <div className="progress-bar-bg" style={{ height: '6px', background: 'var(--border)' }}>
+                    <div className="progress-bar-fill pulse" style={{ width: `${jobProgress ?? 0}%`, height: '100%', borderRadius: '4px', background: 'var(--teal)' }}></div>
                   </div>
                 </div>
               </div>
             )}
           </section>
 
+          {/* ───────────── RESULTS + HISTORY ───────────── */}
           <div style={{ display: 'flex', gap: '20px', flex: 1, minHeight: 0 }}>
             <section className="glass-panel synopsis-history-card fade-in" style={{ padding: '20px', margin: 0, flex: 3, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexShrink: 0 }}>
-                <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.1rem' }}>
-                  <span className="material-icons-outlined" style={{ fontSize: '1.2rem' }}>face</span> Detected Faces
+                <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.1rem', color: 'var(--text-primary)' }}>
+                  <span className="material-icons-outlined" style={{ fontSize: '1.2rem', color: 'var(--teal)' }}>face</span> Detected Faces
                 </h3>
                 {!showHistory && (
-                  <button 
+                  <button
                     onClick={() => setShowHistory(true)}
-                    style={{ 
-                      background: 'transparent', 
-                      border: '1px solid var(--border)', 
-                      borderRadius: '6px', 
-                      padding: '6px 12px', 
-                      color: '#ffffff', 
-                      cursor: 'pointer', 
+                    style={{
+                      background: 'var(--bg-elevated)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius-sm)',
+                      padding: '6px 12px',
+                      color: 'var(--text-primary)',
+                      cursor: 'pointer',
                       display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem',
                       transition: 'all 0.2s'
                     }}
-                    onMouseEnter={e => { e.currentTarget.style.color = '#38bdf8'; e.currentTarget.style.borderColor = '#38bdf8'; }}
-                    onMouseLeave={e => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.borderColor = 'var(--border)'; }}
+                    onMouseEnter={e => { e.currentTarget.style.color = 'var(--teal)'; e.currentTarget.style.borderColor = 'var(--teal)'; e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg-elevated)'; }}
                   >
                     <i className="fa-solid fa-clock-rotate-left"></i> Previous Runs
                   </button>
                 )}
               </div>
 
-            <div style={{ flexGrow: 1, overflowY: 'auto', paddingRight: '4px', minHeight: 0 }}>
-              {faces.length === 0 && !loading ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#ffffff' }}>
-                  <span className="material-icons-outlined" style={{ fontSize: '3rem', opacity: 0.2, marginBottom: '8px' }}>search_off</span>
-                  <p>No faces detected for the selected time range.</p>
-                </div>
-              ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '16px' }}>
-                  {faces.map((face, index) => {
-                      const faceCamId = face.camera_id || selectedCameras[0];
-                      const cam = cameras?.find(c => (c.id || c._id) === faceCamId);
-                      const camName = cam ? cam.name : (faceCamId || "Unknown");
-                      return (
-                      <div key={face.track_id || index} style={{ 
-                        background: 'var(--bg-base)', borderRadius: '8px', border: '1px solid var(--border)', 
-                        overflow: 'hidden', cursor: 'pointer', transition: 'all 0.2s ease', position: 'relative' 
-                      }}
-                      onClick={() => handleJumpToOriginal(face)}
-                      onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#38bdf8'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = 'translateY(0)'; }}
-                      >
-                        <img 
-                          src={
-                            face.thumbnail_path
-                              ? `${SYNOPSIS_API}/a1/v1/synopsis/face-static/${encodeURIComponent(face.thumbnail_path.split(/[\/]/).pop())}`
-                              : face.face_bbox && face.face_bbox.length === 4
-                                ? `${SYNOPSIS_API}/a1/v1/synopsis/face-thumbnail?camera_id=${encodeURIComponent(faceCamId)}&timestamp=${encodeURIComponent(face.timestamp)}&fx=${face.face_bbox[0]}&fy=${face.face_bbox[1]}&fw=${face.face_bbox[2]}&fh=${face.face_bbox[3]}`
-                                : `${API}/api/alerts/thumbnail?ip=${encodeURIComponent(cam?.ip || cam?.serial || faceCamId)}&time=${encodeURIComponent(face.timestamp)}&crop=1`
-                          } 
-                          alt="Detected Face" 
-                          style={{ width: '100%', height: '150px', objectFit: 'cover', display: 'block' }}
-                          onError={(e) => {
-                            e.target.onerror = null;
-                            e.target.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='150' height='150' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='8' r='5'/><path d='M20 21a8 8 0 0 0-16 0'/></svg>";
-                          }}
-                        />
-                        <div style={{ padding: '6px 8px', background: 'rgba(15, 23, 42, 0.9)', position: 'absolute', bottom: 0, left: 0, right: 0 }}>
-                          <span style={{ fontSize: '0.70rem', color: '#38bdf8', display: 'block', fontWeight: 'bold', marginBottom: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {camName}
-                          </span>
-                          <span style={{ fontSize: '0.70rem', color: '#e2e8f0', display: 'block' }}>
-                            {new Date(face.timestamp).toLocaleString()}
-                          </span>
+              <div style={{ flexGrow: 1, overflowY: 'auto', paddingRight: '4px', minHeight: 0 }}>
+                {probePhotoUrls.length > 0 && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: '14px', padding: '10px 14px',
+                    marginBottom: '14px', background: 'rgba(56, 189, 248, 0.08)',
+                    border: '1px solid rgba(56, 189, 248, 0.3)', borderRadius: 'var(--radius-sm)',
+                    flexWrap: 'wrap'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      {probePhotoUrls.map((pUrl, pIdx) => (
+                        <div key={pIdx} style={{ position: 'relative' }}>
+                          <img
+                            src={pUrl}
+                            alt={`Probe Target ${pIdx + 1}`}
+                            onClick={() => setPreviewImageModal({ url: pUrl, title: `Target Search Person Photo #${pIdx + 1}` })}
+                            style={{
+                              width: '42px', height: '42px', borderRadius: '6px', objectFit: 'cover',
+                              border: '1.5px solid var(--teal)', cursor: 'pointer', transition: 'transform 0.15s ease'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
+                            onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                            title={`Click to view Target Photo #${pIdx + 1}`}
+                          />
+                          {probePhotoUrls.length > 1 && (
+                            <span style={{
+                              position: 'absolute', bottom: -3, right: -3,
+                              background: 'var(--teal)', color: '#000', fontSize: '9px',
+                              fontWeight: 800, borderRadius: '50%', width: '16px', height: '16px',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              boxShadow: '0 1px 3px rgba(0,0,0,0.4)'
+                            }}>
+                              {pIdx + 1}
+                            </span>
+                          )}
                         </div>
-                        <div className="play-overlay" style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', background: 'rgba(0,0,0,0.5)', borderRadius: '50%', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity 0.2s' }}>
-                          <span className="material-icons-outlined" style={{ color: 'white', fontSize: '2rem' }}>play_circle</span>
-                        </div>
+                      ))}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {probePhotoUrls.length > 1
+                          ? `Search Target Person (${probePhotoUrls.length} Reference Photos)`
+                          : 'Search Target Person'}
+                        <span
+                          onClick={() => setPreviewImageModal({ url: probePhotoUrls[0], title: "Target Search Person Photo #1" })}
+                          style={{ fontSize: '0.72rem', color: 'var(--teal)', cursor: 'pointer', fontWeight: 500, textDecoration: 'underline' }}
+                        >
+                          View Full Photo
+                        </span>
                       </div>
-                    )})}
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        Threshold: {Math.round((currentJobDetails.similarity_threshold || 0.65) * 100)}% • Found {faces.length} match{faces.length === 1 ? '' : 'es'}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Clearance Status Filter Bar */}
+                {faces.length > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => setFaceStatusFilter('all')}
+                      style={{
+                        padding: '5px 12px', borderRadius: '16px', fontSize: '0.78rem', fontWeight: 600,
+                        cursor: 'pointer', transition: 'all 0.18s ease',
+                        background: faceStatusFilter === 'all' ? 'rgba(20, 184, 166, 0.2)' : 'var(--bg-elevated)',
+                        borderColor: faceStatusFilter === 'all' ? 'var(--teal)' : 'var(--border)',
+                        color: faceStatusFilter === 'all' ? 'var(--teal)' : 'var(--text-secondary)',
+                        borderWidth: '1px', borderStyle: 'solid'
+                      }}
+                    >
+                      All ({faces.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFaceStatusFilter('authorised')}
+                      style={{
+                        padding: '5px 12px', borderRadius: '16px', fontSize: '0.78rem', fontWeight: 600,
+                        cursor: 'pointer', transition: 'all 0.18s ease',
+                        background: faceStatusFilter === 'authorised' ? 'rgba(16, 185, 129, 0.2)' : 'var(--bg-elevated)',
+                        borderColor: faceStatusFilter === 'authorised' ? '#10b981' : 'var(--border)',
+                        color: faceStatusFilter === 'authorised' ? '#10b981' : 'var(--text-secondary)',
+                        borderWidth: '1px', borderStyle: 'solid'
+                      }}
+                    >
+                      ✓ Authorised ({faces.filter(f => (f.status || (f.person_name && f.person_name !== 'Unknown' ? 'authorised' : 'unauthorised')).toLowerCase() === 'authorised').length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFaceStatusFilter('unauthorised')}
+                      style={{
+                        padding: '5px 12px', borderRadius: '16px', fontSize: '0.78rem', fontWeight: 600,
+                        cursor: 'pointer', transition: 'all 0.18s ease',
+                        background: faceStatusFilter === 'unauthorised' ? 'rgba(239, 68, 68, 0.2)' : 'var(--bg-elevated)',
+                        borderColor: faceStatusFilter === 'unauthorised' ? '#ef4444' : 'var(--border)',
+                        color: faceStatusFilter === 'unauthorised' ? '#ef4444' : 'var(--text-secondary)',
+                        borderWidth: '1px', borderStyle: 'solid'
+                      }}
+                    >
+                      ✕ Unauthorised ({faces.filter(f => (f.status || (f.person_name && f.person_name !== 'Unknown' ? 'authorised' : 'unauthorised')).toLowerCase() === 'unauthorised').length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFaceStatusFilter('suspended')}
+                      style={{
+                        padding: '5px 12px', borderRadius: '16px', fontSize: '0.78rem', fontWeight: 600,
+                        cursor: 'pointer', transition: 'all 0.18s ease',
+                        background: faceStatusFilter === 'suspended' ? 'rgba(245, 158, 11, 0.2)' : 'var(--bg-elevated)',
+                        borderColor: faceStatusFilter === 'suspended' ? '#f59e0b' : 'var(--border)',
+                        color: faceStatusFilter === 'suspended' ? '#f59e0b' : 'var(--text-secondary)',
+                        borderWidth: '1px', borderStyle: 'solid'
+                      }}
+                    >
+                      ⚠ Suspended ({faces.filter(f => (f.status || (f.person_name && f.person_name !== 'Unknown' ? 'authorised' : 'unauthorised')).toLowerCase() === 'suspended').length})
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleReidentify}
+                      disabled={isReidentifying}
+                      title="Sync detected faces with latest Employee Clearance Database"
+                      style={{
+                        marginLeft: 'auto',
+                        background: 'var(--bg-elevated)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '5px 12px',
+                        color: 'var(--teal)',
+                        cursor: isReidentifying ? 'not-allowed' : 'pointer',
+                        display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem',
+                        fontWeight: 600,
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      <span className="material-icons-outlined" style={{ fontSize: '1rem' }}>sync</span>
+                      {isReidentifying ? 'Syncing...' : 'Sync with Employee DB'}
+                    </button>
+                  </div>
+                )}
+
+                {faces.length === 0 && !loading ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)' }}>
+                    <span className="material-icons-outlined" style={{ fontSize: '3rem', opacity: 0.3, marginBottom: '8px' }}>search_off</span>
+                    <p style={{ margin: 0, fontSize: '0.9rem' }}>
+                      {probePhotoUrls.length > 0
+                        ? "No matching sightings found for this person with the current threshold."
+                        : "No faces detected for the selected time range."}
+                    </p>
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(175px, 1fr))', gap: '16px' }}>
+                    {faces
+                      .filter((face) => {
+                        if (faceStatusFilter === 'all') return true;
+                        const st = (face.status || (face.person_name && face.person_name !== 'Unknown' ? 'authorised' : 'unauthorised')).toLowerCase();
+                        return st === faceStatusFilter;
+                      })
+                      .map((face, index) => {
+                        const faceCamId = face.camera_id || selectedCameras[0];
+                        const cam = cameras?.find(c => (c.id || c._id) === faceCamId);
+                        const camName = cam ? cam.name : (faceCamId || "Unknown");
+                        const faceStatus = (face.status || (face.person_name && face.person_name !== 'Unknown' ? 'authorised' : 'unauthorised')).toLowerCase();
+                        const isAuth = faceStatus === 'authorised';
+                        const isSuspended = faceStatus === 'suspended';
+                        const isUnauth = faceStatus === 'unauthorised';
+                        const personName = face.person_name && face.person_name !== 'Unknown' ? face.person_name : (isUnauth ? 'Unauthorised Person' : 'Unknown');
+
+                        const badgeBg = isAuth ? 'rgba(16, 185, 129, 0.95)' : isSuspended ? 'rgba(245, 158, 11, 0.95)' : 'rgba(239, 68, 68, 0.95)';
+                        const badgeIcon = isAuth ? 'verified' : isSuspended ? 'warning' : 'cancel';
+
+                        return (
+                          <div
+                            key={face.track_id || index}
+                            className="face-card"
+                            onClick={() => handleJumpToOriginal(face)}
+                            style={{ minHeight: '235px', position: 'relative', overflow: 'hidden' }}
+                          >
+                            {/* Clearance Status Badge (top-left) */}
+                            <div
+                              style={{
+                                position: 'absolute', top: '6px', left: '6px',
+                                zIndex: 3, display: 'flex', alignItems: 'center', gap: '4px',
+                                background: badgeBg, padding: '2px 7px',
+                                borderRadius: '4px', color: '#ffffff',
+                                fontSize: '0.67rem', fontWeight: 700,
+                                textTransform: 'uppercase', letterSpacing: '0.04em',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.4)',
+                                backdropFilter: 'blur(4px)'
+                              }}
+                              title={`Clearance: ${faceStatus.toUpperCase()}`}
+                            >
+                              <span className="material-icons-outlined" style={{ fontSize: '0.8rem' }}>{badgeIcon}</span>
+                              <span>{faceStatus}</span>
+                            </div>
+
+                            {/* Match score or Probe target (top-right) */}
+                            {face.match_score !== undefined && face.match_score > 0 && (
+                              <span style={{
+                                position: 'absolute', top: '6px', right: '6px',
+                                background: 'rgba(15, 23, 42, 0.9)',
+                                border: '1px solid rgba(255, 255, 255, 0.15)',
+                                color: '#ffffff', fontSize: '0.68rem', fontWeight: 700,
+                                padding: '2px 6px', borderRadius: '4px',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                                backdropFilter: 'blur(4px)',
+                                zIndex: 2
+                              }}>
+                                {face.match_score}%
+                              </span>
+                            )}
+
+                            {(face.matched_photo_url || face.matched_probe_url) && (
+                              <div
+                                title={face.matched_photo_url ? `Matched Enrolled Photo (Angle #${(face.matched_angle_index ?? 0) + 1})` : `Matched Target #${(face.matched_probe_index ?? 0) + 1}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const targetUrl = face.matched_photo_url || face.matched_probe_url;
+                                  const fullUrl = targetUrl.startsWith('http') ? targetUrl : targetUrl.startsWith('/api') ? targetUrl : `${SYNOPSIS_API}/a1/v1/synopsis${targetUrl.startsWith('/') ? '' : '/'}${targetUrl}`;
+                                  setPreviewImageModal({ url: fullUrl, title: face.person_name ? `${face.person_name} (Angle #${(face.matched_angle_index ?? 0) + 1})` : `Matched Target Photo` });
+                                }}
+                                style={{
+                                  position: 'absolute', top: '30px', left: '6px',
+                                  zIndex: 2, display: 'flex', alignItems: 'center', gap: '4px',
+                                  background: 'rgba(15, 23, 42, 0.88)', padding: '2px 6px',
+                                  borderRadius: '12px', border: '1px solid var(--teal)', cursor: 'pointer',
+                                  backdropFilter: 'blur(4px)', boxShadow: '0 2px 4px rgba(0,0,0,0.4)'
+                                }}
+                              >
+                                <img
+                                  src={
+                                    (face.matched_photo_url || face.matched_probe_url).startsWith('http')
+                                      ? (face.matched_photo_url || face.matched_probe_url)
+                                      : (face.matched_photo_url || face.matched_probe_url).startsWith('/api')
+                                        ? (face.matched_photo_url || face.matched_probe_url)
+                                        : `${SYNOPSIS_API}/a1/v1/synopsis${(face.matched_photo_url || face.matched_probe_url).startsWith('/') ? '' : '/'}${(face.matched_photo_url || face.matched_probe_url)}`
+                                  }
+                                  alt="Target"
+                                  style={{ width: '14px', height: '14px', borderRadius: '50%', objectFit: 'cover' }}
+                                />
+                                <span style={{ fontSize: '0.62rem', color: 'var(--teal)', fontWeight: 700 }}>
+                                  #{ ((face.matched_angle_index ?? face.matched_probe_index) ?? 0) + 1 }
+                                </span>
+                              </div>
+                            )}
+
+                            <img
+                              src={
+                                face.thumbnail_path
+                                  ? `${SYNOPSIS_API}/a1/v1/synopsis/face-static/${encodeURIComponent(face.thumbnail_path.split(/[\\/]/).pop())}`
+                                  : face.face_bbox && face.face_bbox.length === 4
+                                    ? `${SYNOPSIS_API}/a1/v1/synopsis/face-thumbnail?camera_id=${encodeURIComponent(faceCamId)}&timestamp=${encodeURIComponent(face.timestamp)}&fx=${face.face_bbox[0]}&fy=${face.face_bbox[1]}&fw=${face.face_bbox[2]}&fh=${face.face_bbox[3]}`
+                                    : `${API}/api/alerts/thumbnail?ip=${encodeURIComponent(cam?.ip || cam?.serial || faceCamId)}&time=${encodeURIComponent(face.timestamp)}&crop=1`
+                              }
+                              alt="Detected Face"
+                              style={{ width: '100%', height: '140px', objectFit: 'cover', display: 'block' }}
+                              onError={(e) => {
+                                e.target.onerror = null;
+                                e.target.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='150' height='150' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='8' r='5'/><path d='M20 21a8 8 0 0 0-16 0'/></svg>";
+                              }}
+                            />
+
+                            {/* Bottom Identity & Metadata Panel */}
+                            <div style={{
+                              padding: '8px 10px',
+                              background: 'var(--bg-surface)',
+                              borderTop: '1px solid var(--border-dim)',
+                              position: 'absolute', bottom: 0, left: 0, right: 0
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '2px' }}>
+                                <span className="material-icons-outlined" style={{ fontSize: '0.85rem', color: isAuth ? '#10b981' : isSuspended ? '#f59e0b' : '#ef4444' }}>
+                                  {isUnauth ? 'person_off' : 'person'}
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: '0.78rem',
+                                    fontWeight: 700,
+                                    color: isUnauth ? '#f87171' : 'var(--text-primary)',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis'
+                                  }}
+                                  title={personName}
+                                >
+                                  {personName}
+                                </span>
+                              </div>
+
+                              {face.department && (
+                                <span style={{
+                                  fontSize: '0.67rem',
+                                  color: 'var(--teal)',
+                                  display: 'block',
+                                  fontWeight: 500,
+                                  marginBottom: '2px',
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis'
+                                }}>
+                                  {face.department}
+                                </span>
+                              )}
+
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.67rem', color: 'var(--text-secondary)' }}>
+                                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '60%' }} title={camName}>
+                                  {camName}
+                                </span>
+                                <span style={{ whiteSpace: 'nowrap' }}>
+                                  {new Date(face.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="play-overlay">
+                              <span className="material-icons-outlined" style={{ color: 'white', fontSize: '2rem' }}>play_circle</span>
+                            </div>
+                          </div>
+                        );
+                      })}
                   </div>
                 )}
               </div>
@@ -567,252 +1317,361 @@ export default function FaceDetectionPage() {
 
             {/* Right Side: Previous Runs */}
             {showHistory && (
-            <div className="history-panel" style={{ width: '350px', background: 'var(--bg-surface)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ fontSize: '1.1rem', margin: 0, display: 'flex', alignItems: 'center', color: '#f8fafc' }}>
-                  <i className="fa-solid fa-clock-rotate-left" style={{ marginRight: '8px', color: '#38bdf8' }}></i> Previous Runs
-                </h3>
-                <button 
-                  onClick={() => setShowHistory(false)}
-                  style={{ background: 'transparent', border: 'none', color: '#ffffff', cursor: 'pointer', padding: 0 }}
-                >
-                  <span className="material-icons-outlined">close</span>
-                </button>
-              </div>
-              
-              <div style={{ flexGrow: 1, overflowY: 'auto', paddingRight: '4px' }}>
-                {jobHistory.length === 0 ? (
-                  <div style={{ padding: '20px', textAlign: 'center', color: '#ffffff' }}>
-                    <p>No previous detection runs.</p>
-                  </div>
-                ) : (
-                  jobHistory.map((job) => (
-                    <div key={job.job_id} className="history-item" style={{ 
-                      display: 'flex', flexDirection: 'column', gap: '8px',
-                      padding: '12px 16px', background: 'var(--bg-base)', borderRadius: '8px',
-                      border: '1px solid var(--border)', marginBottom: '8px', cursor: 'pointer',
-                      transition: 'all 0.2s', overflow: 'hidden'
-                    }}
-                    onClick={async () => {
-                      if (editingJobId === job.job_id) return;
-                      try {
-                        const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/face-jobs/${job.job_id}`);
-                        if (!res.ok) throw new Error("Failed to load job");
-                        const data = await res.json();
-                        const sortedFaces = (data.faces || []).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-                        setFaces(sortedFaces);
-                        setRangeStart(data.range_start);
-                        setRangeEnd(data.range_end);
-                        setSelectedCameras(Array.isArray(data.camera_ids || data.camera_id) ? (data.camera_ids || data.camera_id) : [data.camera_id]);
-                      } catch (err) {
-                        console.error("Failed to load past job:", err);
-                      }
-                    }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <div style={{ flex: 1, minWidth: 0, paddingRight: '12px' }}>
-                          {editingJobId === job.job_id ? (
-                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                              <input 
-                                type="text" 
-                                value={editNameValue} 
-                                onChange={e => setEditNameValue(e.target.value)}
-                                onClick={e => e.stopPropagation()}
-                                style={{ 
-                                  background: 'var(--bg-surface)', border: '1px solid var(--border)', 
-                                  color: '#f8fafc', padding: '4px 8px', borderRadius: '4px', fontSize: '0.85rem',
-                                  width: '100%'
-                                }}
-                                autoFocus
-                              />
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); handleRenameSubmit(job.job_id); }}
-                                style={{ background: '#10b981', color: 'white', border: 'none', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
-                              >
-                                <span className="material-icons-outlined" style={{ fontSize: '1rem' }}>check</span>
-                              </button>
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); setEditingJobId(null); }}
-                                style={{ background: 'var(--bg-base)', color: '#f8fafc', border: '1px solid var(--border)', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
-                              >
-                                <span className="material-icons-outlined" style={{ fontSize: '1rem' }}>close</span>
-                              </button>
-                            </div>
-                          ) : (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <span style={{ fontWeight: '600', color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{job.job_name || job.job_id}</span>
-                              <span 
-                                className="material-icons-outlined edit-icon" 
-                                style={{ fontSize: '1rem', color: '#ffffff', cursor: 'pointer', flexShrink: 0 }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setEditingJobId(job.job_id);
-                                  setEditNameValue(job.job_name || job.job_id);
-                                }}
-                              >edit</span>
-                            </div>
-                          )}
-                        </div>
-                        <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span 
-                            className="material-icons-outlined"
-                            style={{ fontSize: '1.1rem', color: '#38bdf8', cursor: 'pointer' }}
-                            title="View Processing Details"
-                            onClick={async (e) => {
-                              e.stopPropagation();
-                              try {
-                                const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/face-jobs/${job.job_id}`);
-                                if (!res.ok) throw new Error("Failed to load job");
-                                const data = await res.json();
-                                setCurrentJobDetails(data);
-                                setShowDetailsModal(true);
-                              } catch (err) {
-                                console.error("Failed to load past job details:", err);
-                              }
-                            }}
-                          >info</span>
-                          {job.status === 'completed' && <span style={{ color: '#10b981', fontSize: '0.65rem', fontWeight: 'bold', border: '1px solid #10b981', padding: '2px 6px', borderRadius: '12px' }}>COMPLETED</span>}
-                          {job.status === 'failed' && <span style={{ color: '#ef4444', fontSize: '0.65rem', fontWeight: 'bold', border: '1px solid #ef4444', padding: '2px 6px', borderRadius: '12px' }}>FAILED</span>}
-                          {job.status === 'cancelled' && <span style={{ color: '#fb923c', fontSize: '0.65rem', fontWeight: 'bold', border: '1px solid #fb923c', padding: '2px 6px', borderRadius: '12px' }}>CANCELLED</span>}
-                          {job.status === 'processing' && <span style={{ color: '#38bdf8', fontSize: '0.65rem', fontWeight: 'bold', border: '1px solid #38bdf8', padding: '2px 6px', borderRadius: '12px' }}>{job.progress ? Math.round(job.progress) + '%' : 'PROCESSING'}</span>}
-                        </div>
-                      </div>
+              <div className="history-panel" style={{ width: '350px', background: 'var(--bg-surface)', padding: '20px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <h3 style={{ fontSize: '1.1rem', margin: 0, display: 'flex', alignItems: 'center', color: 'var(--text-primary)' }}>
+                    <i className="fa-solid fa-clock-rotate-left" style={{ marginRight: '8px', color: 'var(--teal)' }}></i> Previous Runs
+                  </h3>
+                  <button
+                    onClick={() => setShowHistory(false)}
+                    style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 0, display: 'flex' }}
+                  >
+                    <span className="material-icons-outlined">close</span>
+                  </button>
+                </div>
 
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <span style={{ fontSize: '0.75rem', color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {(job.range_start || '').replace('T', ' ')} to {(job.range_end || '').replace('T', ' ')}
-                        </span>
-                        <span style={{ fontSize: '0.85rem', color: '#ffffff', display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          <i className="fa-solid fa-video" style={{ marginRight: '6px' }}></i>
-                          {(() => {
-                             let camNames = "";
-                             if (Array.isArray(job.camera_id)) {
-                               const names = job.camera_id.map(cid => cameras?.find(c => (c.id || c._id) === cid)?.name || cid);
-                               camNames = names.join(', ');
-                             } else {
-                               camNames = cameras?.find(c => (c.id || c._id) === job.camera_id)?.name || job.camera_id;
-                             }
-                             return <span title={camNames} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{camNames}</span>;
-                          })()}
-                          <span style={{ margin: '0 6px' }}>|</span>
-                          <i className="fa-solid fa-face-smile" style={{ marginRight: '6px' }}></i> {job.faces ? job.faces.length : '...'} Faces
-                        </span>
-                      </div>
+                <div style={{ flexGrow: 1, overflowY: 'auto', paddingRight: '4px' }}>
+                  {jobHistory.length === 0 ? (
+                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                      <p>No previous detection runs.</p>
                     </div>
-                  ))
-                )}
+                  ) : (
+                    jobHistory.map((job) => (
+                      <div key={job.job_id} className="history-item" style={{
+                        display: 'flex', flexDirection: 'column', gap: '8px',
+                        padding: '12px 16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border)', marginBottom: '8px', cursor: 'pointer',
+                        transition: 'all 0.2s', overflow: 'hidden'
+                      }}
+                        onClick={async () => {
+                          if (editingJobId === job.job_id) return;
+                          try {
+                            const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/face-jobs/${job.job_id}`);
+                            if (!res.ok) throw new Error("Failed to load job");
+                            const data = await res.json();
+                            const sortedFaces = (data.faces || []).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+                            setFaces(sortedFaces);
+                            setCurrentJobDetails(data);
+                            setRangeStart(data.range_start);
+                            setRangeEnd(data.range_end);
+                            setSelectedCameras(Array.isArray(data.camera_ids || data.camera_id) ? (data.camera_ids || data.camera_id) : [data.camera_id]);
+                          } catch (err) {
+                            console.error("Failed to load past job:", err);
+                          }
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <div style={{ flex: 1, minWidth: 0, paddingRight: '12px' }}>
+                            {editingJobId === job.job_id ? (
+                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <input
+                                  type="text"
+                                  value={editNameValue}
+                                  onChange={e => setEditNameValue(e.target.value)}
+                                  onClick={e => e.stopPropagation()}
+                                  style={{
+                                    background: 'var(--bg-surface)', border: '1px solid var(--border)',
+                                    color: 'var(--text-primary)', padding: '4px 8px', borderRadius: '4px', fontSize: '0.85rem',
+                                    width: '100%'
+                                  }}
+                                  autoFocus
+                                />
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleRenameSubmit(job.job_id); }}
+                                  style={{ background: 'var(--teal)', color: 'white', border: 'none', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
+                                >
+                                  <span className="material-icons-outlined" style={{ fontSize: '1rem' }}>check</span>
+                                </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setEditingJobId(null); }}
+                                  style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
+                                >
+                                  <span className="material-icons-outlined" style={{ fontSize: '1rem' }}>close</span>
+                                </button>
+                              </div>
+                            ) : (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontWeight: '600', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{job.job_name || job.job_id}</span>
+                                <span
+                                  className="material-icons-outlined edit-icon"
+                                  style={{ fontSize: '1rem', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0 }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditingJobId(job.job_id);
+                                    setEditNameValue(job.job_name || job.job_id);
+                                  }}
+                                >edit</span>
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span
+                              className="material-icons-outlined"
+                              style={{ fontSize: '1.1rem', color: 'var(--teal)', cursor: 'pointer' }}
+                              title="View Processing Details"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                try {
+                                  const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/face-jobs/${job.job_id}`);
+                                  if (!res.ok) throw new Error("Failed to load job");
+                                  const data = await res.json();
+                                  setCurrentJobDetails(data);
+                                  setShowDetailsModal(true);
+                                } catch (err) {
+                                  console.error("Failed to load past job details:", err);
+                                }
+                              }}
+                            >info</span>
+                            {job.status === 'completed' && <span style={{ color: 'var(--teal)', fontSize: '0.65rem', fontWeight: 'bold', border: '1px solid var(--teal)', padding: '2px 6px', borderRadius: '12px' }}>COMPLETED</span>}
+                            {job.status === 'failed' && <span style={{ color: 'var(--red)', fontSize: '0.65rem', fontWeight: 'bold', border: '1px solid var(--red)', padding: '2px 6px', borderRadius: '12px' }}>FAILED</span>}
+                            {job.status === 'cancelled' && <span style={{ color: 'var(--yellow)', fontSize: '0.65rem', fontWeight: 'bold', border: '1px solid var(--yellow)', padding: '2px 6px', borderRadius: '12px' }}>CANCELLED</span>}
+                            {job.status === 'processing' && <span style={{ color: 'var(--teal)', fontSize: '0.65rem', fontWeight: 'bold', border: '1px solid var(--teal)', padding: '2px 6px', borderRadius: '12px' }}>{job.progress ? Math.round(job.progress) + '%' : 'PROCESSING'}</span>}
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {(job.range_start || '').replace('T', ' ')} to {(job.range_end || '').replace('T', ' ')}
+                          </span>
+                          <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            <i className="fa-solid fa-video" style={{ marginRight: '6px' }}></i>
+                            {(() => {
+                              let camNames = "";
+                              if (Array.isArray(job.camera_id)) {
+                                camNames = job.camera_id.map(getCamName).join(', ');
+                              } else {
+                                camNames = getCamName(job.camera_id);
+                              }
+                              return <span title={camNames} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{camNames}</span>;
+                            })()}
+                            <span style={{ margin: '0 6px' }}>|</span>
+                            <i className="fa-solid fa-face-smile" style={{ marginRight: '6px' }}></i> {job.faces ? `${job.faces.length} ${job.faces.length === 1 ? 'Face' : 'Faces'}` : '... Faces'}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
-            </div>
             )}
           </div>
         </div>
       </div>
-      
-      {/* Right Side Video Player Panel */}
-      <div 
-        style={{
-          position: 'fixed',
-          top: 0,
-          right: rawModal.isOpen ? 0 : '-500px',
-          width: '450px',
-          height: '100vh',
-          background: 'var(--bg-surface)',
-          borderLeft: '1px solid var(--border)',
-          boxShadow: '-10px 0 30px rgba(0,0,0,0.7)',
-          transition: 'right 0.3s ease',
-          zIndex: 99999999, // Extremely high to stay above navbars
-          display: 'flex',
-          flexDirection: 'column',
-          padding: '24px',
-          paddingTop: '80px' // Ensure it's not hidden by top navbars even if z-index fails
-        }}
-      >
-        <button 
-          onClick={() => setRawModal({ isOpen: false, item: null })} 
-          style={{ 
-            position: 'absolute', 
-            top: '24px', 
-            right: '24px',
-            background: 'rgba(255,255,255,0.05)',
-            border: '1px solid rgba(255,255,255,0.1)',
-            borderRadius: '50%',
-            width: '40px',
-            height: '40px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#f8fafc', 
-            cursor: 'pointer',
-            transition: 'all 0.2s',
-            zIndex: 10
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = '#ef4444'; e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.borderColor = '#ef4444'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#f8fafc'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; }}
+
+      {/* Instant Face Playback Popup Modal */}
+      {rawModal.isOpen && (
+        <div
+          className="raw-video-modal-backdrop"
+          onClick={() => setRawModal({ isOpen: false, item: null })}
         >
-          <span className="material-icons-outlined">close</span>
-        </button>
-
-        <div style={{ marginBottom: '24px' }}>
-          <h3 style={{ margin: 0, fontSize: '1.4rem', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span className="material-icons-outlined" style={{ color: '#38bdf8' }}>play_circle</span>
-            Face Playback
-          </h3>
-        </div>
-
-        {rawModal.item && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', flexGrow: 1 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div>
-                <p style={{ margin: 0, fontSize: '0.95rem', color: '#ffffff', marginBottom: '4px' }}>
-                  Camera: <strong style={{ color: '#38bdf8' }}>{cameras?.find(c => (c.id || c._id) === (rawModal.item.camera_id || selectedCameras[0]))?.name || rawModal.item.camera_id || selectedCameras[0] || "Unknown"}</strong>
-                </p>
-                <p style={{ margin: 0, fontSize: '0.95rem', color: '#ffffff' }}>
-                  Detected: <strong style={{ color: '#e2e8f0' }}>{new Date(rawModal.item.timestamp).toLocaleString()}</strong>
-                </p>
-              </div>
-              {rawVideoUrl && (
-                <button 
-                  onClick={handleDownloadVideo}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '6px',
-                    padding: '6px 12px', background: 'var(--bg-base)', border: '1px solid var(--border)',
-                    color: '#38bdf8', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 500,
-                    cursor: 'pointer', transition: 'all 0.2s', outline: 'none'
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = '#38bdf8'; e.currentTarget.style.color = '#0f172a'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-base)'; e.currentTarget.style.color = '#38bdf8'; }}
-                >
-                  <span className="material-icons-outlined" style={{ fontSize: '1.1rem' }}>download</span>
-                  Download
-                </button>
-              )}
-            </div>
-            
-            <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-              {rawVideoLoading ? (
-                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px', background: 'var(--bg-base)', borderRadius: '12px', color: '#ffffff', border: '1px solid var(--border)' }}>
-                  <div className="spinner" style={{ marginRight: '12px', border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#38bdf8', borderRadius: '50%', width: '20px', height: '20px', animation: 'spin 1s linear infinite' }}></div> Preparing alert clip...
+          <div
+            className="raw-video-modal-content"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="raw-modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  width: '36px', height: '36px', borderRadius: '50%',
+                  background: 'var(--teal-subtle)', color: 'var(--teal)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}>
+                  <span className="material-icons-outlined" style={{ fontSize: '1.25rem' }}>play_circle</span>
                 </div>
-              ) : rawVideoError ? (
-                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px', background: 'var(--bg-base)', borderRadius: '12px', color: '#ef4444', textAlign: 'center', padding: '20px', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
-                  <div>
-                    <span className="material-icons-outlined" style={{ fontSize: '3rem', marginBottom: '12px', opacity: 0.8 }}>error_outline</span>
-                    <p style={{ margin: 0 }}>{rawVideoError}</p>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>Face Playback</h3>
+                  <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Original Recording Archive Clip</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setRawModal({ isOpen: false, item: null })}
+                className="close-btn"
+                title="Close"
+              >
+                <span className="material-icons-outlined" style={{ fontSize: '1.3rem' }}>close</span>
+              </button>
+            </div>
+
+            {/* Body */}
+            {rawModal.item && (
+              <div className="raw-modal-body">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <span style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '6px',
+                      background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                      padding: '4px 10px', borderRadius: 'var(--radius-sm)',
+                      fontSize: '0.8rem', fontWeight: 600, color: 'var(--teal)'
+                    }}>
+                      <span className="material-icons-outlined" style={{ fontSize: '0.95rem' }}>videocam</span>
+                      {cameras?.find(c => (c.id || c._id) === (rawModal.item.camera_id || selectedCameras[0]))?.name || rawModal.item.camera_id || selectedCameras[0] || "Unknown"}
+                    </span>
+                    <span style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '6px',
+                      background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                      padding: '4px 10px', borderRadius: 'var(--radius-sm)',
+                      fontSize: '0.8rem', color: 'var(--text-primary)'
+                    }}>
+                      <span className="material-icons-outlined" style={{ fontSize: '0.95rem', color: 'var(--text-muted)' }}>schedule</span>
+                      {new Date(rawModal.item.timestamp).toLocaleString()}
+                    </span>
+
+                    {/* Target Person Info Badge in Modal Toolbar */}
+                    {(rawModal.item.matched_probe_url || rawModal.item.match_score !== undefined) && (
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '6px',
+                        background: 'rgba(56, 189, 248, 0.1)', border: '1px solid var(--teal)',
+                        padding: '3px 10px', borderRadius: 'var(--radius-sm)',
+                        fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)'
+                      }}>
+                        {rawModal.item.matched_probe_url && (
+                          <img
+                            src={`${SYNOPSIS_API}/a1/v1/synopsis${rawModal.item.matched_probe_url.startsWith('/') ? '' : '/'}${rawModal.item.matched_probe_url}`}
+                            alt="Target"
+                            style={{ width: '18px', height: '18px', borderRadius: '50%', objectFit: 'cover' }}
+                          />
+                        )}
+                        <span>
+                          {rawModal.item.matched_probe_index !== undefined ? `Target #${rawModal.item.matched_probe_index + 1}` : 'Target'}
+                        </span>
+                        {rawModal.item.match_score !== undefined && (
+                          <span style={{ color: (rawModal.item.match_score >= 80) ? '#10b981' : '#f59e0b' }}>
+                            ({rawModal.item.match_score}% Match)
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    {/* Bounding Box Controls */}
+                    <button
+                      type="button"
+                      onClick={() => setShowTargetBox(!showTargetBox)}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '6px',
+                        background: showTargetBox ? 'var(--teal-subtle)' : 'var(--bg-elevated)',
+                        border: `1px solid ${showTargetBox ? 'var(--teal)' : 'var(--border)'}`,
+                        padding: '5px 12px', borderRadius: 'var(--radius-sm)',
+                        fontSize: '0.8rem', fontWeight: 600,
+                        color: showTargetBox ? 'var(--teal)' : 'var(--text-secondary)',
+                        cursor: 'pointer', transition: 'all 0.15s ease'
+                      }}
+                      title="Toggle Target Person Bounding Box"
+                    >
+                      <span className="material-icons-outlined" style={{ fontSize: '1.05rem' }}>
+                        {showTargetBox ? "center_focus_strong" : "filter_center_focus"}
+                      </span>
+                      Box: {showTargetBox ? "ON" : "OFF"}
+                    </button>
+
+                    {showTargetBox && (
+                      <div style={{
+                        display: 'inline-flex', background: 'var(--bg-elevated)',
+                        borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)',
+                        overflow: 'hidden', padding: '2px'
+                      }}>
+                        <button
+                          type="button"
+                          onClick={() => setBoxMode('face')}
+                          style={{
+                            background: boxMode === 'face' ? 'var(--teal)' : 'transparent',
+                            color: boxMode === 'face' ? '#000000' : 'var(--text-secondary)',
+                            border: 'none', padding: '4px 10px', fontSize: '0.75rem', fontWeight: 700,
+                            borderRadius: '3px', cursor: 'pointer'
+                          }}
+                        >
+                          Face
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBoxMode('body')}
+                          style={{
+                            background: boxMode === 'body' ? 'var(--teal)' : 'transparent',
+                            color: boxMode === 'body' ? '#000000' : 'var(--text-secondary)',
+                            border: 'none', padding: '4px 10px', fontSize: '0.75rem', fontWeight: 700,
+                            borderRadius: '3px', cursor: 'pointer'
+                          }}
+                        >
+                          Body
+                        </button>
+                      </div>
+                    )}
+
+                    {rawVideoUrl && (
+                      <button
+                        onClick={handleDownloadVideo}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '6px',
+                          background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                          padding: '5px 12px', borderRadius: 'var(--radius-sm)',
+                          fontSize: '0.8rem', fontWeight: 600, color: 'var(--teal)',
+                          cursor: 'pointer', transition: 'all 0.15s ease'
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'var(--teal)'; e.currentTarget.style.color = '#ffffff'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-elevated)'; e.currentTarget.style.color = 'var(--teal)'; }}
+                      >
+                        <span className="material-icons-outlined" style={{ fontSize: '1rem' }}>download</span>
+                        Download Clip
+                      </button>
+                    )}
                   </div>
                 </div>
-              ) : rawVideoUrl ? (
-                <div style={{ borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--border)', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}>
-                  <video ref={rawVideoRef} controls autoPlay style={{ width: '100%', display: 'block', background: 'black' }}>
-                    Your browser does not support the video tag.
-                  </video>
+
+                <div className="raw-video-player" style={{ marginTop: '8px' }}>
+                  {rawVideoLoading ? (
+                    <div style={{
+                      display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
+                      height: '360px', background: 'var(--bg-base)', borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border)', color: 'var(--text-secondary)', gap: '12px'
+                    }}>
+                      <div className="spinner" style={{ width: '28px', height: '28px', borderTopColor: 'var(--teal)' }}></div>
+                      <span style={{ fontSize: '0.9rem' }}>Loading video clip from archive...</span>
+                    </div>
+                  ) : rawVideoError ? (
+                    <div style={{
+                      display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
+                      height: '360px', background: 'var(--bg-base)', borderRadius: 'var(--radius-md)',
+                      border: '1px solid rgba(239, 68, 68, 0.3)', color: 'var(--red)', padding: '24px', textAlign: 'center', gap: '8px'
+                    }}>
+                      <span className="material-icons-outlined" style={{ fontSize: '2.5rem' }}>error_outline</span>
+                      <p style={{ margin: 0, fontSize: '0.9rem', fontWeight: 500 }}>{rawVideoError}</p>
+                    </div>
+                  ) : rawVideoUrl ? (
+                    <div style={{
+                      borderRadius: 'var(--radius-md)', overflow: 'hidden',
+                      border: '1px solid var(--border)', background: '#000',
+                      boxShadow: 'var(--shadow-md)', position: 'relative'
+                    }}>
+                      <video
+                        ref={rawVideoRef}
+                        controls
+                        autoPlay
+                        playsInline
+                        preload="auto"
+                        onError={() => setRawVideoError("Failed to play raw video archive. Browser could not decode media.")}
+                        style={{ width: '100%', maxHeight: '58vh', display: 'block', background: '#000' }}
+                      >
+                        Your browser does not support the video tag.
+                      </video>
+                      <canvas
+                        ref={overlayCanvasRef}
+                        style={{
+                          position: 'absolute', top: 0, left: 0,
+                          width: '100%', height: '100%',
+                          pointerEvents: 'none', zIndex: 5
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div style={{ height: '360px', background: 'var(--bg-base)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}></div>
+                  )}
                 </div>
-              ) : (
-                <div style={{ height: '300px', background: 'var(--bg-base)', borderRadius: '12px', border: '1px solid var(--border)' }}></div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Details Modal */}
       {showDetailsModal && currentJobDetails && (
@@ -824,44 +1683,43 @@ export default function FaceDetectionPage() {
         }}>
           <div style={{
             background: 'var(--bg-surface)', border: '1px solid var(--border)',
-            borderRadius: '12px', width: '90%', maxWidth: '700px', maxHeight: '85vh',
-            display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)'
+            borderRadius: 'var(--radius-md)', width: '90%', maxWidth: '700px', maxHeight: '85vh',
+            display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)'
           }}>
             <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, fontSize: '1.25rem', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <i className="fa-solid fa-server" style={{ color: '#38bdf8' }}></i> Processing Details
+              <h3 style={{ margin: 0, fontSize: '1.25rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <i className="fa-solid fa-server" style={{ color: 'var(--teal)' }}></i> Processing Details
               </h3>
-              <button onClick={() => setShowDetailsModal(false)} style={{ background: 'none', border: 'none', color: '#ffffff', cursor: 'pointer', display: 'flex' }}>
+              <button onClick={() => setShowDetailsModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex' }}>
                 <span className="material-icons-outlined">close</span>
               </button>
             </div>
-            
+
             <div style={{ padding: '24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              
+
               <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                <div style={{ flex: 1, background: 'var(--bg-base)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                  <p style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: '#ffffff' }}>Overall Status</p>
-                  <p style={{ margin: 0, fontSize: '1.1rem', fontWeight: 'bold', color: currentJobDetails.status === 'completed' ? '#10b981' : currentJobDetails.status === 'failed' ? '#ef4444' : '#38bdf8' }}>
+                <div style={{ flex: 1, background: 'var(--bg-elevated)', padding: '16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                  <p style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Overall Status</p>
+                  <p style={{ margin: 0, fontSize: '1.1rem', fontWeight: 'bold', color: currentJobDetails.status === 'completed' ? 'var(--teal)' : currentJobDetails.status === 'failed' ? 'var(--red)' : 'var(--teal)' }}>
                     {currentJobDetails.status.toUpperCase()}
                   </p>
                 </div>
-                <div style={{ flex: 1, background: 'var(--bg-base)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                  <p style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: '#ffffff' }}>Progress</p>
-                  <p style={{ margin: 0, fontSize: '1.1rem', fontWeight: 'bold', color: '#f8fafc' }}>
+                <div style={{ flex: 1, background: 'var(--bg-elevated)', padding: '16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                  <p style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Progress</p>
+                  <p style={{ margin: 0, fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--text-primary)' }}>
                     {Math.round(currentJobDetails.progress || 0)}%
                   </p>
                 </div>
-                <div style={{ flex: 1, background: 'var(--bg-base)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                  <p style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: '#ffffff' }}>Videos Processed</p>
-                  <p style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 'bold', color: '#f8fafc' }}>
+                <div style={{ flex: 1, background: 'var(--bg-elevated)', padding: '16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                  <p style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Videos Processed</p>
+                  <p style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--text-primary)' }}>
                     {(currentJobDetails.clip_details || []).filter(c => c.status === 'completed' && !c.is_system).length} / {currentJobDetails.total_clips || 0}
                   </p>
                   {currentJobDetails.total_clips_by_camera && Object.entries(currentJobDetails.total_clips_by_camera).map(([cid, total]) => {
-                    const camName = cameras?.find(c => (c.id || c._id) === cid)?.name || cid;
                     const processed = (currentJobDetails.clip_details || []).filter(c => c.status === 'completed' && !c.is_system && c.camera_id === cid).length;
                     return (
-                      <p key={cid} style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: '#ffffff' }}>
-                        <span style={{ color: '#38bdf8' }}>{camName}</span>: {processed} / {total}
+                      <p key={cid} style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                        <span style={{ color: 'var(--teal)' }}>{getCamName(cid)}</span>: {processed} / {total}
                       </p>
                     );
                   })}
@@ -869,34 +1727,34 @@ export default function FaceDetectionPage() {
               </div>
 
               <div>
-                <h4 style={{ margin: '0 0 12px 0', color: '#e2e8f0', fontSize: '1.05rem' }}>Timeline</h4>
+                <h4 style={{ margin: '0 0 12px 0', color: 'var(--text-primary)', fontSize: '1.05rem' }}>Timeline</h4>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {(currentJobDetails.clip_details || []).map((clip, idx) => {
-                    const camName = cameras?.find(c => (c.id || c._id) === clip.camera_id)?.name || clip.camera_id;
+                    const camName = getCamName(clip.camera_id);
                     return (
-                      <div key={idx} style={{ 
-                        display: 'flex', alignItems: 'center', gap: '16px', background: 'var(--bg-base)', 
-                        padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--border)',
-                        borderLeft: `4px solid ${clip.status === 'completed' ? '#10b981' : '#38bdf8'}`
+                      <div key={idx} style={{
+                        display: 'flex', alignItems: 'center', gap: '16px', background: 'var(--bg-elevated)',
+                        padding: '12px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)',
+                        borderLeft: '4px solid var(--teal)'
                       }}>
                         <div style={{ width: '40px', display: 'flex', justifyContent: 'center' }}>
                           {clip.status === 'completed' ? (
-                            <span className="material-icons-outlined" style={{ color: '#10b981' }}>check_circle</span>
+                            <span className="material-icons-outlined" style={{ color: 'var(--teal)' }}>check_circle</span>
                           ) : (
-                            <div className="spinner" style={{ width: '20px', height: '20px', borderWidth: '2px', borderTopColor: '#38bdf8' }}></div>
+                            <div className="spinner" style={{ width: '20px', height: '20px', borderWidth: '2px', borderTopColor: 'var(--teal)' }}></div>
                           )}
                         </div>
                         <div style={{ flex: 1 }}>
-                          <p style={{ margin: '0 0 4px 0', fontSize: '0.9rem', color: '#f8fafc', fontWeight: 500 }}>
+                          <p style={{ margin: '0 0 4px 0', fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: 500 }}>
                             {clip.is_system ? clip.task_name : `Video Time: ${clip.timestamp !== 'Unknown' ? new Date(clip.timestamp).toLocaleString() : 'Unknown'}`}
                           </p>
-                          <p style={{ margin: 0, fontSize: '0.8rem', color: '#ffffff' }}>
+                          <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                             {clip.is_system ? 'System Process' : `Camera: ${camName}`}
                           </p>
                         </div>
                         <div style={{ textAlign: 'right' }}>
-                          <p style={{ margin: '0 0 4px 0', fontSize: '0.9rem', color: '#f8fafc' }}>
-                            <i className="fa-solid fa-face-smile" style={{ color: '#38bdf8', marginRight: '6px' }}></i>
+                          <p style={{ margin: '0 0 4px 0', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
+                            <i className="fa-solid fa-face-smile" style={{ color: 'var(--teal)', marginRight: '6px' }}></i>
                             {(() => {
                               if (clip.is_system && clip.task_name === 'Deduplication & Finalizing' && clip.status === 'completed') {
                                 const finalCount = currentJobDetails.faces?.length || 0;
@@ -909,14 +1767,16 @@ export default function FaceDetectionPage() {
                                 const duplicates = rawCount - finalCount;
                                 return duplicates > 0 ? `-${duplicates} Merged` : '0 Merged';
                               }
-                              return clip.is_system && clip.faces_detected === '-' ? '- Faces' : `${clip.faces_detected} Faces`;
+                              if (clip.is_system && clip.faces_detected === '-') return '- Faces';
+                              const countNum = Number(clip.faces_detected);
+                              return `${clip.faces_detected} ${countNum === 1 ? 'Face' : 'Faces'}`;
                             })()}
                           </p>
-                          <p style={{ margin: 0, fontSize: '0.8rem', color: '#ffffff' }}>
+                          <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                             Time taken: {clip.time_taken_s !== null ? new Date(clip.time_taken_s * 1000).toISOString().substring(11, 19) : '...'}
                           </p>
                           {!clip.is_system && clip.video_duration_s != null && (
-                            <p style={{ margin: 0, fontSize: '0.8rem', color: '#ffffff' }}>
+                            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                               Video duration: {new Date(clip.video_duration_s * 1000).toISOString().substring(11, 19)}
                             </p>
                           )}
@@ -925,7 +1785,7 @@ export default function FaceDetectionPage() {
                     );
                   })}
                   {(!currentJobDetails.clip_details || currentJobDetails.clip_details.length === 0) && (
-                    <div style={{ textAlign: 'center', padding: '20px', color: '#ffffff', background: 'var(--bg-base)', borderRadius: '8px', border: '1px dashed var(--border)' }}>
+                    <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', border: '1px dashed var(--border)' }}>
                       Preparing background processes...
                     </div>
                   )}
@@ -934,55 +1794,54 @@ export default function FaceDetectionPage() {
 
               {currentJobDetails.status === 'completed' && (
                 <div style={{ marginTop: '16px' }}>
-                  <h4 style={{ margin: '0 0 16px 0', color: '#f8fafc', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span className="material-icons-outlined" style={{ color: '#38bdf8' }}>analytics</span> Job Summary
+                  <h4 style={{ margin: '0 0 16px 0', color: 'var(--text-primary)', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span className="material-icons-outlined" style={{ color: 'var(--teal)' }}>analytics</span> Job Summary
                   </h4>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-                    
-                    <div style={{ background: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+
+                    <div style={{ background: 'var(--bg-elevated)', padding: '16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                        <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(56, 189, 248, 0.1)', color: '#38bdf8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <div style={{ width: '32px', height: '32px', borderRadius: 'var(--radius-sm)', background: 'var(--teal-subtle)', color: 'var(--teal)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                           <span className="material-icons-outlined" style={{ fontSize: '18px' }}>schedule</span>
                         </div>
-                        <span style={{ color: '#94a3b8', fontSize: '0.85rem', fontWeight: 500 }}>Search Range</span>
+                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 500 }}>Search Range</span>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         <div>
-                          <div style={{ color: '#64748b', fontSize: '0.7rem', marginBottom: '2px' }}>FROM</div>
-                          <div style={{ fontSize: '0.85rem', color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentJobDetails.range_start ? new Date(currentJobDetails.range_start).toLocaleString() : 'N/A'}</div>
+                          <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginBottom: '2px' }}>FROM</div>
+                          <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentJobDetails.range_start ? new Date(currentJobDetails.range_start).toLocaleString() : 'N/A'}</div>
                         </div>
                         <div>
-                          <div style={{ color: '#64748b', fontSize: '0.7rem', marginBottom: '2px' }}>TO</div>
-                          <div style={{ fontSize: '0.85rem', color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentJobDetails.range_end ? new Date(currentJobDetails.range_end).toLocaleString() : 'N/A'}</div>
+                          <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginBottom: '2px' }}>TO</div>
+                          <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentJobDetails.range_end ? new Date(currentJobDetails.range_end).toLocaleString() : 'N/A'}</div>
                         </div>
                       </div>
                     </div>
 
-                    <div style={{ background: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div style={{ background: 'var(--bg-elevated)', padding: '16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                        <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <div style={{ width: '32px', height: '32px', borderRadius: 'var(--radius-sm)', background: 'var(--teal-subtle)', color: 'var(--teal)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                           <span className="material-icons-outlined" style={{ fontSize: '18px' }}>videocam</span>
                         </div>
-                        <span style={{ color: '#94a3b8', fontSize: '0.85rem', fontWeight: 500 }}>Sources & Results</span>
+                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 500 }}>Sources & Results</span>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <div style={{ fontSize: '0.9rem', color: '#f8fafc', display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ color: '#64748b' }}>Cameras</span>
+                        <div style={{ fontSize: '0.9rem', color: 'var(--text-primary)', display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Cameras</span>
                           <span style={{ fontWeight: 500 }}>{(() => {
                             let camNames = "";
                             const cId = currentJobDetails.camera_id || currentJobDetails.camera_ids;
                             if (Array.isArray(cId)) {
-                              const names = cId.map(cid => cameras?.find(c => (c.id || c._id) === cid)?.name || cid);
-                              camNames = names.join(', ');
+                              camNames = cId.map(getCamName).join(', ');
                             } else {
-                              camNames = cameras?.find(c => (c.id || c._id) === cId)?.name || cId;
+                              camNames = getCamName(cId);
                             }
                             return camNames || 'Unknown';
                           })()}</span>
                         </div>
-                        <div style={{ fontSize: '0.9rem', color: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ color: '#64748b' }}>Faces</span>
-                          <span style={{ fontWeight: 600, color: '#10b981', textAlign: 'right' }}>{(() => {
+                        <div style={{ fontSize: '0.9rem', color: 'var(--text-primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Faces</span>
+                          <span style={{ fontWeight: 600, color: 'var(--teal)', textAlign: 'right' }}>{(() => {
                             const finalCount = currentJobDetails.faces?.length || 0;
                             let rawCount = 0;
                             (currentJobDetails.clip_details || []).forEach(clip => {
@@ -992,7 +1851,7 @@ export default function FaceDetectionPage() {
                             });
                             const duplicates = rawCount - finalCount;
                             if (duplicates > 0) {
-                              return <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: '1.2' }}>{finalCount} Unique <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 400 }}>({duplicates} merged)</span></span>;
+                              return <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: '1.2' }}>{finalCount} Unique <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 400 }}>({duplicates} merged)</span></span>;
                             }
                             return finalCount;
                           })()}</span>
@@ -1000,21 +1859,21 @@ export default function FaceDetectionPage() {
                       </div>
                     </div>
 
-                    <div style={{ background: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div style={{ background: 'var(--bg-elevated)', padding: '16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                        <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <div style={{ width: '32px', height: '32px', borderRadius: 'var(--radius-sm)', background: 'rgba(139, 92, 246, 0.1)', color: 'var(--purple)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                           <span className="material-icons-outlined" style={{ fontSize: '18px' }}>bolt</span>
                         </div>
-                        <span style={{ color: '#94a3b8', fontSize: '0.85rem', fontWeight: 500 }}>Performance</span>
+                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 500 }}>Performance</span>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <div style={{ fontSize: '0.9rem', color: '#f8fafc', display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ color: '#64748b' }}>Video Length</span>
+                        <div style={{ fontSize: '0.9rem', color: 'var(--text-primary)', display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Video Length</span>
                           <span style={{ fontWeight: 500 }}>{currentJobDetails.total_video_duration_s != null ? new Date(currentJobDetails.total_video_duration_s * 1000).toISOString().substring(11, 19) : 'N/A'}</span>
                         </div>
-                        <div style={{ fontSize: '0.9rem', color: '#f8fafc', display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ color: '#64748b' }}>Processing</span>
-                          <span style={{ fontWeight: 600, color: '#8b5cf6' }}>{(() => {
+                        <div style={{ fontSize: '0.9rem', color: 'var(--text-primary)', display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Processing</span>
+                          <span style={{ fontWeight: 600, color: 'var(--purple)' }}>{(() => {
                             if (!currentJobDetails.created_at || !currentJobDetails.completed_at) return 'N/A';
                             const t = Math.max(0, (new Date(currentJobDetails.completed_at) - new Date(currentJobDetails.created_at)) / 1000);
                             return new Date(t * 1000).toISOString().substring(11, 19);
@@ -1030,14 +1889,54 @@ export default function FaceDetectionPage() {
           </div>
         </div>
       )}
-      <style>{`
-        .synopsis-page .play-overlay {
-          pointer-events: none;
-        }
-        .synopsis-page > div > div > section > div > div > div:hover .play-overlay {
-          opacity: 1 !important;
-        }
-      `}</style>
+
+      {/* Target Photo Full Preview Modal */}
+      {previewImageModal && (
+        <div
+          onClick={() => setPreviewImageModal(null)}
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(5px)',
+            zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '20px'
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--bg-surface)', border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-md)', padding: '16px', maxWidth: '90vw', maxHeight: '90vh',
+              display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
+              position: 'relative'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-dim)', paddingBottom: '8px' }}>
+              <span style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                {previewImageModal.title || "Target Photo Preview"}
+              </span>
+              <button
+                onClick={() => setPreviewImageModal(null)}
+                style={{
+                  background: 'none', border: 'none', color: 'var(--text-muted)',
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px'
+                }}
+              >
+                <span className="material-icons-outlined">close</span>
+              </button>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }}>
+              <img
+                src={previewImageModal.url}
+                alt="Target Full Preview"
+                style={{
+                  maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain',
+                  borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)'
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
