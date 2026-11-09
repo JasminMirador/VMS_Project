@@ -429,6 +429,18 @@
   flex-shrink: 0;
 }
 .dm-status--online  { color: var(--brand); }
+.dm-status--connected { color: #10b981; }
+.dm-status--connected .dm-status-dot {
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.4);
+}
+.dm-device--connected {
+  opacity: 0.88;
+  cursor: default;
+}
+.dm-device--connected:hover {
+  background: rgba(255, 255, 255, 0.015);
+}
 .dm-status--offline { color: var(--red); }
 .dm-status-dot {
   width: 6px;

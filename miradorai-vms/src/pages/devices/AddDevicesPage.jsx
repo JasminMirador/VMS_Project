@@ -2985,6 +2985,7 @@ const handleEdgeCredentialsSubmit = async (cameras) => {
           groups={groups}
           selectedGroupId={selectedGroupId}
           setSelectedGroupId={setSelectedGroupId}
+          existingDevices={devices}
         />
       )}
 
@@ -2997,6 +2998,7 @@ const handleEdgeCredentialsSubmit = async (cameras) => {
           groups={groups}
           selectedGroupId={selectedGroupId}
           setSelectedGroupId={setSelectedGroupId}
+          existingDevices={devices}
         />
       )}
 
@@ -3008,6 +3010,7 @@ const handleEdgeCredentialsSubmit = async (cameras) => {
           groups={groups}
           selectedGroupId={selectedGroupId}
           setSelectedGroupId={setSelectedGroupId}
+          existingDevices={devices}
         />
       )}
 

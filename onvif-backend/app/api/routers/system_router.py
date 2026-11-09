@@ -44,11 +44,11 @@ async def run_discovery_pipeline():
         found = await asyncio.to_thread(discover_all, 3, 800)
         print(f"[DISCOVERY] Found {len(found)} camera(s)")
 
-        # Enrich discovered devices with their registered details (like exact model name) if already in database/VMS
+        # Enrich discovered devices with their registered details (model, mac) if already in database/VMS
         from app.managers.stream_manager import load_devices
         try:
             registered_devices = load_devices()
-            registered_by_ip = {r.get("ip"): r for r in registered_devices if r.get("ip")}
+            registered_by_ip = {(r.get("ip") or r.get("ip_address")): r for r in registered_devices if (r.get("ip") or r.get("ip_address"))}
             for device in found:
                 ip = device.get("ip")
                 if ip in registered_by_ip:
@@ -59,9 +59,11 @@ async def run_discovery_pipeline():
                         device["model"] = reg_dev["model"]
                     if reg_dev.get("mac") and reg_dev.get("mac") != "Unknown":
                         device["mac"] = reg_dev["mac"]
-                        if reg_dev.get("name") or reg_dev.get("device_name"):
-                            device["name"] = reg_dev.get("device_name") or reg_dev.get("name")
+                    device.pop("name", None)
+                            
                     device["already_enrolled"] = True
+                    device["connected"] = True
+                    device["is_connected"] = True
         except Exception as enrich_err:
             print(f"[DISCOVERY] ⚠ Failed to enrich with registered devices: {enrich_err}")
 

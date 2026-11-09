@@ -12,7 +12,8 @@ export default function DiscoveryModal({
   onAddDevices,
   groups,
   selectedGroupId,
-  setSelectedGroupId
+  setSelectedGroupId,
+  existingDevices = []
 }) {
   const [discoveredDevices, setDiscoveredDevices] = useState([]);
   const [selectedDevices, setSelectedDevices] = useState(new Set());
@@ -36,6 +37,18 @@ export default function DiscoveryModal({
 
   const progressTimerRef = useRef(null);
   const dropdownRef = useRef(null);
+
+  const isDeviceConnected = (device) => {
+    if (!device) return false;
+    if (device.connected || device.is_connected || device.already_enrolled) return true;
+    if (existingDevices && existingDevices.length > 0) {
+      return existingDevices.some((ed) => {
+        const edIp = ed.ip || ed.ip_address;
+        return edIp && edIp === device.ip;
+      });
+    }
+    return false;
+  };
 
   const closeDropdown = () => {
     setOpenDropdownId(null);
@@ -136,7 +149,11 @@ export default function DiscoveryModal({
     return () => stopProgressTicker();
   }, []);
 
+  const selectableDevices = discoveredDevices.filter((d) => !isDeviceConnected(d));
+
   const toggleOne = (id) => {
+    const dev = discoveredDevices.find((d) => d.id === id);
+    if (dev && isDeviceConnected(dev)) return;
     const s = new Set(selectedDevices);
     s.has(id) ? s.delete(id) : s.add(id);
     setSelectedDevices(s);
@@ -145,9 +162,9 @@ export default function DiscoveryModal({
 
   const toggleAll = () => {
     setSelectedDevices(
-      selectedDevices.size === discoveredDevices.length
+      selectableDevices.length > 0 && selectableDevices.every((d) => selectedDevices.has(d.id))
         ? new Set()
-        : new Set(discoveredDevices.map((d) => d.id))
+        : new Set(selectableDevices.map((d) => d.id))
     );
     setAlertMsg("");
   };
@@ -449,17 +466,26 @@ export default function DiscoveryModal({
     return a.localeCompare(b);
   });
 
+  const getBrandSelectableDevices = (brand) => {
+    const list = groupedDevices[brand] || [];
+    return list.filter((d) => !isDeviceConnected(d));
+  };
+
   const isBrandAllSelected = (brand) => {
-    const brandDevices = groupedDevices[brand] || [];
-    return brandDevices.every((d) => selectedDevices.has(d.id));
+
+    const selectable = getBrandSelectableDevices(brand);
+    if (selectable.length === 0) return false;
+    return selectable.every((d) => selectedDevices.has(d.id));
   };
 
   const toggleBrandAll = (brand) => {
-    const brandDevices = groupedDevices[brand] || [];
+    const selectable = getBrandSelectableDevices(brand);
+    if (selectable.length === 0) return;
+
     const allSel = isBrandAllSelected(brand);
     setSelectedDevices((prev) => {
       const next = new Set(prev);
-      brandDevices.forEach((d) => {
+      selectable.forEach((d) => {
         if (allSel) {
           next.delete(d.id);
         } else {
@@ -472,7 +498,7 @@ export default function DiscoveryModal({
   };
 
   const getDeviceDisplayName = (device) => {
-    if (device.name) return device.name;
+    // Discovery shows hardware model, not user-assigned VMS camera name
     const model = device.model || "Camera";
     const mfg = device.manufacturer || "Unknown";
     if (mfg !== "Unknown" && model !== "Unknown") {
@@ -595,14 +621,21 @@ export default function DiscoveryModal({
                 <div className="dm-results-header">
                   <span className="dm-results-count">
                     Found <strong>{discoveredDevices.length}</strong> camera{discoveredDevices.length !== 1 ? "s" : ""}
+                    {discoveredDevices.some(isDeviceConnected) && (
+                      <span style={{ marginLeft: "8px", color: "var(--text-muted, #8a8ea0)", fontSize: "14px" }}>
+                        ({discoveredDevices.filter(isDeviceConnected).length} connected)
+                      </span>
+                    )}
                   </span>
-                  <button className="dm-select-all" onClick={toggleAll} disabled={isRegistering} tabIndex={2}>
-                    {selectedDevices.size === discoveredDevices.length ? "Deselect All" : "Select All"}
+                  <button className="dm-select-all" onClick={toggleAll} disabled={isRegistering || selectableDevices.length === 0} tabIndex={2}>
+                    {selectableDevices.length === 0 ? "All Connected" : (selectableDevices.length > 0 && selectableDevices.every((d) => selectedDevices.has(d.id)) ? "Deselect All" : "Select All")}
                   </button>
                 </div>
                 <div className="dm-device-list">
                   {sortedBrands.map((brand) => {
                     const brandDevices = groupedDevices[brand] || [];
+                    const selectableBrand = getBrandSelectableDevices(brand);
+                
                     const isCollapsed = collapsedBrands.has(brand);
                     const allSelected = isBrandAllSelected(brand);
                     return (
@@ -623,7 +656,7 @@ export default function DiscoveryModal({
                                 type="checkbox"
                                 className="dm-cb"
                                 checked={allSelected}
-                                disabled={isRegistering}
+                                disabled={isRegistering || selectableBrand.length === 0}
                                 onChange={() => toggleBrandAll(brand)}
                                 onClick={(e) => e.stopPropagation()}
                               />
@@ -632,20 +665,23 @@ export default function DiscoveryModal({
 
                             <div className="dm-brand-devices">
                               {brandDevices.map((device, index) => {
+                                const isConnected = isDeviceConnected(device);
                                 const sel = selectedDevices.has(device.id);
                                 return (
                                   <div
                                     key={device.id}
-                                    className={`dm-device ${sel ? "dm-device--selected" : ""} ${isRegistering ? "dm-device--disabled" : ""}`}
-                                    onClick={() => !isRegistering && toggleOne(device.id)}
+                                    className={`dm-device ${sel ? "dm-device--selected" : ""} ${isRegistering ? "dm-device--disabled" : ""} ${isConnected ? "dm-device--connected" : ""}`}
+                                    onClick={() => !isRegistering && !isConnected && toggleOne(device.id)}
+                                    title={isConnected ? "Camera is already connected to system" : ""}
                                   >
                                     <input
                                       type="checkbox"
                                       className="dm-cb"
                                       checked={sel}
-                                      disabled={isRegistering}
+                                      disabled={isRegistering || isConnected}
                                       tabIndex={3 + index}
-                                      onChange={() => toggleOne(device.id)}
+                                      onChange={() => !isConnected && toggleOne(device.id)}
+                                      title={isConnected ? "Already connected" : ""}
                                       onClick={(e) => e.stopPropagation()}
                                     />
                                     <div className="dm-device-icon">
@@ -664,7 +700,14 @@ export default function DiscoveryModal({
                                     </div>
                                     {isRegistering && sel
                                       ? <RegBadge deviceId={device.id} />
-                                      : (
+                                      : isConnected
+                                        ? (
+                                          <div className="dm-status dm-status--connected">
+                                            <span className="dm-status-dot"/>
+                                            Connected
+                                          </div>
+                                        )
+                                        : (
                                         <div className={`dm-status ${device.status === "online" ? "dm-status--online" : "dm-status--offline"}`}>
                                           <span className="dm-status-dot"/>
                                           {device.status === "online" ? "Online" : "Offline"}
