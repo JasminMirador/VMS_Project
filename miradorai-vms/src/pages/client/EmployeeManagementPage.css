@@ -699,6 +699,133 @@
   font-weight: 600;
 }
 
+/* ── Professional Photo Upload Row ── */
+.emp-photos-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.emp-photo-card {
+  position: relative;
+  width: 78px;
+  height: 78px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-elevated, #1e293b);
+  border: 1.5px solid var(--border, rgba(255, 255, 255, 0.12));
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+.emp-photo-card:hover {
+  border-color: var(--teal, #14b8a6);
+  transform: translateY(-2px);
+}
+
+.emp-photo-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.emp-photo-card-del {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #ef4444;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0.85;
+  transition: all 0.15s ease;
+}
+
+.emp-photo-card:hover .emp-photo-card-del {
+  opacity: 1;
+}
+
+.emp-photo-card-del:hover {
+  background: #ef4444;
+  color: #ffffff;
+  transform: scale(1.1);
+}
+
+/* The '+' Upload Button Card */
+.emp-photo-add-card {
+  width: 78px;
+  height: 78px;
+  border-radius: 10px;
+  border: 1.5px dashed var(--border, rgba(255, 255, 255, 0.2));
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: var(--text-secondary, #94a3b8);
+  flex-shrink: 0;
+}
+
+.emp-photo-add-card:hover {
+  border-color: var(--teal, #14b8a6);
+  background: rgba(20, 184, 166, 0.06);
+  color: var(--teal, #14b8a6);
+  transform: translateY(-2px);
+}
+
+.emp-photo-add-card .material-icons-outlined {
+  font-size: 1.8rem;
+  transition: transform 0.2s ease;
+}
+
+.emp-photo-add-card:hover .material-icons-outlined {
+  transform: scale(1.15);
+}
+
+.emp-photo-add-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.emp-photos-count-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: rgba(20, 184, 166, 0.15);
+  color: var(--teal, #14b8a6);
+  border: 1px solid rgba(20, 184, 166, 0.3);
+  margin-left: 6px;
+  cursor: pointer;
+}
+
+.emp-photos-count-pill:hover {
+  background: rgba(20, 184, 166, 0.25);
+}
+
+.emp-webcam-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 /* ── Modal Buttons ── */
 .emp-btn-cancel {
   padding: 9px 16px;

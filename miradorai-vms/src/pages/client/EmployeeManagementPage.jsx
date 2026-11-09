@@ -22,14 +22,19 @@ export default function EmployeeManagementPage() {
     department: "General",
     status: "authorised",
   });
-  const [photoFile, setPhotoFile] = useState(null);
-  const [photoPreview, setPhotoPreview] = useState(null);
+
+  // Clean photos array: [{ file, preview, isExisting, url }]
+  const [photos, setPhotos] = useState([]);
+
+  // Preview Modal
+  const [previewGalleryEmp, setPreviewGalleryEmp] = useState(null);
   const [previewModalImg, setPreviewModalImg] = useState(null);
 
   // Webcam capture state
   const [webcamActive, setWebcamActive] = useState(false);
   const videoRef = useRef(null);
   const mediaStreamRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const SYNOPSIS_API = `http://${import.meta.env.VITE_API_HOST || window.location.hostname}:8005`;
 
@@ -38,13 +43,19 @@ export default function EmployeeManagementPage() {
     setTimeout(() => setToast(null), 4500);
   };
 
+  const getFullPhotoUrl = (url) => {
+    if (!url) return null;
+    if (url.startsWith("http")) return url;
+    if (url.startsWith("/api")) return url;
+    return `${SYNOPSIS_API}/a1/v1/synopsis${url.startsWith("/") ? "" : "/"}${url}`;
+  };
+
   const fetchWithFallback = async (endpoint, options = {}) => {
-    // Try synopsis service (port 8005) first, then fallback to backend (/api) on port 8000
     try {
       const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis${endpoint}`, options);
       if (res.ok) return res;
     } catch (e) {
-      // ignore and fallback
+      // fallback
     }
     return await fetch(`/api${endpoint}`, options);
   };
@@ -75,8 +86,7 @@ export default function EmployeeManagementPage() {
       department: "General",
       status: "authorised",
     });
-    setPhotoFile(null);
-    setPhotoPreview(null);
+    setPhotos([]);
     stopWebcam();
     setShowAddModal(true);
   };
@@ -89,26 +99,49 @@ export default function EmployeeManagementPage() {
       department: emp.department || "General",
       status: (emp.status || "authorised").toLowerCase(),
     });
-    setPhotoFile(null);
-    setPhotoPreview(
-      emp.photo_url
-        ? `${SYNOPSIS_API}/a1/v1/synopsis${emp.photo_url.startsWith("/") ? "" : "/"}${emp.photo_url}`
-        : null
-    );
+
+    // Populate existing photos
+    const urls = emp.photo_urls && emp.photo_urls.length > 0
+      ? emp.photo_urls
+      : (emp.photo_url ? [emp.photo_url] : []);
+
+    const loaded = urls.slice(0, 5).map((url) => ({
+      file: null,
+      preview: getFullPhotoUrl(url),
+      isExisting: true,
+      url: url,
+    }));
+    setPhotos(loaded);
+
     stopWebcam();
     setShowEditModal(true);
   };
 
+  // Add photos via file picker (supports 1 to 5 photos)
   const handlePhotoSelect = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setPhotoFile(file);
-      setPhotoPreview(URL.createObjectURL(file));
-      stopWebcam();
-    }
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+
+    setPhotos((prev) => {
+      const remaining = 5 - prev.length;
+      const newItems = files.slice(0, remaining).map((file) => ({
+        file,
+        preview: URL.createObjectURL(file),
+        isExisting: false,
+      }));
+      return [...prev, ...newItems];
+    });
+
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    stopWebcam();
   };
 
-  // Webcam capture helpers
+  const handleRemovePhoto = (idx, e) => {
+    e.stopPropagation();
+    setPhotos((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  // Webcam helpers
   const startWebcam = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 480, height: 480 } });
@@ -120,7 +153,7 @@ export default function EmployeeManagementPage() {
       }
     } catch (err) {
       console.error("Camera access error:", err);
-      showNotification("Cannot access webcam for photo capture.", true);
+      showNotification("Cannot access webcam.", true);
     }
   };
 
@@ -142,15 +175,23 @@ export default function EmployeeManagementPage() {
 
     canvas.toBlob((blob) => {
       if (blob) {
-        const file = new File([blob], `capture_${Date.now()}.jpg`, { type: "image/jpeg" });
-        setPhotoFile(file);
-        setPhotoPreview(URL.createObjectURL(blob));
-        stopWebcam();
+        setPhotos((prev) => {
+          if (prev.length >= 5) return prev;
+          const file = new File([blob], `photo_${Date.now()}.jpg`, { type: "image/jpeg" });
+          return [
+            ...prev,
+            {
+              file,
+              preview: URL.createObjectURL(blob),
+              isExisting: false,
+            },
+          ];
+        });
       }
     }, "image/jpeg", 0.92);
   };
 
-  // Create Employee
+  // Form Submit: Create Employee
   const handleCreateSubmit = async (e) => {
     e.preventDefault();
     if (!formData.name.trim()) {
@@ -165,8 +206,13 @@ export default function EmployeeManagementPage() {
       form.append("email", formData.email.trim());
       form.append("department", formData.department.trim());
       form.append("status", formData.status);
-      if (photoFile) {
-        form.append("photo", photoFile);
+
+      const files = photos.filter((p) => p && p.file).map((p) => p.file);
+      files.forEach((f) => {
+        form.append("photos", f);
+      });
+      if (files.length > 0) {
+        form.append("photo", files[0]);
       }
 
       const res = await fetchWithFallback("/employees", {
@@ -179,7 +225,7 @@ export default function EmployeeManagementPage() {
         throw new Error(data.detail || "Failed to create employee");
       }
 
-      showNotification(`Employee ${data.name} added successfully with clearance: ${data.status}!`);
+      showNotification(`Employee ${data.name} enrolled successfully.`);
       setShowAddModal(false);
       fetchEmployees();
     } catch (err) {
@@ -191,7 +237,7 @@ export default function EmployeeManagementPage() {
     }
   };
 
-  // Update Employee
+  // Form Submit: Update Employee
   const handleUpdateSubmit = async (e) => {
     e.preventDefault();
     if (!selectedEmp) return;
@@ -207,8 +253,13 @@ export default function EmployeeManagementPage() {
       form.append("email", formData.email.trim());
       form.append("department", formData.department.trim());
       form.append("status", formData.status);
-      if (photoFile) {
-        form.append("photo", photoFile);
+
+      const newFiles = photos.filter((p) => p && p.file).map((p) => p.file);
+      newFiles.forEach((f) => {
+        form.append("photos", f);
+      });
+      if (newFiles.length > 0) {
+        form.append("photo", newFiles[0]);
       }
 
       const res = await fetchWithFallback(`/employees/${selectedEmp.emp_id}`, {
@@ -233,7 +284,7 @@ export default function EmployeeManagementPage() {
     }
   };
 
-  // Quick toggle status between authorised and suspended directly in list
+  // Toggle Clearance Status
   const handleToggleStatus = async (emp) => {
     const newStatus = (emp.status || "").toLowerCase() === "authorised" ? "suspended" : "authorised";
     try {
@@ -247,13 +298,11 @@ export default function EmployeeManagementPage() {
         setEmployees((prev) =>
           prev.map((e) => (e.emp_id === emp.emp_id ? { ...e, status: newStatus } : e))
         );
-        showNotification(
-          `${emp.name} is now ${newStatus.toUpperCase()}`
-        );
+        showNotification(`${emp.name} is now ${newStatus.toUpperCase()}`);
       }
     } catch (e) {
       console.error(e);
-      showNotification("Failed to toggle employee clearance status", true);
+      showNotification("Failed to toggle status", true);
     }
   };
 
@@ -266,7 +315,7 @@ export default function EmployeeManagementPage() {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Failed to delete employee");
-      showNotification(`Employee ${selectedEmp.name} removed from database.`);
+      showNotification(`Employee ${selectedEmp.name} removed.`);
       setShowDeleteModal(false);
       setSelectedEmp(null);
       fetchEmployees();
@@ -280,34 +329,125 @@ export default function EmployeeManagementPage() {
 
   // Filtered employees list
   const filteredEmployees = employees.filter((emp) => {
-    const q = searchQuery.toLowerCase().trim();
+    const q = searchQuery.toLowerCase();
     const matchSearch =
       !q ||
       (emp.name && emp.name.toLowerCase().includes(q)) ||
       (emp.email && emp.email.toLowerCase().includes(q)) ||
       (emp.department && emp.department.toLowerCase().includes(q));
-
-    const empStatus = (emp.status || "authorised").toLowerCase();
     const matchStatus =
       statusFilter === "all" ||
-      (statusFilter === "authorised" && empStatus === "authorised") ||
-      (statusFilter === "suspended" && empStatus === "suspended");
-
+      (emp.status || "").toLowerCase() === statusFilter.toLowerCase();
     return matchSearch && matchStatus;
   });
 
   const totalCount = employees.length;
   const authorisedCount = employees.filter((e) => (e.status || "").toLowerCase() === "authorised").length;
   const suspendedCount = employees.filter((e) => (e.status || "").toLowerCase() === "suspended").length;
-  const biometricCount = employees.filter((e) => e.has_face_embedding).length;
+
+  // Clean, professional photo upload component
+  const renderPhotoUploader = () => {
+    const canAddMore = photos.length < 5;
+
+    return (
+      <div className="emp-form-group">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+          <label className="emp-form-label" style={{ margin: 0 }}>
+            Employee Photos
+          </label>
+          <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>
+            {photos.length} / 5 photos
+          </span>
+        </div>
+
+        {webcamActive && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px", margin: "10px 0" }}>
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              style={{ width: "100%", maxHeight: "220px", borderRadius: "10px", background: "#000" }}
+            />
+            <div style={{ display: "flex", gap: "10px" }}>
+              <button
+                type="button"
+                className="emp-btn-submit"
+                onClick={captureWebcamSnapshot}
+                disabled={photos.length >= 5}
+              >
+                <span className="material-icons-outlined">camera</span>
+                Capture Photo
+              </button>
+              <button
+                type="button"
+                className="emp-btn-cancel"
+                onClick={stopWebcam}
+              >
+                Close Webcam
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="emp-photos-row">
+          {photos.map((p, idx) => (
+            <div key={idx} className="emp-photo-card" title="Click remove icon to delete">
+              <img src={p.preview} alt={`Employee photo ${idx + 1}`} />
+              <button
+                type="button"
+                className="emp-photo-card-del"
+                onClick={(e) => handleRemovePhoto(idx, e)}
+                title="Remove photo"
+              >
+                <span className="material-icons-outlined" style={{ fontSize: "0.85rem" }}>close</span>
+              </button>
+            </div>
+          ))}
+
+          {canAddMore && (
+            <div
+              className="emp-photo-add-card"
+              onClick={() => fileInputRef.current && fileInputRef.current.click()}
+              title="Add photos"
+            >
+              <span className="material-icons-outlined">add</span>
+              <span className="emp-photo-add-label">Add Photo</span>
+            </div>
+          )}
+
+          {/* {!webcamActive && canAddMore && (
+            <div
+              className="emp-photo-add-card"
+              onClick={startWebcam}
+              title="Capture from webcam"
+              style={{ borderStyle: "solid", borderColor: "rgba(255, 255, 255, 0.1)" }}
+            >
+              <span className="material-icons-outlined">videocam</span>
+              <span className="emp-photo-add-label">Webcam</span>
+            </div>
+          )} */}
+        </div>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/*"
+          onChange={handlePhotoSelect}
+          style={{ display: "none" }}
+        />
+      </div>
+    );
+  };
 
   return (
-    <div className="emp-page">
+    <div className="emp-container">
       {/* Toast Notification */}
       {toast && (
         <div className={`emp-toast ${toast.isError ? "error" : ""}`}>
           <span className="material-icons-outlined" style={{ color: toast.isError ? "#ef4444" : "var(--teal)" }}>
-            {toast.isError ? "error_outline" : "verified"}
+            {toast.isError ? "error" : "check_circle"}
           </span>
           <span style={{ fontSize: "0.88rem", fontWeight: 500, flex: 1 }}>{toast.text}</span>
           <button
@@ -328,7 +468,7 @@ export default function EmployeeManagementPage() {
           <div>
             <h2 className="emp-title">Employee Management</h2>
             <p className="emp-subtitle">
-              Manage personnel records, department access clearance, and facial biometric enrollment
+              Manage personnel database, department clearance, and facial biometric enrollment
             </p>
           </div>
         </div>
@@ -369,23 +509,14 @@ export default function EmployeeManagementPage() {
             <span className="emp-stat-label">Suspended</span>
           </div>
         </div>
-
-        <div className="emp-stat-card">
-          <div className="emp-stat-icon-wrap biometric">
-            <span className="material-icons-outlined">face</span>
-          </div>
-          <div className="emp-stat-info">
-            <span className="emp-stat-value">{biometricCount}</span>
-            <span className="emp-stat-label">Facial Biometric Enrolled</span>
-          </div>
-        </div>
       </div>
 
-      {/* Main Panel */}
-      <div className="emp-panel">
+      {/* Main Content Card */}
+      <div className="emp-main-card">
+        {/* Toolbar */}
         <div className="emp-toolbar">
           <div className="emp-search-wrap">
-            <span className="material-icons-outlined emp-search-icon" style={{ fontSize: "1.15rem" }}>search</span>
+            <span className="material-icons-outlined emp-search-icon">search</span>
             <input
               type="text"
               className="emp-search-input"
@@ -435,7 +566,7 @@ export default function EmployeeManagementPage() {
               <p style={{ fontSize: "0.85rem", marginTop: "4px" }}>
                 {searchQuery || statusFilter !== "all"
                   ? "Try adjusting your search criteria or filter."
-                  : "Click 'Add Employee' to enroll company personnel into the database."}
+                  : "Click 'Add Employee' to register personnel into the database."}
               </p>
             </div>
           ) : (
@@ -453,13 +584,10 @@ export default function EmployeeManagementPage() {
               <tbody>
                 {filteredEmployees.map((emp) => {
                   const isAuth = (emp.status || "").toLowerCase() === "authorised";
-                  const photoSrc = emp.photo_url
-                    ? (emp.photo_url.startsWith("http")
-                        ? emp.photo_url
-                        : emp.photo_url.startsWith("/api")
-                          ? emp.photo_url
-                          : `${SYNOPSIS_API}/a1/v1/synopsis${emp.photo_url.startsWith("/") ? "" : "/"}${emp.photo_url}`)
-                    : null;
+                  const primaryPhoto = emp.photo_url || (emp.photo_urls && emp.photo_urls[0]);
+                  const photoSrc = getFullPhotoUrl(primaryPhoto);
+                  const pCount = emp.photos_count || (emp.photo_urls ? emp.photo_urls.length : (emp.photo_url ? 1 : 0));
+
                   const initials = (emp.name || "?")
                     .split(" ")
                     .map((n) => n[0])
@@ -476,19 +604,30 @@ export default function EmployeeManagementPage() {
                               src={photoSrc}
                               alt={emp.name}
                               className="emp-avatar"
-                              onClick={() => setPreviewModalImg({ url: photoSrc, name: emp.name })}
-                              title="Click to preview biometric photo"
+                              onClick={() => setPreviewGalleryEmp(emp)}
+                              title="Click to preview photos"
                               onError={(e) => {
                                 e.currentTarget.style.display = "none";
                               }}
                             />
                           ) : (
-                            <div className="emp-avatar-placeholder" title="No biometric photo enrolled">
+                            <div className="emp-avatar-placeholder" title="No photo enrolled">
                               {initials}
                             </div>
                           )}
                           <div>
-                            <span className="emp-name-text">{emp.name}</span>
+                            <div style={{ display: "flex", alignItems: "center" }}>
+                              <span className="emp-name-text">{emp.name}</span>
+                              {pCount > 1 && (
+                                <span
+                                  className="emp-photos-count-pill"
+                                  onClick={() => setPreviewGalleryEmp(emp)}
+                                  title={`${pCount} photos enrolled. Click to view.`}
+                                >
+                                  📷 {pCount}
+                                </span>
+                              )}
+                            </div>
                             <span className="emp-email-text">{emp.email || "No email provided"}</span>
                           </div>
                         </div>
@@ -514,14 +653,14 @@ export default function EmployeeManagementPage() {
 
                       <td>
                         {emp.has_face_embedding ? (
-                          <span className="emp-bio-badge enrolled" title="YuNet and SFace feature vectors enrolled">
-                            <span className="material-icons-outlined" style={{ fontSize: "1rem" }}>face</span>
-                            Enrolled
+                          <span className="emp-bio-badge enrolled" title="Biometric face embeddings enrolled">
+                            <span className="material-icons-outlined" style={{ fontSize: "1rem" }}>check_circle</span>
+                            Enrolled ({pCount})
                           </span>
                         ) : (
-                          <span className="emp-bio-badge none" title="Upload a face photo to enable AI face recognition">
+                          <span className="emp-bio-badge none" title="Upload photos to enable face recognition">
                             <span className="material-icons-outlined" style={{ fontSize: "1rem" }}>no_photography</span>
-                            Pending Photo
+                            Pending Photos
                           </span>
                         )}
                       </td>
@@ -536,7 +675,7 @@ export default function EmployeeManagementPage() {
                         <div className="emp-actions-row" style={{ justifyContent: "flex-end" }}>
                           <button
                             className="emp-action-btn"
-                            title="Edit Employee Details"
+                            title="Edit Employee"
                             onClick={() => handleOpenEdit(emp)}
                           >
                             <span className="material-icons-outlined" style={{ fontSize: "1.05rem" }}>edit</span>
@@ -565,7 +704,7 @@ export default function EmployeeManagementPage() {
       {/* ADD EMPLOYEE MODAL */}
       {showAddModal && (
         <div className="emp-modal-overlay" onClick={() => !submitting && setShowAddModal(false)}>
-          <div className="emp-modal-card" onClick={(e) => e.stopPropagation()}>
+          <div className="emp-modal-card" style={{ maxWidth: "560px" }} onClick={(e) => e.stopPropagation()}>
             <div className="emp-modal-header">
               <h3 className="emp-modal-title">
                 <span className="material-icons-outlined" style={{ color: "var(--teal)" }}>person_add</span>
@@ -662,102 +801,8 @@ export default function EmployeeManagementPage() {
                   </div>
                 </div>
 
-                {/* Facial Photo Enrollment */}
-                <div className="emp-form-group">
-                  <label className="emp-form-label">
-                    <span className="material-icons-outlined" style={{ fontSize: "1rem", color: "var(--teal)" }}>face</span>
-                    Biometric Facial Enrollment Photo
-                  </label>
-
-                  {webcamActive ? (
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px" }}>
-                      <video
-                        ref={videoRef}
-                        autoPlay
-                        playsInline
-                        muted
-                        style={{ width: "100%", maxHeight: "240px", borderRadius: "10px", background: "#000" }}
-                      />
-                      <div style={{ display: "flex", gap: "10px" }}>
-                        <button
-                          type="button"
-                          className="emp-btn-submit"
-                          onClick={captureWebcamSnapshot}
-                        >
-                          <span className="material-icons-outlined">camera</span> Capture Photo
-                        </button>
-                        <button
-                          type="button"
-                          className="emp-btn-cancel"
-                          onClick={stopWebcam}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  ) : photoPreview ? (
-                    <div className="emp-photo-preview-wrap">
-                      <img src={photoPreview} alt="Preview" className="emp-photo-preview-img" />
-                      <div className="emp-photo-preview-meta">
-                        <span className="emp-photo-chip">
-                          <span className="material-icons-outlined" style={{ fontSize: "0.9rem" }}>check</span>
-                          Photo Ready for Face Enrollment
-                        </span>
-                        <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
-                          <label
-                            htmlFor="emp-photo-input-add"
-                            className="emp-btn-cancel"
-                            style={{ padding: "4px 10px", fontSize: "0.75rem", cursor: "pointer" }}
-                          >
-                            Change Photo
-                          </label>
-                          <button
-                            type="button"
-                            className="emp-btn-cancel"
-                            onClick={() => {
-                              setPhotoFile(null);
-                              setPhotoPreview(null);
-                            }}
-                            style={{ padding: "4px 10px", fontSize: "0.75rem", color: "#ef4444" }}
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="emp-photo-dropzone">
-                      <label htmlFor="emp-photo-input-add" style={{ cursor: "pointer", width: "100%" }}>
-                        <span className="material-icons-outlined" style={{ fontSize: "2.4rem", color: "var(--teal)", marginBottom: "6px" }}>
-                          add_a_photo
-                        </span>
-                        <div style={{ fontWeight: 600, fontSize: "0.88rem", color: "var(--text-primary)" }}>
-                          Upload Frontal Face Photo
-                        </div>
-                        <div style={{ fontSize: "0.76rem", color: "var(--text-secondary)", marginTop: "2px" }}>
-                          JPEG or PNG. YuNet will automatically detect and align face features.
-                        </div>
-                      </label>
-                      <button
-                        type="button"
-                        onClick={startWebcam}
-                        className="emp-btn-cancel"
-                        style={{ marginTop: "10px", display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "0.8rem", padding: "5px 12px" }}
-                      >
-                        <span className="material-icons-outlined" style={{ fontSize: "1rem" }}>videocam</span>
-                        Capture via Webcam
-                      </button>
-                    </div>
-                  )}
-
-                  <input
-                    id="emp-photo-input-add"
-                    type="file"
-                    accept="image/*"
-                    onChange={handlePhotoSelect}
-                    style={{ display: "none" }}
-                  />
-                </div>
+                {/* Professional Photo Upload Section */}
+                {renderPhotoUploader()}
               </div>
 
               <div className="emp-modal-footer">
@@ -772,7 +817,7 @@ export default function EmployeeManagementPage() {
                 <button type="submit" className="emp-btn-submit" disabled={submitting}>
                   {submitting ? (
                     <>
-                      <span className="spinner"></span> Enrolling...
+                      <span className="spinner"></span> Saving...
                     </>
                   ) : (
                     <>
@@ -790,7 +835,7 @@ export default function EmployeeManagementPage() {
       {/* EDIT EMPLOYEE MODAL */}
       {showEditModal && selectedEmp && (
         <div className="emp-modal-overlay" onClick={() => !submitting && setShowEditModal(false)}>
-          <div className="emp-modal-card" onClick={(e) => e.stopPropagation()}>
+          <div className="emp-modal-card" style={{ maxWidth: "560px" }} onClick={(e) => e.stopPropagation()}>
             <div className="emp-modal-header">
               <h3 className="emp-modal-title">
                 <span className="material-icons-outlined" style={{ color: "var(--teal)" }}>edit</span>
@@ -885,99 +930,8 @@ export default function EmployeeManagementPage() {
                   </div>
                 </div>
 
-                {/* Facial Photo Enrollment */}
-                <div className="emp-form-group">
-                  <label className="emp-form-label">
-                    <span className="material-icons-outlined" style={{ fontSize: "1rem", color: "var(--teal)" }}>face</span>
-                    Biometric Facial Enrollment Photo
-                  </label>
-
-                  {webcamActive ? (
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px" }}>
-                      <video
-                        ref={videoRef}
-                        autoPlay
-                        playsInline
-                        muted
-                        style={{ width: "100%", maxHeight: "240px", borderRadius: "10px", background: "#000" }}
-                      />
-                      <div style={{ display: "flex", gap: "10px" }}>
-                        <button
-                          type="button"
-                          className="emp-btn-submit"
-                          onClick={captureWebcamSnapshot}
-                        >
-                          <span className="material-icons-outlined">camera</span> Capture Photo
-                        </button>
-                        <button
-                          type="button"
-                          className="emp-btn-cancel"
-                          onClick={stopWebcam}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  ) : photoPreview ? (
-                    <div className="emp-photo-preview-wrap">
-                      <img src={photoPreview} alt="Preview" className="emp-photo-preview-img" />
-                      <div className="emp-photo-preview-meta">
-                        <span className="emp-photo-chip">
-                          <span className="material-icons-outlined" style={{ fontSize: "0.9rem" }}>check</span>
-                          Enrolled Photo
-                        </span>
-                        <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
-                          <label
-                            htmlFor="emp-photo-input-edit"
-                            className="emp-btn-cancel"
-                            style={{ padding: "4px 10px", fontSize: "0.75rem", cursor: "pointer" }}
-                          >
-                            Replace Photo
-                          </label>
-                          <button
-                            type="button"
-                            onClick={startWebcam}
-                            className="emp-btn-cancel"
-                            style={{ padding: "4px 10px", fontSize: "0.75rem" }}
-                          >
-                            Webcam
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="emp-photo-dropzone">
-                      <label htmlFor="emp-photo-input-edit" style={{ cursor: "pointer", width: "100%" }}>
-                        <span className="material-icons-outlined" style={{ fontSize: "2.4rem", color: "var(--teal)", marginBottom: "6px" }}>
-                          add_a_photo
-                        </span>
-                        <div style={{ fontWeight: 600, fontSize: "0.88rem", color: "var(--text-primary)" }}>
-                          Upload Frontal Face Photo
-                        </div>
-                        <div style={{ fontSize: "0.76rem", color: "var(--text-secondary)", marginTop: "2px" }}>
-                          JPEG or PNG. YuNet will automatically detect and align face features.
-                        </div>
-                      </label>
-                      <button
-                        type="button"
-                        onClick={startWebcam}
-                        className="emp-btn-cancel"
-                        style={{ marginTop: "10px", display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "0.8rem", padding: "5px 12px" }}
-                      >
-                        <span className="material-icons-outlined" style={{ fontSize: "1rem" }}>videocam</span>
-                        Capture via Webcam
-                      </button>
-                    </div>
-                  )}
-
-                  <input
-                    id="emp-photo-input-edit"
-                    type="file"
-                    accept="image/*"
-                    onChange={handlePhotoSelect}
-                    style={{ display: "none" }}
-                  />
-                </div>
+                {/* Professional Photo Upload Section */}
+                {renderPhotoUploader()}
               </div>
 
               <div className="emp-modal-footer">
@@ -992,7 +946,7 @@ export default function EmployeeManagementPage() {
                 <button type="submit" className="emp-btn-submit" disabled={submitting}>
                   {submitting ? (
                     <>
-                      <span className="spinner"></span> Updating...
+                      <span className="spinner"></span> Saving...
                     </>
                   ) : (
                     <>
@@ -1054,7 +1008,78 @@ export default function EmployeeManagementPage() {
         </div>
       )}
 
-      {/* PHOTO PREVIEW MODAL */}
+      {/* GALLERY PREVIEW MODAL */}
+      {previewGalleryEmp && (
+        <div className="emp-modal-overlay" onClick={() => setPreviewGalleryEmp(null)}>
+          <div
+            className="emp-modal-card"
+            style={{ maxWidth: "560px" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="emp-modal-header">
+              <div>
+                <h3 className="emp-modal-title" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span className="material-icons-outlined" style={{ color: "var(--teal)" }}>collections</span>
+                  {previewGalleryEmp.name} - Enrolled Photos
+                </h3>
+                <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>
+                  {previewGalleryEmp.department} • Clearance: {previewGalleryEmp.status?.toUpperCase()}
+                </span>
+              </div>
+              <button
+                className="emp-modal-close"
+                onClick={() => setPreviewGalleryEmp(null)}
+              >
+                <span className="material-icons-outlined">close</span>
+              </button>
+            </div>
+
+            <div className="emp-modal-body">
+              <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", justifyContent: "center" }}>
+                {(previewGalleryEmp.photo_urls && previewGalleryEmp.photo_urls.length > 0
+                  ? previewGalleryEmp.photo_urls
+                  : [previewGalleryEmp.photo_url]
+                ).filter(Boolean).map((url, idx) => {
+                  const fullUrl = getFullPhotoUrl(url);
+                  return (
+                    <div
+                      key={idx}
+                      style={{
+                        position: "relative",
+                        width: "110px",
+                        height: "110px",
+                        borderRadius: "10px",
+                        overflow: "hidden",
+                        border: "1.5px solid var(--border)",
+                        background: "var(--bg-elevated)",
+                        boxShadow: "0 4px 10px rgba(0,0,0,0.3)"
+                      }}
+                    >
+                      <img
+                        src={fullUrl}
+                        alt={`Photo ${idx + 1}`}
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="emp-modal-footer">
+              <button
+                type="button"
+                className="emp-btn-cancel"
+                onClick={() => setPreviewGalleryEmp(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SINGLE PHOTO PREVIEW MODAL */}
       {previewModalImg && (
         <div className="emp-modal-overlay" onClick={() => setPreviewModalImg(null)}>
           <div
