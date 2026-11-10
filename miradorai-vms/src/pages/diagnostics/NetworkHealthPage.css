@@ -31,20 +31,21 @@
   font-family: "DM Sans", system-ui, sans-serif;
 }
 
-[data-theme='light'] .network-health {
-  --nh-bg: #f8fafc;
+[data-theme='light'] .network-health,
+[data-theme='light'] .network-health * {
+  --nh-bg: #f8fafd;
   --nh-card: #ffffff;
   --nh-card-hover: #f1f5f9;
-  --nh-border: #cbd5e1;
+  --nh-border: #e2e8f0;
+  --nh-border-light: #cbd5e1;
   --nh-text: #0f172a;
   --nh-text-bright: #020617;
-  --nh-muted: #1e293b;
-  /* Dark charcoal in light theme */
+  --nh-muted: #64748b;
   --nh-green: #059669;
-  --nh-blue: #2563eb;
+  --nh-blue: #0284c7;
   --nh-purple: #7c3aed;
   --nh-amber: #d97706;
-  --nh-red: #e11d48;
+  --nh-red: #dc2626;
 }
 
 .network-health *,
@@ -3358,4 +3359,883 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+/* ==========================================================================
+   LIGHT / WHITE THEME ADAPTATION
+   ========================================================================== */
+
+/* ── Live Pill & Alerts ── */
+[data-theme='light'] .nh-live-pill {
+  border-color: rgba(5, 150, 105, 0.3);
+  background: rgba(5, 150, 105, 0.08);
+  color: #059669;
+}
+
+[data-theme='light'] .nh-alert,
+[data-theme='light'] .nh-inline-warning {
+  border-color: #fca5a5;
+  color: #b91c1c;
+  background: #fef2f2;
+}
+
+/* ── Section Tabs ── */
+[data-theme='light'] .nh-section-tabs {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+[data-theme='light'] .nh-section-tabs button {
+  color: #475569;
+}
+
+[data-theme='light'] .nh-section-tabs button:hover {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-section-tabs button.active {
+  color: #059669;
+  background: #ffffff;
+  border-color: #cbd5e1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* ── Cards & Bases ── */
+[data-theme='light'] .nh-card {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(0, 0, 0, 0.03);
+}
+
+[data-theme='light'] .nh-metric-card:hover {
+  border-color: #cbd5e1;
+}
+
+[data-theme='light'] .nh-card-heading {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-primary-value {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-primary-value small,
+[data-theme='light'] .nh-dual-values small {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-metric-subtitle {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-progress {
+  background: #e2e8f0;
+}
+
+[data-theme='light'] .nh-card-foot {
+  border-top-color: #f1f5f9;
+}
+
+[data-theme='light'] .nh-card-foot span {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-card-foot strong {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-status {
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+  color: #475569;
+}
+
+[data-theme='light'] .nh-status.healthy {
+  color: #059669;
+  border-color: rgba(5, 150, 105, 0.3);
+  background: rgba(5, 150, 105, 0.08);
+}
+
+/* ── Time Range Selectors ── */
+[data-theme='light'] .nh-range-selector {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+[data-theme='light'] .nh-range-selector button {
+  color: #475569;
+}
+
+[data-theme='light'] .nh-range-selector button:hover {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-range-selector button.active {
+  color: #059669;
+  background: #ffffff;
+  border-color: #cbd5e1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* ── NOC 6-Box Dashboard Cards ── */
+[data-theme='light'] .nh-noc-card {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+}
+
+[data-theme='light'] .nh-noc-card:hover {
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08) !important;
+}
+
+[data-theme='light'] .nh-noc-card::before {
+  background: linear-gradient(90deg, transparent, rgba(2, 132, 199, 0.35), transparent);
+}
+
+[data-theme='light'] .nh-hero-number {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-hero-unit {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-stream-spectrum-card {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme='light'] .nh-spectrum-header {
+  color: #334155;
+}
+
+[data-theme='light'] .nh-spectrum-seg {
+  background: #e2e8f0;
+}
+
+[data-theme='light'] .nh-spectrum-seg.active {
+  background: linear-gradient(180deg, #0284c7, #059669);
+  box-shadow: 0 0 6px rgba(2, 132, 199, 0.25);
+}
+
+[data-theme='light'] .nh-spectrum-sub {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-mini-chart-wrap {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme='light'] .nh-chart-badge-peak {
+  background: rgba(2, 132, 199, 0.12);
+  border-color: rgba(2, 132, 199, 0.4);
+  color: #0284c7;
+}
+
+[data-theme='light'] .nh-window-pills {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+[data-theme='light'] .nh-window-pills button {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-window-pills button:hover {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-window-pills button.active {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #0284c7;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme='light'] .nh-gauge-value {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-gauge-sub {
+  color: #0284c7;
+}
+
+[data-theme='light'] .nh-tp-box {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme='light'] .nh-tp-label {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-tp-val {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-tp-val small {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-topology-map {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme='light'] .nh-topo-node {
+  background: #ffffff;
+  border-color: #cbd5e1;
+}
+
+[data-theme='light'] .nh-topo-node.host {
+  border-color: rgba(2, 132, 199, 0.4);
+}
+
+[data-theme='light'] .nh-topo-node.switch {
+  border-color: rgba(5, 150, 105, 0.4);
+}
+
+[data-theme='light'] .nh-topo-node.cluster {
+  background: rgba(5, 150, 105, 0.08);
+  border-color: #059669;
+}
+
+[data-theme='light'] .nh-topo-name {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-topo-ip {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-topo-wire {
+  background: linear-gradient(90deg, #cbd5e1, #0284c7, #cbd5e1);
+}
+
+[data-theme='light'] .nh-topo-badge {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #0284c7;
+}
+
+[data-theme='light'] .nh-latency-diagram-wrap {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme='light'] .nh-lat-pill-card {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme='light'] .nh-lat-pill-label {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-event-stream-box {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme='light'] .nh-ev-item {
+  border-bottom-color: #e2e8f0;
+}
+
+[data-theme='light'] .nh-ev-title {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-ev-sub {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-ev-time {
+  color: #94a3b8;
+}
+
+/* ── 4 Monitoring Cards (2x2 Grid) ── */
+[data-theme='light'] .nh-monitoring-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+[data-theme='light'] .nh-monitoring-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.09);
+}
+
+[data-theme='light'] .nh-card-title {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-card-range-pills {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+[data-theme='light'] .nh-card-range-pill {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-card-range-pill:hover {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-card-range-pill.active {
+  background: #ffffff;
+  color: #0284c7;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme='light'] .nh-card-metric-hero {
+  border-bottom-color: #f1f5f9;
+}
+
+[data-theme='light'] .nh-metric-number {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-metric-time {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-metric-unit {
+  color: #0284c7;
+}
+
+[data-theme='light'] .nh-metric-sub {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-chart-axis-labels {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-axis-peak-tag {
+  color: #0284c7;
+}
+
+[data-theme='light'] .nh-diagram-empty {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-card-labels-foot {
+  border-top-color: #f1f5f9;
+  color: #475569;
+}
+
+[data-theme='light'] .nh-card-labels-foot .nh-foot-item[style] {
+  color: #475569 !important;
+}
+
+/* ── Dashboard Toolbar & Scope Selector ── */
+[data-theme='light'] .nh-dashboard-toolbar {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme='light'] .nh-scope-label {
+  color: #475569;
+}
+
+[data-theme='light'] .nh-toolbar-right-meta {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-scope-active-pill {
+  background: rgba(5, 150, 105, 0.08);
+  border-color: rgba(5, 150, 105, 0.25);
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-scope-clear-btn {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #475569;
+}
+
+[data-theme='light'] .nh-scope-clear-btn:hover {
+  background: #fee2e2;
+  color: #dc2626;
+  border-color: #fca5a5;
+}
+
+[data-theme='light'] .nh-scope-all-meta {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-scope-all-meta strong {
+  color: #0f172a;
+}
+
+/* ── Custom & Searchable Dropdowns ── */
+[data-theme='light'] .nh-dropdown-trigger {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-dropdown-trigger.compact {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+[data-theme='light'] .nh-dropdown-trigger:hover,
+[data-theme='light'] .nh-searchable-dropdown.open .nh-dropdown-trigger,
+[data-theme='light'] .nh-custom-dropdown.open .nh-dropdown-trigger {
+  background: #ffffff;
+  border-color: #059669;
+  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+[data-theme='light'] .nh-trigger-title {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-trigger-ip {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-dropdown-arrow {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-dropdown-popover,
+[data-theme='light'] .nh-dropdown-menu {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme='light'] .nh-dropdown-search-box {
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+[data-theme='light'] .nh-dropdown-search-wrap {
+  border-bottom-color: #e2e8f0;
+}
+
+[data-theme='light'] .nh-dropdown-search-input {
+  color: #0f172a;
+  background: transparent;
+  border-color: #cbd5e1;
+}
+
+[data-theme='light'] .nh-dropdown-search-input::placeholder {
+  color: #94a3b8;
+}
+
+[data-theme='light'] .nh-dropdown-item {
+  border-bottom: 1px solid #f1f5f9;
+}
+
+[data-theme='light'] .nh-dropdown-item:hover,
+[data-theme='light'] .nh-dropdown-item.highlighted {
+  background: #f1f5f9;
+}
+
+[data-theme='light'] .nh-dropdown-item.selected {
+  background: #ecfdf5;
+  border-left: 2px solid #059669;
+}
+
+[data-theme='light'] .nh-item-name {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-item-ip {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-dropdown-empty {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-bitrate-badge.live {
+  background: #e0f2fe;
+  color: #0284c7;
+  border-color: #bae6fd;
+}
+
+[data-theme='light'] .nh-bitrate-badge.unmeasured {
+  background: #f1f5f9;
+  color: #64748b;
+  border-color: #e2e8f0;
+}
+
+/* ── Hero Trend Stats & Waveform ── */
+[data-theme='light'] .nh-trend-hero-stat {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme='light'] .nh-trend-hero-stat .nh-metric-number {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-trend-hero-stat .nh-metric-unit {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-trend-hero-stat.peak {
+  border-color: #7dd3fc;
+  background: #f0f9ff;
+}
+
+[data-theme='light'] .nh-trend-hero-stat.avg {
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+}
+
+[data-theme='light'] .nh-trend-hero-stat.low {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+[data-theme='light'] .nh-highest-cam-tag {
+  background: #f0f9ff;
+  border-color: #bae6fd;
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-highest-cam-label {
+  color: #475569;
+}
+
+[data-theme='light'] .nh-highest-cam-name {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-highest-cam-val {
+  color: #0284c7;
+}
+
+[data-theme='light'] .nh-trend-hover-tooltip {
+  background: #ffffff;
+  border-color: #0284c7;
+  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.2);
+}
+
+[data-theme='light'] .nh-hover-rate {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-hover-time {
+  color: #64748b;
+}
+
+/* ── Hourly Distribution & 7-Day Overview ── */
+[data-theme='light'] .nh-hourly-bar-track {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+[data-theme='light'] .nh-hourly-empty-indicator {
+  background: #cbd5e1;
+}
+
+[data-theme='light'] .nh-hourly-label {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-daily-col {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme='light'] .nh-daily-col:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+[data-theme='light'] .nh-daily-col.today {
+  background: #ecfdf5;
+  border-color: #6ee7b7;
+}
+
+[data-theme='light'] .nh-daily-bar-track {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+[data-theme='light'] .nh-daily-empty-indicator {
+  background: #cbd5e1;
+}
+
+[data-theme='light'] .nh-daily-name {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-daily-date {
+  color: #64748b;
+}
+
+/* ── LAN Interface Load ── */
+[data-theme='light'] .nh-lan-bar-track {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+}
+
+[data-theme='light'] .nh-lan-box {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme='light'] .nh-lan-box:hover {
+  background: #f1f5f9;
+}
+
+[data-theme='light'] .nh-lan-box.rx {
+  border-color: #bae6fd;
+}
+
+[data-theme='light'] .nh-lan-box.tx {
+  border-color: #fed7aa;
+}
+
+[data-theme='light'] .nh-lan-box.link {
+  border-color: #bfdbfe;
+}
+
+[data-theme='light'] .nh-lan-box.headroom {
+  border-color: #bbf7d0;
+}
+
+[data-theme='light'] .nh-lan-box-label {
+  color: #475569;
+}
+
+[data-theme='light'] .nh-lan-box-val {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-lan-box-unit {
+  color: #64748b;
+}
+
+/* ── SVG Diagrams (Gauge & Latency Arc) ── */
+[data-theme='light'] .nh-gauge-svg path[stroke="#141d2a"],
+[data-theme='light'] .nh-gauge-diagram path[stroke="#141d2a"] {
+  stroke: #e2e8f0 !important;
+}
+
+[data-theme='light'] .nh-gauge-svg text[fill="#ffffff"] {
+  fill: #0f172a !important;
+}
+
+[data-theme='light'] .nh-gauge-svg text[fill="#cbd5e1"] {
+  fill: #64748b !important;
+}
+
+[data-theme='light'] .nh-latency-wave-svg path[stroke="#141f30"] {
+  stroke: #e2e8f0 !important;
+}
+
+[data-theme='light'] .nh-latency-wave-svg text[fill="#ffffff"] {
+  fill: #0f172a !important;
+}
+
+[data-theme='light'] .nh-latency-wave-svg text[fill="#cbd5e1"] {
+  fill: #64748b !important;
+}
+
+[data-theme='light'] .nh-latency-wave-svg g rect[fill="#0b1322"] {
+  fill: #f8fafc !important;
+  stroke: #cbd5e1 !important;
+}
+
+/* ── Telemetry Health Timeline ── */
+[data-theme='light'] .nh-timeline-line {
+  background: #cbd5e1;
+}
+
+[data-theme='light'] .nh-timeline-dot {
+  border-color: #ffffff;
+}
+
+[data-theme='light'] .nh-timeline-time {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-timeline-bw {
+  color: #0284c7;
+}
+
+[data-theme='light'] .nh-gap-indicator {
+  background: #fef3c7;
+  border-color: #fde68a;
+  color: #d97706;
+}
+
+[data-theme='light'] .nh-timeline-empty {
+  color: #64748b;
+}
+
+/* ── History Area Chart & Recharts ── */
+[data-theme='light'] .nh-history-card {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
+}
+
+[data-theme='light'] .nh-chart-title h2 {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-chart-title p {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-chart-tooltip {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #0f172a;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme='light'] .nh-tooltip-title {
+  color: #0f172a;
+  border-bottom-color: #e2e8f0;
+}
+
+[data-theme='light'] .nh-tooltip-camera-meta {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-tooltip-row b {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-tooltip-row span {
+  color: #475569;
+}
+
+[data-theme='light'] .nh-tooltip-cam-label small {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-tooltip-row.active {
+  background: #f1f5f9;
+}
+
+[data-theme='light'] .nh-tooltip-total-row {
+  border-top-color: #cbd5e1;
+  color: #0284c7;
+}
+
+[data-theme='light'] .nh-tooltip-source {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-legend {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-legend-cam {
+  background: #f1f5f9;
+}
+
+[data-theme='light'] .nh-legend-cam:hover,
+[data-theme='light'] .nh-legend-cam.hovered {
+  border-color: #cbd5e1;
+  background: #e2e8f0;
+}
+
+[data-theme='light'] .nh-legend-cam small {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-fleet-summary-bar .nh-legend-cam {
+  color: #475569;
+}
+
+[data-theme='light'] .nh-fleet-summary-bar .nh-legend-cam strong {
+  color: #0f172a;
+}
+
+/* ── Diagnostics Matrix & Terminal ── */
+[data-theme='light'] .nh-connectivity-card,
+[data-theme='light'] .nh-terminal-card {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme='light'] .nh-card-description {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-table th {
+  border-bottom-color: #cbd5e1;
+  color: #475569;
+  background: #f8fafc;
+}
+
+[data-theme='light'] .nh-table td {
+  border-bottom-color: #e2e8f0;
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+[data-theme='light'] .nh-table-empty {
+  color: #64748b !important;
+}
+
+[data-theme='light'] .nh-diagnostic-form label {
+  color: #334155;
+}
+
+[data-theme='light'] .nh-input-row input {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-input-row input:focus {
+  border-color: #059669;
+  box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.15);
+}
+
+[data-theme='light'] .nh-input-row button {
+  background: #059669;
+  color: #ffffff;
+}
+
+[data-theme='light'] .nh-diagnostic-result {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme='light'] .nh-result-heading {
+  color: #475569;
+}
+
+[data-theme='light'] .nh-terminal-note {
+  border-top-color: #e2e8f0;
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-diagram-loading-overlay {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+[data-theme='light'] .nh-empty-state {
+  color: #64748b;
+}
+
+[data-theme='light'] .nh-empty-state strong {
+  color: #0f172a;
+}
+
+[data-theme='light'] .nh-card-scope-badge {
+  background: #f0f9ff;
+  border-color: #bae6fd;
+  color: #0284c7;
 }
