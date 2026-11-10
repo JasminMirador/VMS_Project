@@ -83,7 +83,7 @@ function fmt(s) {
     : `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 }
 
-export default function SidePlaybackPanel({ camera, onClose, alertSource = "builtin" }) {
+export default function SidePlaybackPanel({ camera, onClose, alertSource = "builtin", initialAlerts = [] }) {
   const videoRef = useRef(null);
   const playerWrap = useRef(null);
   const hlsRef = useRef(null);
@@ -106,9 +106,15 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
   const [motionRanges, setMotionRanges] = useState([]);
 
   // Alerts Mode State
-  const [alerts, setAlerts] = useState([]);
+  const [alerts, setAlerts] = useState(() => (Array.isArray(initialAlerts) ? initialAlerts : []));
   const [loadingAlerts, setLoadingAlerts] = useState(false);
   const [playingAlert, setPlayingAlert] = useState(null);
+
+  useEffect(() => {
+    if (initialAlerts && initialAlerts.length > 0) {
+      setAlerts((prev) => (prev.length === 0 ? initialAlerts : prev));
+    }
+  }, [initialAlerts]);
 
   // Common Video State
   const [videoUrl, setVideoUrl] = useState(null);
@@ -150,69 +156,92 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
     if (!cameraIp) return;
     setLoadingAlerts(true);
     try {
-      if (alertSource === "external") {
-        const readerId = camera?.reader_id;
-        if (!readerId) return; // no reader_id registered for this camera yet
-        const res = await fetch(externalAiUrl(`/getalert?readerIds=${encodeURIComponent(readerId)}&page=1&size=500`), {
-          headers: {
-            "Authorization": localStorage.getItem('miradorai_sso_token') || '',
-            "Content-Type": "application/json"
-          }
-        });
-        if (res.ok) {
-          const extData = await res.ok ? await res.json() : { data: [] };
-          const items = extData.data || [];
-          const mapped = items.map(item => {
-            // Format sourceType e.g. "identity_management" -> "Identity Management"
-            let eventType = item.sourceType || item.subType || "AI Event";
-            eventType = eventType
-              .split(/[_-]/)
-              .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-              .join(" ");
+      let camAlerts = [];
+      const fetchBuiltin = alertSource === "builtin" || alertSource === "all";
+      const fetchExternal = alertSource === "mqtt_ai" || alertSource === "external_ai" || alertSource === "all";
 
-            const personName = item.empName || item.employeeName || item.personName || item.name || item.label || "Unknown";
-            const isUnknown = personName.toLowerCase().includes("unknown");
-            const eventText = isUnknown ? "Unknown" : `${eventType} — ${personName}`;
-
-            return {
-              ip: item.readerIp || "",
-              serial: item.readerId || "",
-              time: item.detectionTime || "",
-              received_at: item.detectionTime || "",
-              type: eventText,
-              eventType: isUnknown ? "Unknown" : eventType,
-              personName: isUnknown ? "" : personName,
-              isExternal: true,
-              rawData: item
-            };
+      // 1. Fetch built-in and database alerts for this specific camera
+      const urlParam = alertSource === "mqtt_ai"
+        ? "&source=external_ai"
+        : alertSource === "builtin"
+          ? "&source=built_in"
+          : "";
+      const res = await fetch(apiUrl(`/alerts?limit=500&camera_ip=${encodeURIComponent(cameraIp)}${urlParam}`), {
+        headers: getAuthHeaders()
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const filtered = (data.alerts || [])
+          .filter(a => {
+            const aIp = (a.ip || a.serial || "").replace(/_/g, ".");
+            return aIp === cameraIp;
+          })
+          .filter((a) => {
+            const t = (a.type || "").toLowerCase();
+            return !t.includes("motion") && t !== "unknown" && t !== "" && !t.includes("tns1:");
           });
-          mapped.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
-          setAlerts(mapped);
-        }
-      } else {
-        const urlParam = alertSource === "mqtt_ai" ? "&source=external_ai" : "";
-        const res = await fetch(apiUrl(`/alerts?limit=5000${urlParam}`), {
-          headers: getAuthHeaders()
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const filtered = (data.alerts || [])
-            .filter(a => (a.ip || a.serial || "").replace(/_/g, ".") === cameraIp)
-            .filter((a) => {
-               const t = (a.type || "").toLowerCase();
-               return !t.includes("motion") && t !== "unknown" && t !== "" && !t.includes("tns1:");
-            })
-            .filter(isAlertAllowed)
-            .sort((a, b) => {
-              const tA = new Date(a.time || a.received_at).getTime() || 0;
-              const tB = new Date(b.time || b.received_at).getTime() || 0;
-              return tB - tA;
-            })
-            .slice(0, 500);
-          setAlerts(filtered);
+        camAlerts.push(...filtered);
+      }
 
+      // 2. Fetch live external AI alerts if applicable
+      if (fetchExternal) {
+        const readerId = camera?.reader_id;
+        try {
+          const authHeader = {
+            Authorization: "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ7XCJpZFwiOlwiN2MxYzVhMzYtOGM0ZS00YzdlLTlkNmEtMWE3ZjFlOWQyYTQxXCIsXCJlbWFpbFwiOlwiYWRtaW5AbWlyYWRvci5haVwiLFwidGVuYW50SWRcIjpcIjZhNWVkMmE0LWI2MTQtNDY3My1iOWUzLTFiYTEwNzM4M2VmZVwiLFwiZmlyc3ROYW1lXCI6XCJBZG1pblwiLFwibGFzdE5hbWVcIjpudWxsfSIsImlhdCI6MTc4NDY5OTc0OX0.70FwbJjKRihC_YRN3w2icZKgWxld_zKFjrMoRVDyYM",
+            "Content-Type": "application/json"
+          };
+          const extUrl = readerId
+            ? externalAiUrl(`/getalert?readerIds=${encodeURIComponent(readerId)}&page=1&size=50`)
+            : externalAiUrl(`/getalert?page=1&size=50`);
+          const extRes = await fetch(extUrl, { headers: authHeader });
+          if (extRes.ok) {
+            const extData = await extRes.json();
+            const existingIds = new Set(camAlerts.map(a => String(a.id || a._id)));
+            const items = (extData.data || []).filter(item => {
+              const itemIp = (item.readerIp || "").replace(/_/g, ".");
+              return itemIp === cameraIp || (readerId && item.readerId === readerId);
+            });
+            items.forEach(item => {
+              if (item.id && existingIds.has(String(item.id))) return;
+              let eventType = item.sourceType || item.subType || "AI Event";
+              eventType = eventType
+                .split(/[_-]/)
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                .join(" ");
+
+              const personName = item.empName || item.employeeName || item.personName || item.name || item.label || "";
+              const isUnknown = personName.toLowerCase().includes("unknown");
+              const eventText = isUnknown ? "Unknown" : (personName ? `${eventType} — ${personName}` : eventType);
+              const locKey = Object.keys(item).find(k => k.toLowerCase().replace(/_/g, '') === 'imagelocation' || k.toLowerCase().replace(/_/g, '') === 'imglocation' || k.toLowerCase().replace(/_/g, '') === 'imgelocation');
+              const locVal = locKey ? item[locKey] : null;
+
+              camAlerts.push({
+                ip: item.readerIp || cameraIp,
+                serial: item.readerId || "",
+                time: item.detectionTime || "",
+                received_at: item.detectionTime || "",
+                type: eventText,
+                eventType: isUnknown ? "Unknown" : eventType,
+                personName: isUnknown ? "" : personName,
+                isExternal: true,
+                image: locVal ? (locVal.startsWith("http") ? locVal : `http://${window.location.hostname}:9000/${locVal.replace(/^\//, '')}`) : "",
+                rawData: item
+              });
+            });
+          }
+        } catch (extErr) {
+          // ignore external fetch error
         }
       }
+
+      camAlerts.sort((a, b) => {
+        const tA = new Date(a.time || a.received_at).getTime() || 0;
+        const tB = new Date(b.time || b.received_at).getTime() || 0;
+        return tB - tA;
+      });
+
+      setAlerts(camAlerts.slice(0, 500));
     } catch (e) {
       console.error("[SidePlaybackPanel] fetch alerts failed:", e);
     } finally {

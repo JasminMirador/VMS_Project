@@ -169,14 +169,21 @@ def get_alerts(
     try:
         query = {}
         if camera_ip:
-            query["ip"] = camera_ip
+            ip_dot = camera_ip.replace("_", ".")
+            ip_under = camera_ip.replace(".", "_")
+            query["$or"] = [
+                {"ip": ip_dot},
+                {"ip": ip_under},
+                {"serial": ip_dot},
+                {"serial": ip_under}
+            ]
             
         if not include_software_motion:
             query["source"] = {"$ne": "software_motion"}
             
         if status and status.lower() != "all":
             if status.lower() == "active":
-                query["status"] = {"": [None, "Active", ""]}
+                query["status"] = {"$in": [None, "Active", ""]}
             else:
                 query["status"] = status
             
@@ -199,15 +206,11 @@ def get_alerts(
 
         docs = []
         if source == "external_ai":
-            ai_query = dict(query)
-            ai_query["topic"] = "vms/analytics/alerts"
-            docs.extend(list(_db["external_ai_alerts"].find(ai_query).sort("received_at", -1).limit(limit)))
+            docs.extend(list(_db["external_ai_alerts"].find(query).sort("received_at", -1).limit(limit)))
         elif source == "built_in":
             docs.extend(list(_db["mqtt_logs"].find(query).sort("received_at", -1).limit(limit)))
         else: # "all" or None
-            ai_query = dict(query)
-            ai_query["topic"] = "vms/analytics/alerts"
-            docs.extend(list(_db["external_ai_alerts"].find(ai_query).sort("received_at", -1).limit(limit)))
+            docs.extend(list(_db["external_ai_alerts"].find(query).sort("received_at", -1).limit(limit)))
             docs.extend(list(_db["mqtt_logs"].find(query).sort("received_at", -1).limit(limit)))
             
             # Sort combined and limit
@@ -226,6 +229,7 @@ def get_alerts(
             source = d.get("source", "")
             
             if source == "external_ai":
+                d["isExternal"] = True
                 formatted.append(d)
             elif source in FLAT_SOURCES:
                 t = d.get("type")

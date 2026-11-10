@@ -707,6 +707,7 @@ function AlertsPanel({
   isOpen,
   onAlertCountUpdate,
   onTotalAlertCountChange,
+  onAlertsUpdate,
   liveStatus,
   alertSource,
   setAlertSource,
@@ -909,6 +910,7 @@ function AlertsPanel({
 
   useEffect(() => {
     onTotalAlertCountChange?.(alerts.length);
+    onAlertsUpdate?.(alerts);
     const counts = {};
     alerts.forEach((alert) => {
       const ip = (alert.ip || alert.serial || "").replace(/_/g, ".");
@@ -917,7 +919,7 @@ function AlertsPanel({
       }
     });
     onAlertCountUpdate?.(counts);
-  }, [alerts, onTotalAlertCountChange, onAlertCountUpdate]);
+  }, [alerts, onTotalAlertCountChange, onAlertCountUpdate, onAlertsUpdate]);
 
   const normalizeIp = (ip) => (ip || "").replace(/_/g, ".");
 
@@ -1001,11 +1003,7 @@ function AlertsPanel({
       const fetchExternal = alertSource === "mqtt_ai" || alertSource === "external_ai" || alertSource === "all";
 
       if (fetchBuiltin) {
-        let urlParam = "";
-        if (alertSource === "builtin") {
-          urlParam = "&source=built_in";
-        }
-        const res = await fetch(apiUrl(`/alerts?limit=5000${urlParam}`), {
+        const res = await fetch(apiUrl(`/alerts?limit=5000&source=built_in`), {
           headers: getAuthHeaders(),
         });
         if (res.ok) {
@@ -1141,6 +1139,13 @@ function AlertsPanel({
         }
       }
 
+      // Sort newest first before limiting per camera
+      combinedAlerts.sort((a, b) => {
+        const tA = new Date(a.time || a.received_at).getTime() || 0;
+        const tB = new Date(b.time || b.received_at).getTime() || 0;
+        return tB - tA;
+      });
+
       const perCamCounts = {};
       const finalAlerts = [];
       combinedAlerts.forEach((alert) => {
@@ -1170,8 +1175,9 @@ function AlertsPanel({
 
       const activeAlerts = allowedIps.size > 0
         ? finalAlerts.filter((a) => {
+            const isAi = a.isExternal === true || a.source === "external_ai" || a.source === "AI_WEBHOOK";
             const ip = normalizeIp(a.ip || "");
-            return !ip || a.isExternal || allowedIps.has(ip);
+            return !ip || isAi || allowedIps.has(ip);
           })
         : finalAlerts;
         
@@ -2649,6 +2655,7 @@ export default function LiveViewPage({ onNavigate }) {
     });
   }, []);
   const [totalAlertsCount, setTotalAlertsCount] = useState(0);
+  const [liveAlerts, setLiveAlerts] = useState([]);
   const [sidePlaybackCam, setSidePlaybackCam] = useState(null);
   const [alertSource, setAlertSource] = useState("all"); // 'all' | 'builtin' | 'mqtt_ai'
   const [isAiActive, setIsAiActive] = useState(false);
@@ -4306,13 +4313,19 @@ export default function LiveViewPage({ onNavigate }) {
               camera={sidePlaybackCam}
               onClose={() => setSidePlaybackCam(null)}
               alertSource={alertSource}
+              initialAlerts={liveAlerts.filter(a => {
+                const aIp = (a.ip || a.serial || "").replace(/_/g, ".");
+                const camIp = (sidePlaybackCam.ip || "").replace(/_/g, ".");
+                return aIp === camIp || (sidePlaybackCam.reader_id && a.serial === sidePlaybackCam.reader_id);
+              })}
             />
           )}
 
-          {/* â”€â”€ Alerts panel â”€â”€ */}
+          {/* Alerts panel */}
           <AlertsPanel
             onAlertCountUpdate={setAlertCounts}
             onTotalAlertCountChange={setTotalAlertsCount}
+            onAlertsUpdate={setLiveAlerts}
             isOpen={alertsPanelOpen}
             liveStatus={liveStatus}
             alertSource={alertSource}
