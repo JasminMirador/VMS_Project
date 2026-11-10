@@ -3,6 +3,8 @@ import Hls from "hls.js";
 import "./VideoSynopsisPage.css";
 import { useCameras } from "../../context/CamerasContext";
 import DateTimePicker from "../../components/shared/DateTimePicker";
+import { synopsisBase, resolveSynopsisMediaUrl } from "../../config/appConfig";
+
 
 export default function FaceDetectionPage() {
   const { cameras } = useCameras();
@@ -85,7 +87,7 @@ export default function FaceDetectionPage() {
   const pollTimerRef = useRef(null);
   const isMountedRef = useRef(true);
 
-  const SYNOPSIS_API = import.meta.env.VITE_API_HOST ? `http://${import.meta.env.VITE_API_HOST}:8005` : `http://${window.location.hostname}:8005`;
+  const SYNOPSIS_API = synopsisBase();
 
   const handleReidentify = async () => {
     const activeJobId = currentJobDetails?.job_id || localStorage.getItem('vms_active_face_job_id') || (jobHistory[0]?.job_id);
@@ -236,6 +238,25 @@ export default function FaceDetectionPage() {
             } else {
               localStorage.removeItem('vms_active_face_job_id');
             }
+          }
+        } else if (jobs && jobs.length > 0) {
+          const firstJob = jobs[0];
+          try {
+            const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/face-jobs/${firstJob.job_id}`);
+            if (res.ok && isMountedRef.current) {
+              const data = await res.json();
+              const sortedFaces = (data.faces || []).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+              setFaces(sortedFaces);
+              setCurrentJobDetails(data);
+              if (data.range_start) setRangeStart(data.range_start);
+              if (data.range_end) setRangeEnd(data.range_end);
+              if (data.camera_id) {
+                const cids = Array.isArray(data.camera_id) ? data.camera_id : [data.camera_id];
+                setSelectedCameras(cids);
+              }
+            }
+          } catch (e) {
+            console.error("Auto-load first job error:", e);
           }
         }
         localStorage.removeItem('vms_last_completed_face_job_id');
@@ -634,7 +655,7 @@ export default function FaceDetectionPage() {
         throw new Error(`Failed to fetch raw video: ${res.statusText}`);
       }
       const data = await res.json();
-      setRawVideoUrl(data.clipUrl);
+      setRawVideoUrl(resolveSynopsisMediaUrl(data.clipUrl));
     } catch (err) {
       console.error(err);
       setRawVideoError(err.message || "Failed to load raw video clip.");
@@ -968,8 +989,23 @@ export default function FaceDetectionPage() {
           <div style={{ display: 'flex', gap: '20px', flex: 1, minHeight: 0 }}>
             <section className="glass-panel synopsis-history-card fade-in" style={{ padding: '20px', margin: 0, flex: 3, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexShrink: 0 }}>
-                <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.1rem', color: 'var(--text-primary)' }}>
+                <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.1rem', color: 'var(--text-primary)', flexWrap: 'wrap' }}>
                   <span className="material-icons-outlined" style={{ fontSize: '1.2rem', color: 'var(--teal)' }}>face</span> Detected Faces
+                  {currentJobDetails && (
+                    <span style={{
+                      fontSize: '0.75rem',
+                      fontWeight: '600',
+                      color: 'var(--teal)',
+                      background: 'rgba(20, 184, 166, 0.12)',
+                      padding: '2px 10px',
+                      borderRadius: '12px',
+                      border: '1px solid rgba(20, 184, 166, 0.35)',
+                      marginLeft: '6px',
+                      letterSpacing: '0.3px'
+                    }}>
+                      Run: {currentJobDetails.job_name || currentJobDetails.job_id}
+                    </span>
+                  )}
                 </h3>
                 {!showHistory && (
                   <button
@@ -1336,120 +1372,166 @@ export default function FaceDetectionPage() {
                       <p>No previous detection runs.</p>
                     </div>
                   ) : (
-                    jobHistory.map((job) => (
-                      <div key={job.job_id} className="history-item" style={{
-                        display: 'flex', flexDirection: 'column', gap: '8px',
-                        padding: '12px 16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)',
-                        border: '1px solid var(--border)', marginBottom: '8px', cursor: 'pointer',
-                        transition: 'all 0.2s', overflow: 'hidden'
-                      }}
-                        onClick={async () => {
-                          if (editingJobId === job.job_id) return;
-                          try {
-                            const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/face-jobs/${job.job_id}`);
-                            if (!res.ok) throw new Error("Failed to load job");
-                            const data = await res.json();
-                            const sortedFaces = (data.faces || []).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-                            setFaces(sortedFaces);
-                            setCurrentJobDetails(data);
-                            setRangeStart(data.range_start);
-                            setRangeEnd(data.range_end);
-                            setSelectedCameras(Array.isArray(data.camera_ids || data.camera_id) ? (data.camera_ids || data.camera_id) : [data.camera_id]);
-                          } catch (err) {
-                            console.error("Failed to load past job:", err);
-                          }
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                          <div style={{ flex: 1, minWidth: 0, paddingRight: '12px' }}>
-                            {editingJobId === job.job_id ? (
-                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                <input
-                                  type="text"
-                                  value={editNameValue}
-                                  onChange={e => setEditNameValue(e.target.value)}
-                                  onClick={e => e.stopPropagation()}
-                                  style={{
-                                    background: 'var(--bg-surface)', border: '1px solid var(--border)',
-                                    color: 'var(--text-primary)', padding: '4px 8px', borderRadius: '4px', fontSize: '0.85rem',
-                                    width: '100%'
-                                  }}
-                                  autoFocus
-                                />
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleRenameSubmit(job.job_id); }}
-                                  style={{ background: 'var(--teal)', color: 'white', border: 'none', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
-                                >
-                                  <span className="material-icons-outlined" style={{ fontSize: '1rem' }}>check</span>
-                                </button>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); setEditingJobId(null); }}
-                                  style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
-                                >
-                                  <span className="material-icons-outlined" style={{ fontSize: '1rem' }}>close</span>
-                                </button>
-                              </div>
-                            ) : (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span style={{ fontWeight: '600', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{job.job_name || job.job_id}</span>
-                                <span
-                                  className="material-icons-outlined edit-icon"
-                                  style={{ fontSize: '1rem', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0 }}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setEditingJobId(job.job_id);
-                                    setEditNameValue(job.job_name || job.job_id);
-                                  }}
-                                >edit</span>
-                              </div>
-                            )}
-                          </div>
-                          <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span
-                              className="material-icons-outlined"
-                              style={{ fontSize: '1.1rem', color: 'var(--teal)', cursor: 'pointer' }}
-                              title="View Processing Details"
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                try {
-                                  const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/face-jobs/${job.job_id}`);
-                                  if (!res.ok) throw new Error("Failed to load job");
-                                  const data = await res.json();
-                                  setCurrentJobDetails(data);
-                                  setShowDetailsModal(true);
-                                } catch (err) {
-                                  console.error("Failed to load past job details:", err);
-                                }
-                              }}
-                            >info</span>
-                            {job.status === 'completed' && <span style={{ color: 'var(--teal)', fontSize: '0.65rem', fontWeight: 'bold', border: '1px solid var(--teal)', padding: '2px 6px', borderRadius: '12px' }}>COMPLETED</span>}
-                            {job.status === 'failed' && <span style={{ color: 'var(--red)', fontSize: '0.65rem', fontWeight: 'bold', border: '1px solid var(--red)', padding: '2px 6px', borderRadius: '12px' }}>FAILED</span>}
-                            {job.status === 'cancelled' && <span style={{ color: 'var(--yellow)', fontSize: '0.65rem', fontWeight: 'bold', border: '1px solid var(--yellow)', padding: '2px 6px', borderRadius: '12px' }}>CANCELLED</span>}
-                            {job.status === 'processing' && <span style={{ color: 'var(--teal)', fontSize: '0.65rem', fontWeight: 'bold', border: '1px solid var(--teal)', padding: '2px 6px', borderRadius: '12px' }}>{job.progress ? Math.round(job.progress) + '%' : 'PROCESSING'}</span>}
-                          </div>
-                        </div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {(job.range_start || '').replace('T', ' ')} to {(job.range_end || '').replace('T', ' ')}
-                          </span>
-                          <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            <i className="fa-solid fa-video" style={{ marginRight: '6px' }}></i>
-                            {(() => {
-                              let camNames = "";
-                              if (Array.isArray(job.camera_id)) {
-                                camNames = job.camera_id.map(getCamName).join(', ');
-                              } else {
-                                camNames = getCamName(job.camera_id);
+                    jobHistory.map((job) => {
+                      const isSelected = currentJobDetails?.job_id === job.job_id;
+                      return (
+                        <div
+                          key={job.job_id}
+                          className={`history-item ${isSelected ? 'active' : ''}`}
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '8px',
+                            padding: '12px 16px',
+                            background: isSelected ? 'rgba(20, 184, 166, 0.14)' : 'var(--bg-elevated)',
+                            borderRadius: 'var(--radius-sm)',
+                            border: isSelected ? '1.5px solid var(--teal)' : '1px solid var(--border)',
+                            borderLeft: isSelected ? '5px solid var(--teal)' : '5px solid transparent',
+                            marginBottom: '8px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                            overflow: 'hidden',
+                            boxShadow: isSelected ? '0 0 16px rgba(20, 184, 166, 0.28), inset 0 0 10px rgba(20, 184, 166, 0.08)' : 'none',
+                            position: 'relative'
+                          }}
+                          onClick={async () => {
+                            if (editingJobId === job.job_id) return;
+                            setCurrentJobDetails(prev => ({ ...prev, job_id: job.job_id }));
+                            try {
+                              const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/face-jobs/${job.job_id}`);
+                              if (!res.ok) throw new Error("Failed to load job");
+                              const data = await res.json();
+                              const sortedFaces = (data.faces || []).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+                              setFaces(sortedFaces);
+                              setCurrentJobDetails(data);
+                              if (data.range_start) setRangeStart(data.range_start);
+                              if (data.range_end) setRangeEnd(data.range_end);
+                              if (data.camera_id) {
+                                const cids = Array.isArray(data.camera_id) ? data.camera_id : [data.camera_id];
+                                setSelectedCameras(cids);
                               }
-                              return <span title={camNames} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{camNames}</span>;
-                            })()}
-                            <span style={{ margin: '0 6px' }}>|</span>
-                            <i className="fa-solid fa-face-smile" style={{ marginRight: '6px' }}></i> {job.faces ? `${job.faces.length} ${job.faces.length === 1 ? 'Face' : 'Faces'}` : '... Faces'}
-                          </span>
+                            } catch (err) {
+                              console.error("Failed to load past job:", err);
+                            }
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div style={{ flex: 1, minWidth: 0, paddingRight: '12px' }}>
+                              {editingJobId === job.job_id ? (
+                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                  <input
+                                    type="text"
+                                    value={editNameValue}
+                                    onChange={e => setEditNameValue(e.target.value)}
+                                    onClick={e => e.stopPropagation()}
+                                    style={{
+                                      background: 'var(--bg-surface)', border: '1px solid var(--border)',
+                                      color: 'var(--text-primary)', padding: '4px 8px', borderRadius: '4px', fontSize: '0.85rem',
+                                      width: '100%'
+                                    }}
+                                    autoFocus
+                                  />
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleRenameSubmit(job.job_id); }}
+                                    style={{ background: 'var(--teal)', color: 'white', border: 'none', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
+                                  >
+                                    <span className="material-icons-outlined" style={{ fontSize: '1rem' }}>check</span>
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setEditingJobId(null); }}
+                                    style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
+                                  >
+                                    <span className="material-icons-outlined" style={{ fontSize: '1rem' }}>close</span>
+                                  </button>
+                                </div>
+                              ) : (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                  <span style={{
+                                    fontWeight: isSelected ? '700' : '600',
+                                    color: isSelected ? 'var(--teal)' : 'var(--text-primary)',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis'
+                                  }}>
+                                    {job.job_name || job.job_id}
+                                  </span>
+                                  {isSelected && (
+                                    <span style={{
+                                      fontSize: '0.62rem',
+                                      fontWeight: '800',
+                                      background: 'var(--teal)',
+                                      color: '#021817',
+                                      padding: '1px 6px',
+                                      borderRadius: '4px',
+                                      letterSpacing: '0.5px',
+                                      textTransform: 'uppercase',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '3px'
+                                    }}>
+                                      <span className="material-icons-outlined" style={{ fontSize: '0.72rem' }}>check_circle</span>
+                                      ACTIVE
+                                    </span>
+                                  )}
+                                  <span
+                                    className="material-icons-outlined edit-icon"
+                                    style={{ fontSize: '1rem', color: isSelected ? 'var(--teal)' : 'var(--text-muted)', cursor: 'pointer', flexShrink: 0, opacity: isSelected ? 1 : 0.7 }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingJobId(job.job_id);
+                                      setEditNameValue(job.job_name || job.job_id);
+                                    }}
+                                  >edit</span>
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span
+                                className="material-icons-outlined"
+                                style={{ fontSize: '1.1rem', color: 'var(--teal)', cursor: 'pointer' }}
+                                title="View Processing Details"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  try {
+                                    const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/face-jobs/${job.job_id}`);
+                                    if (!res.ok) throw new Error("Failed to load job");
+                                    const data = await res.json();
+                                    setCurrentJobDetails(data);
+                                    setShowDetailsModal(true);
+                                  } catch (err) {
+                                    console.error("Failed to load past job details:", err);
+                                  }
+                                }}
+                              >info</span>
+                              {job.status === 'completed' && <span style={{ color: 'var(--teal)', fontSize: '0.65rem', fontWeight: 'bold', border: '1px solid var(--teal)', padding: '2px 6px', borderRadius: '12px' }}>COMPLETED</span>}
+                              {job.status === 'failed' && <span style={{ color: 'var(--red)', fontSize: '0.65rem', fontWeight: 'bold', border: '1px solid var(--red)', padding: '2px 6px', borderRadius: '12px' }}>FAILED</span>}
+                              {job.status === 'cancelled' && <span style={{ color: 'var(--yellow)', fontSize: '0.65rem', fontWeight: 'bold', border: '1px solid var(--yellow)', padding: '2px 6px', borderRadius: '12px' }}>CANCELLED</span>}
+                              {job.status === 'processing' && <span style={{ color: 'var(--teal)', fontSize: '0.65rem', fontWeight: 'bold', border: '1px solid var(--teal)', padding: '2px 6px', borderRadius: '12px' }}>{job.progress ? Math.round(job.progress) + '%' : 'PROCESSING'}</span>}
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <span style={{ fontSize: '0.75rem', color: isSelected ? 'var(--text-secondary)' : 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {(job.range_start || '').replace('T', ' ')} to {(job.range_end || '').replace('T', ' ')}
+                            </span>
+                            <span style={{ fontSize: '0.85rem', color: isSelected ? 'var(--text-primary)' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              <i className="fa-solid fa-video" style={{ marginRight: '6px', color: isSelected ? 'var(--teal)' : 'inherit' }}></i>
+                              {(() => {
+                                let camNames = "";
+                                if (Array.isArray(job.camera_id)) {
+                                  camNames = job.camera_id.map(getCamName).join(', ');
+                                } else {
+                                  camNames = getCamName(job.camera_id);
+                                }
+                                return <span title={camNames} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{camNames}</span>;
+                              })()}
+                              <span style={{ margin: '0 6px' }}>|</span>
+                              <i className="fa-solid fa-face-smile" style={{ marginRight: '6px', color: isSelected ? 'var(--teal)' : 'inherit' }}></i> {job.faces ? `${job.faces.length} ${job.faces.length === 1 ? 'Face' : 'Faces'}` : '... Faces'}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>

@@ -2,10 +2,12 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import { useI18n } from "../../i18n";
+import Loader from "../../components/shared/Loader";
 import "./DashboardNewPage.css";
+import { apiUrl } from "../../config/appConfig";
 
 /* ───────────────────────── data helpers ───────────────────────── */
-const API_BASE = import.meta.env.VITE_API_URL || "";
+const API_BASE = import.meta.env.VITE_API_URL;
 const getAuthHeaders = () => {
   const token = localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token");
   return token ? { Authorization: "Bearer " + token } : {};
@@ -79,25 +81,64 @@ function AreaFlat({ values }) {
 
 
 /** time-series area chart with y gridlines */
-function TrendChart({ points, w = 700, h = 210, yTicks, yFmt = (v) => v, xLabels, unitLabel, extra, reserve = 0 }) {
+function TrendChart({ points = [], w = 700, h = 210, yTicks, yFmt = (v) => v, xLabels, unitLabel, extra, reserve = 0 }) {
   const bl = 44, bb = 28, bt = 10, br = 12;
-  const vals = points.map((p) => p.v);
-  const max = yTicks ? yTicks[yTicks.length - 1] : Math.max(...vals, 1);
-  const y = (v) => bt + (h - bt - bb) * (1 - v / max);
-  const x = (i) => bl + (i * (w - bl - br) * (1 - reserve)) / Math.max(1, points.length - 1);
-  const pts = points.map((p, i) => `${x(i).toFixed(1)},${y(p.v).toFixed(1)}`);
+  const safeW = Number.isFinite(w) && w > bl + br ? w : 700;
+  const safeH = Number.isFinite(h) && h > bt + bb ? h : 210;
+  const safePoints = (Array.isArray(points) ? points : [])
+    .map((p) => ({ ...p, v: num(p?.v) }))
+    .filter((p) => Number.isFinite(p.v));
+  const rawTicks = Array.isArray(yTicks) && yTicks.length
+    ? yTicks.map(num).filter(Number.isFinite)
+    : [];
+  const maxValue = rawTicks.length
+    ? Math.max(...rawTicks, ...safePoints.map((p) => p.v), 1)
+    : Math.max(...safePoints.map((p) => p.v), 1);
+  const max = Number.isFinite(maxValue) && maxValue > 0 ? maxValue : 1;
+  const ticks = rawTicks.length ? rawTicks : [0, max / 2, max];
+  const safeReserve = Math.max(0, Math.min(0.8, num(reserve)));
+  const plotWidth = safeW - bl - br;
+  const plotHeight = safeH - bt - bb;
+  const y = (value) => {
+    const v = Number.isFinite(Number(value)) ? Number(value) : 0;
+    const result = bt + plotHeight * (1 - v / max);
+    return Number.isFinite(result) ? result : bt + plotHeight;
+  };
+  const x = (index) => {
+    const i = Number.isFinite(Number(index)) ? Number(index) : 0;
+    const result = bl + (i * plotWidth * (1 - safeReserve)) / Math.max(1, safePoints.length - 1);
+    return Number.isFinite(result) ? result : bl;
+  };
+  const pts = safePoints.map((point, index) => `${x(index).toFixed(1)},${y(point.v).toFixed(1)}`);
+  const baseline = y(0);
+
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} width="100%" className="dn-chart" role="img">
-      {(yTicks || [0, max / 2, max]).map((v) => (
-        <g key={v}><line x1={bl} x2={w - br} y1={y(v)} y2={y(v)} className="dn-gridline" /><text x={bl - 8} y={y(v) + 4} textAnchor="end" className="dn-axis">{yFmt(v)}</text></g>
+    <svg viewBox={`0 0 ${safeW} ${safeH}`} width="100%" className="dn-chart" role="img" aria-label="Trend chart">
+      {ticks.map((value, index) => (
+        <g key={`y-tick-${index}`}>
+          <line x1={bl} x2={safeW - br} y1={y(value)} y2={y(value)} className="dn-gridline" />
+          <text x={bl - 8} y={y(value) + 4} textAnchor="end" className="dn-axis">{yFmt(value)}</text>
+        </g>
       ))}
-      {points.length > 1 && (<>
-        <path d={`M${x(0)},${y(0)}L${pts.join("L")}L${x(points.length - 1)},${y(0)}Z`} className="dn-fill" opacity=".12" />
-        <path d={`M${pts.join("L")}`} className="dn-stroke" fill="none" strokeWidth="2" strokeLinejoin="round" />
-      </>)}
-      {(xLabels || []).map(([f, l]) => <text key={l} x={x(Math.round(f * (points.length - 1)))} y={h - 8} textAnchor="middle" className="dn-axis">{l}</text>)}
+      {safePoints.length > 1 && (
+        <>
+          <path d={`M${x(0)},${baseline}L${pts.join("L")}L${x(safePoints.length - 1)},${baseline}Z`} className="dn-fill" opacity=".12" />
+          <path d={`M${pts.join("L")}`} className="dn-stroke" fill="none" strokeWidth="2" strokeLinejoin="round" />
+        </>
+      )}
+      {(xLabels || []).map(([fraction, label], index) => (
+        <text
+          key={`x-label-${index}`}
+          x={x(Math.round(num(fraction) * Math.max(0, safePoints.length - 1)))}
+          y={safeH - 8}
+          textAnchor="middle"
+          className="dn-axis"
+        >
+          {label}
+        </text>
+      ))}
       {unitLabel && <text x={bl + 4} y={bt + 8} className="dn-axis">{unitLabel}</text>}
-      {extra && extra({ x, y, right: w - br, left: bl })}
+      {extra && extra({ x, y, right: safeW - br, left: bl })}
     </svg>
   );
 }
@@ -108,12 +149,16 @@ function Panel({ title, sub, right, className = "", demo, T, children }) {
     <section className={`dn-panel ${className}`}>
       <div className="dn-ph">
         <div><h2>{title}</h2>{sub && <small className="dn-s2">{sub}</small>}</div>
-        <div className="dn-ph-r">{demo && <span className="dn-tag">{T("sample")}</span>}{right}</div>
+        <div className="dn-ph-r">{demo && <span className="dn-tag">{T ? T("sample") : "Sample"}</span>}{right}</div>
       </div>
       {children}
     </section>
   );
 }
+const Num = ({ loaded, children, fallback = "—" }) => {
+  if (!loaded) return fallback;
+  return children != null && children !== "" ? children : fallback;
+};
 const Pill = ({ kind, icon, children }) => <span className={`dn-pill ${kind}`}>{icon}{children}</span>;
 const KV = ({ k, v, cls = "", onClick }) => (
   <div className="dn-kv"><span className={onClick ? "dn-lnk" : ""} onClick={onClick}>{k}</span><b className={cls}>{v}</b></div>
@@ -158,7 +203,26 @@ function HBars({ rows, max, fmt = (v) => v, color }) {
 /* ───────────────────────── main dashboard page ───────────────────────── */
 export default function DashboardNewPage() {
   const { t, language } = useI18n();
-  const T = useCallback((k, p) => t("dashNew." + k, p), [t]);
+  const T = useCallback((k, p) => {
+    const res = t("dashNew." + k, p);
+    if (typeof res === "string" && res.startsWith("dashNew.")) {
+      const defaults = {
+        totalCores: "Total Cores",
+        used: "Used",
+        free: "Free",
+        cores: "Cores",
+        coresFree: p?.n != null ? `${p.n} cores free` : "cores free",
+        "st.disabled": "Disabled",
+        disabled: "disabled",
+        disabledLc: "disabled",
+        loading: "Loading...",
+        cameraFleet: "Camera fleet",
+        systemHealth: "System health"
+      };
+      if (defaults[k] !== undefined) return defaults[k];
+    }
+    return res;
+  }, [t]);
   const navigate = useNavigate();
   const loc = language === "ar" ? "ar" : "en-GB";
   const fmtDT = (d) => new Date(d).toLocaleString(loc, { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -198,6 +262,8 @@ export default function DashboardNewPage() {
   const [isAiActive, setIsAiActive] = useState(false);
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [alertActionLoading, setAlertActionLoading] = useState(false);
+  const [backendDown, setBackendDown] = useState(false);
+  const [diagnosticsLoaded, setDiagnosticsLoaded] = useState(false);
 
   // cameras table
   const [camFilter, setCamFilter] = useState("all");
@@ -214,6 +280,36 @@ export default function DashboardNewPage() {
   const secRefs = useRef({});
 
   useEffect(() => { const i = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(i); }, []);
+
+  /* ── periodic backend connectivity heartbeat ── */
+  useEffect(() => {
+    let off = false;
+    const checkBackend = async () => {
+      try {
+        const res = await fetch((API_BASE || "") + "/api/health", { headers: getAuthHeaders(), cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        if (!off) {
+          setBackendDown(false);
+          setHealthInfo(data);
+        }
+      } catch (e) {
+        if (!off) {
+          setBackendDown(true);
+        }
+      }
+    };
+    const timer = setInterval(checkBackend, 4000);
+    return () => { off = true; clearInterval(timer); };
+  }, []);
+
+  const formatBitrateTs = useCallback((ts) => {
+    if (!ts) return "";
+    if (typeof ts === "string" && /^\d{1,2}:\d{2}$/.test(ts.trim())) return ts;
+    const d = new Date(String(ts).replace(" ", "T"));
+    if (isNaN(d.getTime())) return String(ts);
+    return d.toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit" });
+  }, [loc]);
 
   /* ── initial + manual refresh load from backend APIs ── */
   useEffect(() => {
@@ -236,10 +332,15 @@ export default function DashboardNewPage() {
         safe("/api/alerts?limit=50&status=Active")
       ]);
       if (off) return;
+      if (!sum && !health && !metrics) {
+        setBackendDown(true);
+      } else {
+        setBackendDown(false);
+      }
       if (sum) {
         setSummary((p) => {
-          const cpuHist = sum.cpu_history && sum.cpu_history.length > 0 
-            ? sum.cpu_history 
+          const cpuHist = sum.cpu_history && sum.cpu_history.length > 0
+            ? sum.cpu_history
             : [...(p.history?.cpu || []), sum.cpu].slice(-24);
           return {
             ...p,
@@ -267,16 +368,23 @@ export default function DashboardNewPage() {
 
   useEffect(() => {
     let off = false;
+    setDiagnosticsLoaded(false);
+
     Promise.all([
       safe("/api/storage/diagnostics"),
       safe(`/api/bitrate/diagnostics?filter_type=${bitrateFilter}`),
       safe("/api/cameras/bandwidth")
-    ]).then(([s, b, w]) => {
-      if (off) return;
-      if (s) setStorageDiag(s);
-      if (b) setBitrateDiag(b);
-      if (w) setBandwidth(w);
-    });
+    ])
+      .then(([s, b, w]) => {
+        if (off) return;
+        if (s) setStorageDiag(s);
+        if (b) setBitrateDiag(b);
+        if (w) setBandwidth(w);
+      })
+      .finally(() => {
+        if (!off) setDiagnosticsLoaded(true);
+      });
+
     return () => { off = true; };
   }, [bitrateFilter, tick]);
 
@@ -286,6 +394,9 @@ export default function DashboardNewPage() {
     setSummary((p) => ({
       ...p,
       cpu: systemMetrics.cpu ?? p.cpu,
+      cpu_cores: systemMetrics.cpu_cores ?? p.cpu_cores,
+      cpu_used_cores: systemMetrics.cpu_used_cores ?? p.cpu_used_cores,
+      cpu_free_cores: systemMetrics.cpu_free_cores ?? p.cpu_free_cores,
       ram: systemMetrics.ram ?? p.ram,
       disk: systemMetrics.disk ?? p.disk,
       history: { cpu: [...(p.history?.cpu || []), systemMetrics.cpu].slice(-24) }
@@ -363,7 +474,7 @@ export default function DashboardNewPage() {
   }, [hist30]);
 
   const realFleet = useMemo(() => {
-    const findH = (c) => cameraHealth.find((h) => 
+    const findH = (c) => cameraHealth.find((h) =>
       (c.stream_key && (h.stream === c.stream_key || h.name === c.stream_key)) ||
       (c.name && (h.name === c.name || h.stream === c.name)) ||
       (c.ip && (h.ip === c.ip || (h.stream && h.stream.includes(c.ip.replace(/\./g, "_")))))
@@ -372,19 +483,19 @@ export default function DashboardNewPage() {
     const mk = (c, h) => {
       const isEnabled = c.enabled !== false;
       const streamKey = c.stream_key || c.streamKey || c.ip?.replace(/\./g, "_");
-      const isRecording = activeRecorders.includes(streamKey) || 
-                          activeRecorders.includes(c.stream_key) || 
-                          activeRecorders.includes(c.ip) ||
-                          activeRecorders.includes(c.ip?.replace(/\./g, "_"));
+      const isRecording = activeRecorders.includes(streamKey) ||
+        activeRecorders.includes(c.stream_key) ||
+        activeRecorders.includes(c.ip) ||
+        activeRecorders.includes(c.ip?.replace(/\./g, "_"));
       const isStreaming = c.stream_status === "streaming" || c.status === "streaming";
       const hasStreamError = c.stream_status === "error";
 
       let state = "on";
       let reason = "online";
-      
+
       if (!isEnabled) {
-        state = "off";
-        reason = "offline";
+        state = "disabled";
+        reason = "disabled";
       } else if (isRecording || isStreaming) {
         if (hasStreamError && !isRecording) {
           state = "issue";
@@ -414,12 +525,14 @@ export default function DashboardNewPage() {
       const prof = c.stream_profiles && c.stream_profiles[0] ? c.stream_profiles[0] : null;
       const fpsVal = h?.fps ? `${h.fps} fps` : prof?.fps ? `${prof.fps} fps` : "25 fps";
       const resVal = h?.resolution || prof?.resolution || "1080p";
-      const streamText = state === "off" ? T("noSignal") : `${resVal}, ${fpsVal}`;
-      const bitrateMbps = h && h.bitrate > 0 
-        ? Number((h.bitrate / 1024).toFixed(1)) 
-        : prof && prof.bitrate > 0 
-          ? Number((prof.bitrate / 1024).toFixed(1)) 
-          : (state === "on" ? 4.0 : 0);
+      const streamText = state === "disabled" ? (T("st.disabled") || "Disabled") : state === "off" ? T("noSignal") : `${resVal}, ${fpsVal}`;
+      const bitrateMbps = state === "disabled"
+        ? 0
+        : h && h.bitrate > 0
+          ? Number((h.bitrate / 1024).toFixed(1))
+          : prof && prof.bitrate > 0
+            ? Number((prof.bitrate / 1024).toFixed(1))
+            : (state === "on" ? 4.0 : 0);
 
       return {
         name: c.name || c.device_name || c.camera_name || h?.name || c.ip || "Camera",
@@ -447,19 +560,21 @@ export default function DashboardNewPage() {
   const nOn = fleet.filter((f) => f.state === "on").length;
   const nIssue = fleet.filter((f) => f.state === "issue").length;
   const nOff = fleet.filter((f) => f.state === "off").length;
+  const nDisabled = fleet.filter((f) => f.state === "disabled").length;
   const nTotal = fleet.length || num(summary.total_cameras);
-  
-  const recOf = realFleet.filter((f) => 
-    activeRecorders.includes(f.stream_key) || 
-    activeRecorders.includes(f.raw?.stream_key) || 
+
+  const recOf = realFleet.filter((f) =>
+    activeRecorders.includes(f.stream_key) ||
+    activeRecorders.includes(f.raw?.stream_key) ||
     activeRecorders.includes(f.ip) ||
     activeRecorders.includes(f.ip?.replace(/\./g, "_"))
   ).length;
 
-  const failedList = realFleet.filter((f) => 
-    f.raw?.enabled !== false && 
-    !activeRecorders.includes(f.stream_key) && 
-    !activeRecorders.includes(f.raw?.stream_key) && 
+  const failedList = realFleet.filter((f) =>
+    f.raw?.enabled !== false &&
+    f.state !== "disabled" &&
+    !activeRecorders.includes(f.stream_key) &&
+    !activeRecorders.includes(f.raw?.stream_key) &&
     !activeRecorders.includes(f.ip) &&
     !activeRecorders.includes(f.ip?.replace(/\./g, "_"))
   );
@@ -467,10 +582,10 @@ export default function DashboardNewPage() {
 
   const groups = useMemo(() => {
     const m = new Map();
-    fleet.forEach((f) => { 
-      if (sf && f.state !== sf) return; 
-      if (!m.has(f.group)) m.set(f.group, []); 
-      m.get(f.group).push(f); 
+    fleet.forEach((f) => {
+      if (sf && f.state !== sf) return;
+      if (!m.has(f.group)) m.set(f.group, []);
+      m.get(f.group).push(f);
     });
     return [...m.entries()];
   }, [fleet, sf]);
@@ -483,8 +598,11 @@ export default function DashboardNewPage() {
   /* ── real overview values ── */
   const cpu = num(summary.cpu);
   const ram = num(summary.ram);
-  const cpuHist = summary.history?.cpu?.length > 1 
-    ? summary.history.cpu 
+  const totalCores = num(summary.cpu_cores || serverMetrics?.cpu_cores) || (typeof navigator !== "undefined" ? navigator.hardwareConcurrency : 0) || 8;
+  const cpuUsedCores = Number(((cpu / 100) * totalCores).toFixed(1));
+  const cpuFreeCores = Number(Math.max(0, totalCores - cpuUsedCores).toFixed(1));
+  const cpuHist = summary.history?.cpu?.length > 1
+    ? summary.history.cpu
     : (summary.cpu_history?.length > 1 ? summary.cpu_history : [cpu, cpu]);
 
   const usedTB = (num(storageDiag?.used_gb) || (num(summary.disk) ? (num(summary.disk) / 100) * 1024 : 0)) / 1024;
@@ -540,10 +658,10 @@ export default function DashboardNewPage() {
     return c?.name || c?.device_name || ip;
   }, [cameras]);
 
-  const offEvents = useMemo(() => 
-    (infraAlerts || []).filter((a) => 
+  const offEvents = useMemo(() =>
+    (infraAlerts || []).filter((a) =>
       a.event === "device_offline" && (!a.type || String(a.type).toLowerCase() === "camera")
-    ), 
+    ),
     [infraAlerts]
   );
 
@@ -601,9 +719,9 @@ export default function DashboardNewPage() {
   const sm = serverMetrics || {};
 
   const camRows = useMemo(() => {
-    const order = { off: 0, issue: 1, on: 2 };
+    const order = { off: 0, issue: 1, disabled: 2, on: 3 };
     const q = camSearch.trim().toLowerCase();
-    return [...fleet].sort((a, b) => order[a.state] - order[b.state])
+    return [...fleet].sort((a, b) => (order[a.state] ?? 0) - (order[b.state] ?? 0))
       .filter((f) => (camFilter === "all" || f.state === camFilter) && (!q || `${f.name} ${f.ip} ${f.group}`.toLowerCase().includes(q)));
   }, [fleet, camFilter, camSearch]);
   const camPages = Math.max(1, Math.ceil(camRows.length / CAM_PAGE));
@@ -628,18 +746,18 @@ export default function DashboardNewPage() {
     const raw = cam.raw || {};
     try {
       if (raw.assigned_schedule_id && String(raw.assigned_schedule_id).toLowerCase() === "never") {
-        await fetch(`${API_BASE}/api/recordings/assign-schedule`, {
+        await fetch(apiUrl("/recordings/assign-schedule"), {
           method: "POST",
           headers,
           body: JSON.stringify({ camera_id: raw.id || raw.stream_key || ipRaw, schedule_id: "Always", motion_only: !!raw.motion_only })
-        }).catch(() => {});
+        }).catch(() => { });
       }
-      await fetch(`${API_BASE}/api/cameras/by-ip/${ip}/disable`, { method: "POST", headers });
+      await fetch(apiUrl(`/cameras/by-ip/${ip}/disable`), { method: "POST", headers });
       await new Promise((r) => setTimeout(r, 1500));
-      await fetch(`${API_BASE}/api/cameras/by-ip/${ip}/enable`, { method: "POST", headers });
+      await fetch(apiUrl(`/cameras/by-ip/${ip}/enable`), { method: "POST", headers });
       setRestartMsg(T("restartSent", { name: cam.name }));
-    } catch { 
-      setRestartMsg(T("restartFailed")); 
+    } catch {
+      setRestartMsg(T("restartFailed"));
     }
   };
 
@@ -648,7 +766,7 @@ export default function DashboardNewPage() {
     if (!alertId) return;
     setAlertActionLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/alerts/${encodeURIComponent(alertId)}/status`, {
+      const res = await fetch(apiUrl(`/alerts/${encodeURIComponent(alertId)}/status`), {
         method: "PUT",
         headers: {
           ...getAuthHeaders(),
@@ -678,103 +796,160 @@ export default function DashboardNewPage() {
   /* ───────────────────────── render: overview tab ───────────────────────── */
   const Overview = (
     <div className="dn-grid">
-      <Panel T={T} className="c8" title={T("cameraFleet")}
-        right={<div className="dn-legend">{[["on", "st.online", null], ["issue", "st.issue", <I16 key="i"><path d="M8 4v5" /><circle cx="8" cy="11.8" r=".4" /></I16>], ["off", "st.offline", <I16 key="o"><path d="M4.8 4.8l6.4 6.4M11.2 4.8l-6.4 6.4" /></I16>]].map(([k, lbl, ic]) => (
-          <button key={k} type="button" className={`dn-lg ${sf === k ? "act" : ""} ${sf && sf !== k ? "dim" : ""}`} aria-pressed={sf === k} onClick={() => { setSf(sf === k ? null : k); setGPage(1); }}><i className={`dn-sq ${k} sm`}>{ic}</i>{T(lbl)}<b>{k === "on" ? nOn : k === "issue" ? nIssue : nOff}</b></button>
-        ))}</div>}>
-        <div className="dn-fleet">
-          <div className="dn-ftop">
-            <div className="dn-m t1">
-              <div>
-                <div className="k">{T("camerasOnline")}</div>
-                <div className="v">{nOn} <u>{T("ofN", { n: nTotal })}</u></div>
-                <div className="dn-fl">
-                  <span><i style={{ background: "var(--dn-warn)" }} /><b>{nIssue}</b>{T("streamIssues")}</span>
-                  <span><i style={{ background: "var(--dn-crit)" }} /><b>{nOff}</b>{T("offline")}</span>
-                  <span><i style={{ background: "var(--dn-ok-fill)" }} /><b>{recOf}</b>{T("recordingLc")}</span>
-                </div>
-              </div>
-              <Stk parts={[{ v: nOn, c: "var(--dn-ok-fill)" }, { v: nIssue, c: "var(--dn-warn)" }, { v: nOff, c: "var(--dn-crit)" }]} />
-            </div>
-            <div className="dn-m t2">
-              <div>
-                <div className="k">{T("alarmsToday")}</div>
-                <div className="v">{alarms}</div>
-                <div className="n">{T("criticalN", { n: events.filter((e) => /intrusion|offline|error|tamper|alarm/i.test(e.event_type || e.type || e.scenario || "")).length })}</div>
-              </div>
-              <Spark values={hours.length > 1 ? hours : [0, 0]} w={300} h={40} />
-            </div>
-            <div className="dn-m t3">
-              <div>
-                <div className="k">{T("storageUsed")}</div>
-                <div className="v">{usedTB.toFixed(1)} <u>{T("ofTB", { n: totalTB.toFixed(1) })}</u></div>
-                <div className="dn-ret">
-                  <span>{T("estRetention")}</span>
-                  <b>{retentionDays != null ? `${retentionDays} ${T("days")}` : T("calculating")}</b>
-                </div>
-              </div>
-              <div className="dn-pb"><i style={{ width: `${Math.min(100, diskPct)}%` }} /></div>
-            </div>
+      <Panel T={T} className="c8 dn-overview-panel" title={T("cameraFleet")}
+        right={loaded ? <div className="dn-legend">{[
+          ["on", "st.online", null],
+          ["issue", "st.issue", <I16 key="i"><path d="M8 4v5" /><circle cx="8" cy="11.8" r=".4" /></I16>],
+          ["off", "st.offline", <I16 key="o"><path d="M4.8 4.8l6.4 6.4M11.2 4.8l-6.4 6.4" /></I16>],
+          ["disabled", "st.disabled", <I16 key="d"><circle cx="8" cy="8" r="4.5" strokeWidth="1.5" fill="none" /><line x1="5" y1="5" x2="11" y2="11" strokeWidth="1.5" /></I16>]
+        ].map(([k, lbl, ic]) => (
+          <button key={k} type="button" className={`dn-lg ${sf === k ? "act" : ""} ${sf && sf !== k ? "dim" : ""}`} aria-pressed={sf === k} onClick={() => { setSf(sf === k ? null : k); setGPage(1); }}><i className={`dn-sq ${k} sm`}>{ic}</i>{T(lbl)}<b><Num loaded={loaded}>{k === "on" ? nOn : k === "issue" ? nIssue : k === "off" ? nOff : nDisabled}</Num></b></button>
+        ))}</div> : null}>
+        {!loaded ? (
+          <div className="dn-panel-loader">
+            <Loader variant="area" size="md" />
           </div>
-          <div className="dn-mx">
-            {groups.length === 0 && (
-              <div className="dn-empty ok">
-                {cameras.length === 0 ? "No cameras configured yet." : "No cameras match current filter."}
-                {cameras.length === 0 && (
-                  <div style={{ marginTop: "12px" }}>
-                    <button type="button" className="dn-btn pri sm" onClick={() => navigate("/add-devices")}>
-                      Add Cameras
-                    </button>
+        ) : (
+          <div className="dn-fleet">
+            <div className="dn-ftop">
+              <div className="dn-m t1">
+                <div>
+                  <div className="k">{T("camerasOnline")}</div>
+                  <div className="v"><Num loaded={loaded}>{nOn}</Num> <u>{T("ofN", { n: loaded ? nTotal : "…" })}</u></div>
+                  <div className="dn-fl">
+                    <span><i style={{ background: "var(--dn-warn)" }} /><b><Num loaded={loaded}>{nIssue}</Num></b>{T("streamIssues")}</span>
+                    <span><i style={{ background: "var(--dn-crit)" }} /><b><Num loaded={loaded}>{nOff}</Num></b>{T("offline")}</span>
+                    <span><i style={{ background: "rgba(148,163,184,0.7)" }} /><b><Num loaded={loaded}>{nDisabled}</Num></b>{T("st.disabled")}</span>
+                    <span><i style={{ background: "var(--dn-ok-fill)" }} /><b><Num loaded={loaded}>{recOf}</Num></b>{T("recordingLc")}</span>
                   </div>
-                )}
+                </div>
+                <Stk parts={[
+                  { v: nOn, c: "var(--dn-ok-fill)" },
+                  { v: nIssue, c: "var(--dn-warn)" },
+                  { v: nOff, c: "var(--dn-crit)" },
+                  { v: nDisabled, c: "rgba(148,163,184,0.5)" }
+                ]} />
               </div>
-            )}
-            {pagedGroups.map(([g, list]) => {
-              const isOpen = !collapsed.has(g);
-              const cnt = (st) => list.filter((f) => f.state === st).length;
-              return (
-                <div key={g} className={`dn-grp ${isOpen ? "open" : ""}`}>
-                  <button type="button" className="dn-grp-h" aria-expanded={isOpen}
-                    onClick={() => setCollapsed((prev) => { const n = new Set(prev); n.has(g) ? n.delete(g) : n.add(g); return n; })}>
-                    <span className="dn-grp-t"><i className="dn-chev"><IcChev /></i><i className="dn-gdot" style={{ background: GROUP_COLORS[Math.max(0, groups.findIndex(([x]) => x === g)) % 5] }} />{g}</span>
-                    <em>{T("camerasN", { n: list.length })}</em>
-                  </button>
-                  {isOpen ? (
-                    <div className="dn-sqs">
-                      {list.map((f, i) => (
-                        <i key={i} className={`dn-sq ${f.state}`}
-                          onMouseEnter={(e) => { const r = e.currentTarget.getBoundingClientRect(); setTip({ x: r.left + r.width / 2, y: r.top, f }); }}
-                          onMouseLeave={() => setTip(null)}>
-                          {f.state === "issue" && <I16><path d="M8 4v5" /><circle cx="8" cy="11.8" r=".4" /></I16>}
-                          {f.state === "off" && <I16><path d="M4.8 4.8l6.4 6.4M11.2 4.8l-6.4 6.4" /></I16>}
-                        </i>
-                      ))}
-                    </div>
+              <div className="dn-m t2">
+                <div>
+                  <div className="k">{T("alarmsToday")}</div>
+                  <div className="v"><Num loaded={loaded}>{alarms}</Num></div>
+                  <div className="n">{loaded ? T("criticalN", { n: events.filter((e) => /intrusion|offline|error|tamper|alarm/i.test(e.event_type || e.type || e.scenario || "")).length }) : <Loader variant="inline" size="sm" />}</div>
+                </div>
+                <Spark values={hours.length > 1 ? hours : [0, 0]} w={300} h={40} />
+              </div>
+              <div className="dn-m t3">
+                <div>
+                  <div className="k">{T("storageUsed")}</div>
+                  <div className="v"><Num loaded={loaded}>{usedTB.toFixed(1)}</Num> <u>{T("ofTB", { n: totalTB.toFixed(1) })}</u></div>
+                  <div className="dn-ret">
+                    <span>{T("estRetention")}</span>
+                    <b><Num loaded={loaded}>{retentionDays != null ? `${retentionDays} ${T("days")}` : T("calculating")}</Num></b>
+                  </div>
+                </div>
+                <div className="dn-pb"><i style={{ width: `${Math.min(100, diskPct)}%` }} /></div>
+              </div>
+            </div>
+            <div className="dn-mx">
+              {groups.length === 0 && (
+                <div className="dn-empty ok">
+                  {!loaded ? (
+                    <Loader variant="inline" size="sm" text="Loading cameras..." />
                   ) : (
-                    <div className="dn-grp-sum"><span><i className="dn-sq on sm" />{cnt("on")}</span>{cnt("issue") > 0 && <span><i className="dn-sq issue sm" />{cnt("issue")}</span>}{cnt("off") > 0 && <span><i className="dn-sq off sm" />{cnt("off")}</span>}</div>
+                    <>
+                      {cameras.length === 0 ? "No cameras configured yet." : "No cameras match current filter."}
+                      {cameras.length === 0 && (
+                        <div style={{ marginTop: "12px" }}>
+                          <button type="button" className="dn-btn pri sm" onClick={() => navigate("/add-devices")}>
+                            Add Cameras
+                          </button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
-              );
-            })}
+              )}
+              {pagedGroups.map(([g, list]) => {
+                const isOpen = !collapsed.has(g);
+                const cnt = (st) => list.filter((f) => f.state === st).length;
+                return (
+                  <div key={g} className={`dn-grp ${isOpen ? "open" : ""}`}>
+                    <button type="button" className="dn-grp-h" aria-expanded={isOpen}
+                      onClick={() => setCollapsed((prev) => { const n = new Set(prev); n.has(g) ? n.delete(g) : n.add(g); return n; })}>
+                      <span className="dn-grp-t"><i className="dn-chev"><IcChev /></i><i className="dn-gdot" style={{ background: GROUP_COLORS[Math.max(0, groups.findIndex(([x]) => x === g)) % 5] }} />{g}</span>
+                      <em>{T("camerasN", { n: list.length })}</em>
+                    </button>
+                    {isOpen ? (
+                      <div className="dn-sqs">
+                        {list.map((f, i) => (
+                          <i key={i} className={`dn-sq ${f.state}`}
+                            onMouseEnter={(e) => { const r = e.currentTarget.getBoundingClientRect(); setTip({ x: r.left + r.width / 2, y: r.top, f }); }}
+                            onMouseLeave={() => setTip(null)}>
+                            {f.state === "issue" && <I16><path d="M8 4v5" /><circle cx="8" cy="11.8" r=".4" /></I16>}
+                            {f.state === "off" && <I16><path d="M4.8 4.8l6.4 6.4M11.2 4.8l-6.4 6.4" /></I16>}
+                            {f.state === "disabled" && <I16><circle cx="8" cy="8" r="4.5" strokeWidth="1.5" fill="none" /><line x1="5" y1="5" x2="11" y2="11" strokeWidth="1.5" /></I16>}
+                          </i>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="dn-grp-sum"><span><i className="dn-sq on sm" />{cnt("on")}</span>{cnt("issue") > 0 && <span><i className="dn-sq issue sm" />{cnt("issue")}</span>}{cnt("off") > 0 && <span><i className="dn-sq off sm" />{cnt("off")}</span>}{cnt("disabled") > 0 && <span><i className="dn-sq disabled sm" />{cnt("disabled")}</span>}</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {gPages > 1 && (
+              <nav className="dn-gpg" aria-label="Groups">
+                <button type="button" className="dn-gpb" disabled={gp <= 1} onClick={() => setGPage(gp - 1)} aria-label="Previous"><IcChev /></button>
+                {Array.from({ length: gPages }, (_, i) => <button type="button" key={i} className={`dn-gpd ${gp === i + 1 ? "on" : ""}`} onClick={() => setGPage(i + 1)} aria-label={`${i + 1}`} aria-current={gp === i + 1} />)}
+                <button type="button" className="dn-gpb nx" disabled={gp >= gPages} onClick={() => setGPage(gp + 1)} aria-label="Next"><IcChev /></button>
+              </nav>
+            )}
           </div>
-          {gPages > 1 && (
-            <nav className="dn-gpg" aria-label="Groups">
-              <button type="button" className="dn-gpb" disabled={gp <= 1} onClick={() => setGPage(gp - 1)} aria-label="Previous"><IcChev /></button>
-              {Array.from({ length: gPages }, (_, i) => <button type="button" key={i} className={`dn-gpd ${gp === i + 1 ? "on" : ""}`} onClick={() => setGPage(i + 1)} aria-label={`${i + 1}`} aria-current={gp === i + 1} />)}
-              <button type="button" className="dn-gpb nx" disabled={gp >= gPages} onClick={() => setGPage(gp + 1)} aria-label="Next"><IcChev /></button>
-            </nav>
-          )}
-        </div>
+        )}
       </Panel>
 
-      <Panel T={T} className="c4" title={T("systemHealth")} sub={null} right={<small className="dn-s2 inl">{T("thisServer")}</small>}>
-        <div className="dn-hrow"><div className="dn-hh"><span>CPU</span><span className="p">{Math.round(cpu)}%</span></div><AreaFlat values={cpuHist} /><div className={`dn-st ${cpu > 85 ? "crit" : cpu > 60 ? "warn" : "good"}`}>{cpu > 85 ? <IcCrit /> : cpu > 60 ? <IcWarn /> : <IcOk />}{cpu > 85 ? T("critical") : cpu > 60 ? T("highAbove", { n: 60 }) : T("normal")}</div></div>
-        <div className="dn-hrow"><div className="dn-hh"><span>{T("memory")}</span><span className="p">{Math.round(ram)}%</span></div><Meter pct={ram} marks={[60, 85]} /><div className={`dn-st ${ram > 85 ? "crit" : ram > 60 ? "warn" : "good"}`}>{ram > 60 ? <IcWarn /> : <IcOk />}{ram > 85 ? T("critical") : ram > 60 ? T("highAbove", { n: 60 }) : T("normal")}</div></div>
-        <div className="dn-hrow"><div className="dn-hh"><span>{T("disk")}</span><span className="p">{Math.round(diskPct)}%</span></div><Meter pct={diskPct} marks={[80, 90]} /><div className={`dn-st ${diskPct > 90 ? "crit" : diskPct > 80 ? "warn" : "good"}`}>{diskPct > 90 ? <IcCrit /> : diskPct > 80 ? <IcWarn /> : <IcOk />}{diskPct > 90 ? `${T("critical")}, ${freeTB.toFixed(1)} TB free` : diskPct > 80 ? `${T("highAbove", { n: 80 })}, ${freeTB.toFixed(1)} TB free` : T("normalFree", { n: freeTB.toFixed(1) })}</div></div>
+      <Panel T={T} className="c4 dn-overview-panel" title={T("systemHealth")} sub={null} >
+        {!loaded ? (
+          <div className="dn-panel-loader">
+            <Loader variant="area" size="md" />
+          </div>
+        ) : (
+          <>
+            <div className="dn-hrow">
+              <div className="dn-hh"><span>CPU</span><span className="p"><Num loaded={loaded}>{Math.round(cpu)}%</Num></span></div>
+              <AreaFlat values={cpuHist} />
+              <div className="dn-cpu-cores">
+                <div className="dn-core-pill">
+                  <span className="dn-core-k">{T("totalCores")}</span>
+                  <b className="dn-core-v"><Num loaded={loaded}>{totalCores}</Num></b>
+                </div>
+                <div className="dn-core-pill dn-used">
+                  <span className="dn-core-k">{T("used")}</span>
+                  <b className="dn-core-v"><Num loaded={loaded}>{cpuUsedCores}</Num></b>
+                </div>
+                <div className="dn-core-pill dn-free">
+                  <span className="dn-core-k">{T("free")}</span>
+                  <b className="dn-core-v"><Num loaded={loaded}>{cpuFreeCores}</Num></b>
+                </div>
+              </div>
+              <div className={`dn-st ${cpu > 85 ? "crit" : cpu > 60 ? "warn" : "good"}`}>
+                {cpu > 85 ? <IcCrit /> : cpu > 60 ? <IcWarn /> : <IcOk />}
+                {cpu > 85 ? T("critical") : cpu > 60 ? T("highAbove", { n: 60 }) : `${T("normal")}, ${T("coresFree", { n: cpuFreeCores })}`}
+              </div>
+            </div>
+            <div className="dn-hrow"><div className="dn-hh"><span>{T("memory")}</span><span className="p"><Num loaded={loaded}>{Math.round(ram)}%</Num></span></div><Meter pct={ram} marks={[60, 85]} /><div className={`dn-st ${ram > 85 ? "crit" : ram > 60 ? "warn" : "good"}`}>{ram > 60 ? <IcWarn /> : <IcOk />}{ram > 85 ? T("critical") : ram > 60 ? T("highAbove", { n: 60 }) : T("normal")}</div></div>
+            <div className="dn-hrow"><div className="dn-hh"><span>{T("disk")}</span><span className="p"><Num loaded={loaded}>{Math.round(diskPct)}%</Num></span></div><Meter pct={diskPct} marks={[80, 90]} /><div className={`dn-st ${diskPct > 90 ? "crit" : diskPct > 80 ? "warn" : "good"}`}>{diskPct > 90 ? <IcCrit /> : diskPct > 80 ? <IcWarn /> : <IcOk />}{diskPct > 90 ? `${T("critical")}, ${freeTB.toFixed(1)} TB free` : diskPct > 80 ? `${T("highAbove", { n: 80 })}, ${freeTB.toFixed(1)} TB free` : T("normalFree", { n: freeTB.toFixed(1) })}</div></div>
+          </>
+        )}
       </Panel>
 
-      <Panel T={T} className="c6" title={T("needsAttention")} sub={null} right={<small className="dn-s2 inl">{T("openN", { n: attentionN })}</small>}>
-        {attention.length === 0 ? <div className="dn-empty ok">{T("nothingAttention")}</div> : (
+      <Panel T={T} className="c6" title={T("needsAttention")} sub={null} right={<small className="dn-s2 inl">{loaded ? T("openN", { n: attentionN }) : <Loader variant="inline" size="sm" />}</small>}>
+        {attention.length === 0 ? (
+          <div className="dn-empty ok">
+            {!loaded ? <Loader variant="inline" size="sm" text="Loading alerts..." /> : T("nothingAttention")}
+          </div>
+        ) : (
           <ul className="dn-al">
             {attention.map((a, i) => (
               <li key={a.id || i} onClick={() => a.raw && setSelectedAlert(a)}>
@@ -792,7 +967,13 @@ export default function DashboardNewPage() {
       </Panel>
 
       <Panel T={T} className="c6" title={T("frequentOutages")} sub={null} right={<small className="dn-s2 inl">{T("offlineEventsRange", { n: range === "today" ? 7 : rangeDays })}</small>}>
-        {outages.length === 0 ? <div className="dn-empty ok">{T("noOutages")}</div> : <HBars rows={outages.map((o) => [o.name, o.count])} />}
+        {outages.length === 0 ? (
+          <div className="dn-empty ok">
+            {!loaded ? <Loader variant="inline" size="sm" text="Loading outage history..." /> : T("noOutages")}
+          </div>
+        ) : (
+          <HBars rows={outages.map((o) => [o.name, o.count])} />
+        )}
       </Panel>
     </div>
   );
@@ -800,15 +981,15 @@ export default function DashboardNewPage() {
   /* ───────────────────────── render: health & storage tab ───────────────────────── */
   const availPct = nTotal ? (nOn / nTotal) * 100 : 100;
   const recPct = nTotal ? (recOf / nTotal) * 100 : 100;
-  const serverOk = String(hi.status || summary.status || "").toLowerCase() === "ok" || String(hi.status || summary.status || "").toLowerCase() === "healthy";
+  const serverOk = !backendDown && (String(hi.status || summary.status || "").toLowerCase() === "ok" || String(hi.status || summary.status || "").toLowerCase() === "healthy");
   const storagePts = Math.min(100, Math.max(0, (100 - diskPct) * 2));
-  const healthScore = Math.round(0.35 * availPct + 0.3 * recPct + 0.2 * storagePts + 0.15 * (serverOk ? 100 : 40));
+  const healthScore = (!serverOk || backendDown) ? 0 : Math.round(0.35 * availPct + 0.3 * recPct + 0.2 * storagePts + 0.15 * 100);
   const scoreColor = healthScore >= 85 ? "var(--dn-ok)" : healthScore >= 60 ? "var(--dn-warn)" : "var(--dn-crit-t)";
   const areasN = [nOff + nIssue > 0, failedN > 0, diskPct > 80, !serverOk].filter(Boolean).length;
-  const camSt = nOn === 0 && nTotal > 0 ? "bad" : nOff + nIssue > 0 ? "warn" : "ok";
-  const strSt = nIssue > 0 ? "warn" : "ok";
-  const recSt = recOf === 0 && nTotal > 0 ? "bad" : failedN > 0 ? "warn" : "ok";
-  const stoSt = diskPct > 90 ? "bad" : diskPct > 80 ? "warn" : "ok";
+  const camSt = (nOn === 0 && nTotal > 0) || backendDown ? "bad" : nOff + nIssue > 0 ? "warn" : "ok";
+  const strSt = nIssue > 0 || backendDown ? "warn" : "ok";
+  const recSt = (recOf === 0 && nTotal > 0) || backendDown ? "bad" : failedN > 0 ? "warn" : "ok";
+  const stoSt = diskPct > 90 || backendDown ? "bad" : diskPct > 80 ? "warn" : "ok";
   const failedNames = failedList.map((c) => c.name);
   const restartAll = async () => { for (const c of failedList) await restartCamera(c); };
 
@@ -831,26 +1012,39 @@ export default function DashboardNewPage() {
   const Health = (
     <div className="dn-grid">
       <section className="dn-panel dn-hero c12">
-        <div className="dn-score">
-          <Ring pct={healthScore} color={scoreColor}><b>{healthScore}</b></Ring>
-          <div>
-            <h2>{T("overallHealth")}</h2>
-            <small className="dn-s2">{T("overallSub")}</small>
-            <div className={`dn-areas ${areasN ? "warn" : "ok"}`}>{areasN ? <><IcWarn />{T("areasNeed", { n: areasN })}</> : <><IcOk />{T("allHealthy")}</>}</div>
-          </div>
-        </div>
-        <div className="dn-pipe">
-          <div className={`dn-node ${camSt}`}><div className="t"><span>{T("pipeCameras")}</span><i className="dn-sdot" /></div><div className="v">{nOn} <u>{T("ofOnline", { n: nTotal })}</u></div><div className="n">{T("offIssues", { off: nOff, iss: nIssue })}</div></div>
-          <div className={`dn-node ${strSt}`}><div className="t"><span>{T("pipeStreams")}</span><i className="dn-sdot" /></div><div className="v">{bd.current_bitrate} <u>Mbps</u></div><div className="n">{T("peakAvg", { p: bd.peak_bitrate, a: bd.avg_bitrate })}</div></div>
-          <div className={`dn-node ${recSt}`}><div className="t"><span>{T("pipeRecorder")}</span><i className="dn-sdot" /></div><div className="v">{recOf} <u>{T("ofRecording", { n: nTotal })}</u></div><div className="n">{recOf > 0 ? T("running") : T("stopped")}</div></div>
-          <div className={`dn-node ${stoSt}`}><div className="t"><span>{T("pipeStorage")}</span><i className="dn-sdot" /></div><div className="v">{Math.round(diskPct)}% <u>{T("usedLc")}</u></div><div className="n">{retentionDays != null ? T("retentionLeft", { n: retentionDays }) : T("calculating")}</div></div>
-        </div>
-        <div className="dn-srv">
-          <span>{T("serverUptime")}<b>{sm.uptime ?? "—"}</b></span>
-          <span>{T("appVersion")}<b>v{hi.version ?? "1.0.0"}</b></span>
-          <span>{T("backendStatus")}<b className={serverOk ? "good" : "bad"}>{serverOk ? T("healthy") : String(hi.status || summary.status)}</b></span>
-          <span className="sp"><Pill kind={serverOk ? "good" : "warn"} icon={<IcOk />}>API</Pill>{hi.watchdog && <Pill kind="good" icon={<IcOk />}>{T("watchdog")}: {hi.watchdog}</Pill>}<Pill kind="good" icon={<IcOk />}>{T("database")}</Pill><Pill kind="good" icon={<IcOk />}>{T("streamer")}</Pill></span>
-        </div>
+        {!loaded ? (
+          <>
+            <div className="dn-health-loading-title"><h2>{T("overallHealth")}</h2></div>
+            <div className="dn-panel-loader dn-health-panel-loader">
+              <Loader variant="area" size="md" />
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="dn-score">
+              <Ring pct={loaded ? healthScore : 0} color={scoreColor}><b><Num loaded={loaded}>{healthScore}</Num></b></Ring>
+              <div>
+                <h2>{T("overallHealth")}</h2>
+                <small className="dn-s2">{backendDown ? "Backend is offline" : T("overallSub")}</small>
+                <div className={`dn-areas ${areasN || backendDown ? "warn" : "ok"}`}>
+                  {loaded ? (backendDown ? <><IcCrit />Backend is offline</> : areasN ? <><IcWarn />{T("areasNeed", { n: areasN })}</> : <><IcOk />{T("allHealthy")}</>) : <Loader variant="inline" size="sm" />}
+                </div>
+              </div>
+            </div>
+            <div className="dn-pipe">
+              <div className={`dn-node ${camSt}`}><div className="t"><span>{T("pipeCameras")}</span><i className="dn-sdot" /></div><div className="v"><Num loaded={loaded}>{nOn}</Num> <u>{T("ofOnline", { n: loaded ? nTotal : "…" })}</u></div><div className="n">{loaded ? T("offIssues", { off: nOff, iss: nIssue }) : "—"}</div></div>
+              <div className={`dn-node ${strSt}`}><div className="t"><span>{T("pipeStreams")}</span><i className="dn-sdot" /></div><div className="v"><Num loaded={loaded}>{bd.current_bitrate}</Num> <u>Mbps</u></div><div className="n">{loaded ? T("peakAvg", { p: bd.peak_bitrate, a: bd.avg_bitrate }) : "—"}</div></div>
+              <div className={`dn-node ${recSt}`}><div className="t"><span>{T("pipeRecorder")}</span><i className="dn-sdot" /></div><div className="v"><Num loaded={loaded}>{recOf}</Num> <u>{T("ofRecording", { n: loaded ? nTotal : "…" })}</u></div><div className="n">{loaded ? (recOf > 0 ? T("running") : T("stopped")) : "—"}</div></div>
+              <div className={`dn-node ${stoSt}`}><div className="t"><span>{T("pipeStorage")}</span><i className="dn-sdot" /></div><div className="v"><Num loaded={loaded}>{Math.round(diskPct)}%</Num> <u>{T("usedLc")}</u></div><div className="n">{loaded ? (retentionDays != null ? T("retentionLeft", { n: retentionDays }) : T("calculating")) : "—"}</div></div>
+            </div>
+            <div className="dn-srv">
+              <span>{T("serverUptime")}<b><Num loaded={loaded}>{backendDown ? "—" : (sm.uptime ?? "—")}</Num></b></span>
+              <span>{T("appVersion")}<b>v{hi.version ?? "1.0.0"}</b></span>
+              <span>{T("backendStatus")}<b className={serverOk ? "good" : "bad"}><Num loaded={loaded}>{serverOk ? T("healthy") : "Offline"}</Num></b></span>
+              {hi.watchdog && <span className="sp"><Pill kind="good" icon={<IcOk />}>{T("watchdog")}: {hi.watchdog}</Pill></span>}
+            </div>
+          </>
+        )}
       </section>
 
       {failedN > 0 && (
@@ -873,78 +1067,102 @@ export default function DashboardNewPage() {
         </div>
       )}
 
-      <Panel T={T} className="c8" title={T("storageGrowth")} sub={T("storageGrowthSub")}>
-        <div className="dn-stat3 colr"><div>{T("avgPerDay")}<b>{storageDiag?.avg_daily_consumption != null ? storageDiag.avg_daily_consumption : "—"}<u>GB</u></b></div><div>{T("addedInPeriod")}<b>{addedTB.toFixed(1)}<u>TB</u></b></div><div className="w">{T("predictedFull")}<b>{fullDate ? fmtDWithYear(fullDate) : "—"}</b></div></div>
-        <TrendChart points={trendPoints} w={760} h={250} reserve={fullDate ? 0.48 : 0} yTicks={[0, 5, 10, 15, 20].map((v) => Math.round((totalTB * v) / 20))} yFmt={(v) => `${v} TB`}
-          extra={({ x, y, right, left }) => {
-            const n = trendPoints.length, last = n ? trendPoints[n - 1] : null;
-            return (<>
-              <line x1={left} x2={right} y1={y(totalTB)} y2={y(totalTB)} className="dn-capline" />
-              <text x={left + 6} y={y(totalTB) + 16} className="dn-axis dn-warn-t">{T("capacityN", { n: totalTB.toFixed(1) })}</text>
-              {last && <circle cx={x(n - 1)} cy={y(last.v)} r="4" className="dn-fill dn-halo" />}
-              {last && <text x={x(n - 1) - 10} y={y(last.v) - 10} textAnchor="end" className="dn-peak">{T("tbToday", { n: last.v.toFixed(1) })}</text>}
-              {last && fullDate && <><line x1={x(n - 1)} y1={y(last.v)} x2={right} y2={y(totalTB)} className="dn-stroke dn-proj" />
-                <circle cx={right} cy={y(totalTB)} r="4" className="dn-hollow" />
-                <text x={right + 2} y={y(totalTB) + 44} textAnchor="end" className="dn-peak">{T("fullOn", { d: fmtDWithYear(fullDate) })}</text></>}
-              {n > 0 && <text x={left} y={242} className="dn-axis">{fmtD(trendPoints[0].ts)}</text>}
-              {last && <text x={x(n - 1)} y={242} textAnchor="middle" className="dn-axis">{T("today")}</text>}
-              {fullDate && <text x={right} y={242} textAnchor="end" className="dn-axis">{fmtDWithYear(fullDate)}</text>}
-            </>);
-          }} />
+      <Panel T={T} className="c8" title={T("storageGrowth")}>
+        {!diagnosticsLoaded ? (
+          <div className="dn-panel-loader"><Loader variant="area" size="md" /></div>
+        ) : (
+          <>
+            <div className="dn-stat3 colr"><div>{T("avgPerDay")}<b><Num loaded={loaded}>{storageDiag?.avg_daily_consumption}</Num><u>GB</u></b></div><div>{T("addedInPeriod")}<b><Num loaded={loaded}>{addedTB.toFixed(1)}</Num><u>TB</u></b></div><div className="w">{T("predictedFull")}<b><Num loaded={loaded}>{fullDate ? fmtDWithYear(fullDate) : "—"}</Num></b></div></div>
+            <TrendChart points={trendPoints} w={760} h={250} reserve={fullDate ? 0.48 : 0} yTicks={[0, 5, 10, 15, 20].map((v) => Math.round((totalTB * v) / 20))} yFmt={(v) => `${v} TB`}
+              extra={({ x, y, right, left }) => {
+                const n = trendPoints.length, last = n ? trendPoints[n - 1] : null;
+                return (<>
+                  <line x1={left} x2={right} y1={y(totalTB)} y2={y(totalTB)} className="dn-capline" />
+                  <text x={left + 6} y={y(totalTB) + 16} className="dn-axis dn-warn-t">{T("capacityN", { n: totalTB.toFixed(1) })}</text>
+                  {last && <circle cx={x(n - 1)} cy={y(last.v)} r="4" className="dn-fill dn-halo" />}
+                  {last && <text x={x(n - 1) - 10} y={y(last.v) - 10} textAnchor="end" className="dn-peak">{T("tbToday", { n: last.v.toFixed(1) })}</text>}
+                  {last && fullDate && <><line x1={x(n - 1)} y1={y(last.v)} x2={right} y2={y(totalTB)} className="dn-stroke dn-proj" />
+                    <circle cx={right} cy={y(totalTB)} r="4" className="dn-hollow" />
+                    <text x={right + 2} y={y(totalTB) + 44} textAnchor="end" className="dn-peak">{T("fullOn", { d: fmtDWithYear(fullDate) })}</text></>}
+                  {n > 0 && <text x={left} y={242} className="dn-axis">{fmtD(trendPoints[0].ts)}</text>}
+                  {last && <text x={x(n - 1)} y={242} textAnchor="middle" className="dn-axis">{T("today")}</text>}
+                  {fullDate && <text x={right} y={242} textAnchor="end" className="dn-axis">{fmtDWithYear(fullDate)}</text>}
+                </>);
+              }} />
+          </>
+        )}
       </Panel>
 
       <Panel T={T} className="c4" title={T("spaceGoes")} sub={T("spaceGoesSub", { n: usedTB.toFixed(1) })}>
         <div className="dn-share">{groupShare.map((g, i) => <i key={i} style={{ width: `${g.pct}%`, background: g.c }} title={g.g} />)}</div>
-        <ul className="dn-lg2">{groupShare.map((g, i) => <li key={i}><span style={{ background: g.c }} />{g.g}<b>{g.tb.toFixed(1)} TB</b></li>)}</ul>
+        <ul className="dn-lg2">{groupShare.map((g, i) => <li key={i}><span style={{ background: g.c }} />{g.g}<b><Num loaded={loaded}>{g.tb.toFixed(1)} TB</Num></b></li>)}</ul>
         <div className="dn-ret2">
-          <Ring pct={Math.min(100, ((retentionDays || 0) / 60) * 100)} size={92} sw={13} color="var(--dn-c2)"><b>{retentionDays != null ? retentionDays : "—"}</b></Ring>
+          <Ring pct={loaded ? Math.min(100, ((retentionDays || 0) / 60) * 100) : 0} size={92} sw={13} color="var(--dn-c2)"><b><Num loaded={loaded}>{retentionDays}</Num></b></Ring>
           <div><h3>{T("daysRetention")}</h3><small className="dn-s2">{T("retentionNote", { total: totalTB.toFixed(1), free: freeTB.toFixed(1) })}</small></div>
         </div>
         {storageDiag?.warning_status && <div className="dn-note crit">{T("storageWarn")}</div>}
       </Panel>
 
-      <Panel T={T} className="c6" title={T("bitrateTrend")} sub={T("totalStreamBw")}
-        right={<Seg small options={[["1h", "1 h"], ["24h", "24 h"], ["7d", "7 d"]]} value={bitrateFilter} onChange={setBitrateFilter} />}>
-        <div className="dn-stat3 colr"><div>{T("current")}<b>{bd.current_bitrate}<u>Mbps</u></b></div><div>{T("average")}<b>{bd.avg_bitrate}<u>Mbps</u></b></div><div>{T("peak")}<b>{bd.peak_bitrate}<u>Mbps</u></b></div></div>
-        <TrendChart points={bd.trend_data.map((p) => ({ v: num(p.bitrate_mbps), ts: p.timestamp }))} unitLabel="Mbps"
-          yTicks={(() => { const m = Math.max(50, Math.ceil(Math.max(...bd.trend_data.map((p) => num(p.bitrate_mbps)), 1) / 50) * 50); return [0, m / 4, m / 2, (m * 3) / 4, m]; })()}
-          xLabels={[[0, (bd.trend_data[0] ? new Date(bd.trend_data[0].timestamp).toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit" }) : "")], [1, T("now")]]} />
+      <Panel T={T} className="c6" title={T("bitrateTrend")}
+        right={diagnosticsLoaded ? <Seg small options={[["1h", "1 h"], ["24h", "24 h"], ["7d", "7 d"]]} value={bitrateFilter} onChange={setBitrateFilter} /> : null}>
+        {!diagnosticsLoaded ? (
+          <div className="dn-panel-loader"><Loader variant="area" size="md" /></div>
+        ) : (
+          <>
+            <div className="dn-stat3 colr"><div>{T("current")}<b><Num loaded={loaded}>{bd.current_bitrate}</Num><u>Mbps</u></b></div><div>{T("average")}<b><Num loaded={loaded}>{bd.avg_bitrate}</Num><u>Mbps</u></b></div><div>{T("peak")}<b><Num loaded={loaded}>{bd.peak_bitrate}</Num><u>Mbps</u></b></div></div>
+            <TrendChart points={bd.trend_data.map((p) => ({ v: num(p.bitrate_mbps), ts: p.timestamp }))} unitLabel="Mbps"
+              yTicks={(() => { const m = Math.max(50, Math.ceil(Math.max(...bd.trend_data.map((p) => num(p.bitrate_mbps)), 1) / 50) * 50); return [0, m / 4, m / 2, (m * 3) / 4, m]; })()}
+              xLabels={[[0, (bd.trend_data[0] ? formatBitrateTs(bd.trend_data[0].timestamp) : "")], [1, T("now")]]} />
+          </>
+        )}
       </Panel>
-      <Panel T={T} className="c6" title={T("bandwidthConsumers")} sub={T("topByBitrate")} right={<small className="dn-s2 inl">{T("shareOf", { n: bwd.total_bandwidth })}</small>}>
-        <div className="dn-share tall">{bwTop.map((c, i) => <i key={i} style={{ width: `${(num(c.bitrate) / bwTotal) * 100}%`, background: GROUP_COLORS[i % 5] }} />)}{bwOther > 0 && <i style={{ width: `${(bwOther / bwTotal) * 100}%`, background: "var(--dn-line2)" }} />}</div>
-        <ul className="dn-hb dn-click colr">
-          {bwTop.map((c, i) => {
-            const nm = cameras.find((x) => x.ip === c.ip || x.ip_address === c.ip || (c.id && (x.id === c.id || x._id === c.id)))?.name || c.name;
-            const mx = Math.max(...bwTop.map((x) => num(x.bitrate)), 1);
-            return (<li key={i} onClick={() => navigate("/cameras")}><div className="dn-row"><span><i className="dn-cdot" style={{ background: GROUP_COLORS[i % 5] }} />{nm}<small>{c.ip}</small></span><b>{c.bitrate} Mbps</b></div><div className="dn-track"><i style={{ width: `${(num(c.bitrate) / mx) * 100}%`, background: GROUP_COLORS[i % 5] }} /></div></li>);
-          })}
-        </ul>
+      <Panel T={T} className="c6" title={T("bandwidthConsumers")} right={diagnosticsLoaded ? <small className="dn-s2 inl">{T("shareOf", { n: bwd.total_bandwidth })}</small> : null}>
+        {!diagnosticsLoaded ? (
+          <div className="dn-panel-loader"><Loader variant="area" size="md" /></div>
+        ) : (
+          <>
+            <div className="dn-share tall">{bwTop.map((c, i) => <i key={i} style={{ width: `${(num(c.bitrate) / bwTotal) * 100}%`, background: GROUP_COLORS[i % 5] }} />)}{bwOther > 0 && <i style={{ width: `${(bwOther / bwTotal) * 100}%`, background: "var(--dn-line2)" }} />}</div>
+            <ul className="dn-hb dn-click colr">
+              {bwTop.map((c, i) => {
+                const nm = cameras.find((x) => x.ip === c.ip || x.ip_address === c.ip || (c.id && (x.id === c.id || x._id === c.id)))?.name || c.name;
+                const mx = Math.max(...bwTop.map((x) => num(x.bitrate)), 1);
+                return (<li key={i} onClick={() => navigate("/cameras")}><div className="dn-row"><span><i className="dn-cdot" style={{ background: GROUP_COLORS[i % 5] }} />{nm}<small>{c.ip}</small></span><b>{c.bitrate} Mbps</b></div><div className="dn-track"><i style={{ width: `${(num(c.bitrate) / mx) * 100}%`, background: GROUP_COLORS[i % 5] }} /></div></li>);
+              })}
+            </ul>
+          </>
+        )}
       </Panel>
 
-      <Panel T={T} className="c12" title={T("cameraHealthMon")} sub={T("problemsFirst")}
-        right={<div className="dn-cp"><div className="dn-chips">
-          {[["all", T("allN", { n: nTotal })], ["on", T("nOnline", { n: nOn })], ["issue", T("nIssues", { n: nIssue })], ["off", T("nOffline", { n: nOff })]].map(([k, l]) => <button type="button" key={k} className={`dn-chip st-${k} ${camFilter === k ? "on" : ""}`} onClick={() => { setCamFilter(camFilter === k || k === "all" ? "all" : k); setCamPage(1); }}>{l}</button>)}
-        </div><label className="dn-srch"><IcSearch /><input value={camSearch} onChange={(e) => setCamSearch(e.target.value)} placeholder={T("searchCameras")} /></label></div>}>
-        <div className="dn-scroll">
-          <table className="dn-tbl">
-            <thead><tr><th>{T("camera")}</th><th>{T("group")}</th><th>{T("status")}</th><th>{T("stream")}</th><th>{T("bitrate")}</th><th>{T("uptime30")}</th><th className="r">{T("lastSeen")}</th></tr></thead>
-            <tbody>
-              {camRows.length === 0 && <tr><td colSpan={7} className="dn-empty">{T("noCameras")}</td></tr>}
-              {camRows.slice((camPage - 1) * CAM_PAGE, camPage * CAM_PAGE).map((f, i) => (
-                <tr key={f.ip + i}>
-                  <td><b>{f.name}</b><small>{f.ip}</small></td><td><span className="dn-gtag"><i style={{ background: GROUP_COLORS[Math.max(0, groups.findIndex(([g]) => g === f.group)) % 5] }} />{f.group}</span></td>
-                  <td><Pill kind={f.state === "on" ? "good" : f.state === "issue" ? "warn" : "crit"} icon={f.state === "on" ? <IcOk /> : f.state === "issue" ? <IcWarn /> : <IcCrit />}>{f.state === "on" ? T("st.online") : f.state === "off" ? T("st.offline") : T("reason." + f.reason)}</Pill></td>
-                  <td>{f.state === "off" ? T("noSignal") : f.stream || "—"}</td>
-                  <td>{f.bitrate > 0 ? `${Number(f.bitrate).toFixed(1)} Mbps` : T("none")}</td>
-                  <td>{f.uptime != null ? <span className="dn-up"><span className="dn-track thin"><i className={f.uptime >= 99 ? "g" : f.uptime >= 97 ? "y" : "r"} style={{ width: `${Math.min(100, Number(f.uptime))}%` }} /></span><b>{Number(f.uptime).toFixed(1)}%</b></span> : "—"}</td>
-                  <td className="r muted">{ago(f.lastSeen)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="dn-foot"><span>{T("showingN", { n: Math.min(CAM_PAGE, camRows.length), total: camRows.length })}</span>
-          <span className="dn-pager"><button type="button" className="dn-btn sm" disabled={camPage <= 1} onClick={() => setCamPage(camPage - 1)}>‹</button>{T("pageOf", { n: camPage, total: camPages })}<button type="button" className="dn-btn sm" disabled={camPage >= camPages} onClick={() => setCamPage(camPage + 1)}>›</button></span></div>
+      <Panel T={T} className="c12" title={T("cameraHealthMon")}
+        right={loaded ? <div className="dn-cp"><div className="dn-chips">
+          {[["all", T("allN", { n: nTotal })], ["on", T("nOnline", { n: nOn })], ["issue", T("nIssues", { n: nIssue })], ["off", T("nOffline", { n: nOff })], ["disabled", `${T("st.disabled") || "Disabled"} (${nDisabled})`]].map(([k, l]) => <button type="button" key={k} className={`dn-chip st-${k} ${camFilter === k ? "on" : ""}`} onClick={() => { setCamFilter(camFilter === k || k === "all" ? "all" : k); setCamPage(1); }}>{l}</button>)}
+        </div><label className="dn-srch"><IcSearch /><input value={camSearch} onChange={(e) => setCamSearch(e.target.value)} placeholder={T("searchCameras")} /></label></div> : null}>
+        {!loaded ? (
+          <div className="dn-panel-loader"><Loader variant="area" size="md" /></div>
+        ) : (
+          <>
+            <div className="dn-scroll">
+              <table className="dn-tbl">
+                <thead><tr><th>{T("camera")}</th><th>{T("group")}</th><th>{T("status")}</th><th>{T("stream")}</th><th>{T("bitrate")}</th><th>{T("uptime30")}</th><th className="r">{T("lastSeen")}</th></tr></thead>
+                <tbody>
+                  {camRows.length === 0 && <tr><td colSpan={7} className="dn-empty">{!loaded ? <Loader variant="inline" size="sm" text="Loading cameras..." /> : T("noCameras")}</td></tr>}
+                  {camRows.slice((camPage - 1) * CAM_PAGE, camPage * CAM_PAGE).map((f, i) => (
+                    <tr key={f.ip + i}>
+                      <td><b>{f.name}</b><small>{f.ip}</small></td><td><span className="dn-gtag"><i style={{ background: GROUP_COLORS[Math.max(0, groups.findIndex(([g]) => g === f.group)) % 5] }} />{f.group}</span></td>
+                      <td><Pill kind={f.state === "on" ? "good" : f.state === "issue" ? "warn" : f.state === "disabled" ? "disabled" : "crit"} icon={f.state === "on" ? <IcOk /> : f.state === "issue" ? <IcWarn /> : f.state === "disabled" ? <I16><circle cx="8" cy="8" r="4.5" strokeWidth="1.5" fill="none" /><line x1="5" y1="5" x2="11" y2="11" strokeWidth="1.5" /></I16> : <IcCrit />}>{f.state === "on" ? T("st.online") : f.state === "disabled" ? (T("st.disabled") || "Disabled") : f.state === "off" ? T("st.offline") : T("reason." + f.reason)}</Pill></td>
+                      <td>{f.state === "disabled" ? (T("st.disabled") || "Disabled") : f.state === "off" ? T("noSignal") : f.stream || "—"}</td>
+                      <td>{f.bitrate > 0 ? `${Number(f.bitrate).toFixed(1)} Mbps` : T("none")}</td>
+                      <td>{f.uptime != null ? <span className="dn-up"><span className="dn-track thin"><i className={f.uptime >= 99 ? "g" : f.uptime >= 97 ? "y" : "r"} style={{ width: `${Math.min(100, Number(f.uptime))}%` }} /></span><b>{Number(f.uptime).toFixed(1)}%</b></span> : "—"}</td>
+                      <td className="r muted">{ago(f.lastSeen)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="dn-foot"><span>{T("showingN", { n: Math.min(CAM_PAGE, camRows.length), total: camRows.length })}</span>
+              <span className="dn-pager"><button type="button" className="dn-btn sm" disabled={camPage <= 1} onClick={() => setCamPage(camPage - 1)}>‹</button>{T("pageOf", { n: camPage, total: camPages })}<button type="button" className="dn-btn sm" disabled={camPage >= camPages} onClick={() => setCamPage(camPage + 1)}>›</button></span></div>
+          </>
+        )}
       </Panel>
     </div>
   );
@@ -958,7 +1176,7 @@ export default function DashboardNewPage() {
         <div className="dn-ctl">
           <span>{T("updated", { time: now.toLocaleTimeString(loc) })}</span>
           {!isConnected && <em className="dn-offline">{T("wsOffline")}</em>}
-          <button type="button" className="dn-btn" onClick={() => setTick((x) => x + 1)}><IcRefresh />{T("refresh")}</button>
+          <button type="button" className="dn-btn" onClick={() => { setLoaded(false); setTick((x) => x + 1); }}><IcRefresh />{T("refresh")}</button>
         </div>
       </div>
       <nav className="dn-tabs" role="tablist">
@@ -968,14 +1186,13 @@ export default function DashboardNewPage() {
           </button>
         ))}
       </nav>
-      {!loaded && tab === "overview" && <div className="dn-loadbar" />}
       {tab === "overview" ? Overview : Health}
-      
+
       {tip && tab === "overview" && (
         <div className="dn-tip" role="tooltip" style={{ left: tip.x, top: tip.y }}>
           <b>{tip.f.name}</b>
           {tip.f.ip && <span>{tip.f.ip}</span>}
-          <em className={tip.f.state}>{tip.f.state === "on" ? T("st.online") : tip.f.state === "off" ? T("st.offline") : T("reason." + tip.f.reason)}</em>
+          <em className={tip.f.state}>{tip.f.state === "on" ? T("st.online") : tip.f.state === "off" ? T("st.offline") : tip.f.state === "disabled" ? (T("st.disabled") || "Disabled") : T("reason." + tip.f.reason)}</em>
         </div>
       )}
 
@@ -992,11 +1209,11 @@ export default function DashboardNewPage() {
               {selectedAlert.raw?.ip && <div className="dn-kv"><span>IP Address</span><b>{selectedAlert.raw.ip}</b></div>}
               {selectedAlert.raw?.received_at && <div className="dn-kv"><span>Trigger Time</span><b>{fmtDT(selectedAlert.raw.received_at)}</b></div>}
               {selectedAlert.raw?.status && <div className="dn-kv"><span>Status</span><b>{selectedAlert.raw.status}</b></div>}
-              
+
               {selectedAlert.raw?.ip && (
                 <div className="dn-modal-thumb">
                   <img
-                    src={`${API_BASE}/api/alerts/thumbnail?ip=${encodeURIComponent(selectedAlert.raw.ip)}&time=${encodeURIComponent(selectedAlert.raw.time || selectedAlert.raw.received_at || '')}`}
+                    src={apiUrl(`/alerts/thumbnail?ip=${encodeURIComponent(selectedAlert.raw.ip)}&time=${encodeURIComponent(selectedAlert.raw.time || selectedAlert.raw.received_at || '')}`)}
                     alt="Alert snapshot"
                     onError={(e) => {
                       e.target.style.display = "none";

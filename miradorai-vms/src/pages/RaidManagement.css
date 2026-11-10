@@ -1,4 +1,16 @@
 /* ── Page Shell ──────────────────────────────────── */
+.rm-page-shell {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  padding: 0 16px 60px 16px !important;
+  height: 100% !important;
+  max-height: 100% !important;
+}
+
 .rm-page-wrap {
   width: 100%;
   display: flex;
@@ -373,4 +385,521 @@
   font-size: 15px;
   padding: 40px 0;
   text-align: center;
+}
+
+/* ── Hardware Telemetry Header Banner ────────────── */
+.rm-hardware-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 16px 22px;
+  background: var(--bg-surface, #161b26);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+}
+
+.rm-hw-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rm-hw-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.rm-hw-val {
+  font-size: 15px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.rm-hw-divider {
+  width: 1px;
+  height: 32px;
+  background: var(--border);
+}
+
+/* ── Drive Bays Section ───────────────────────────── */
+.rm-bays-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+.rm-section-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.rm-section-subtitle {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.rm-bays-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 18px;
+  width: 100%;
+}
+
+/* ── Individual Drive Bay (Server Caddy Tray) ─────── */
+.rm-bay-card {
+  background: linear-gradient(180deg, rgba(22, 27, 38, 0.95) 0%, rgba(17, 20, 28, 0.95) 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+}
+
+.rm-bay-card:hover {
+  border-color: var(--teal, #00d2b4);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.rm-bay-card--locating {
+  border-color: #00d2b4 !important;
+  box-shadow: 0 0 16px rgba(0, 210, 180, 0.4) !important;
+  animation: rm-locate-pulse 1.2s infinite alternate;
+}
+
+@keyframes rm-locate-pulse {
+  from { box-shadow: 0 0 8px rgba(0, 210, 180, 0.3); border-color: rgba(0, 210, 180, 0.6); }
+  to { box-shadow: 0 0 22px rgba(0, 210, 180, 0.8); border-color: #00d2b4; }
+}
+
+.rm-bay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.rm-bay-slot-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.rm-bay-icon {
+  font-size: 14px;
+}
+
+.rm-bay-leds {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rm-led {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.rm-led--online {
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+}
+
+.rm-led--error {
+  background: #ef4444;
+  box-shadow: 0 0 8px #ef4444;
+}
+
+.rm-led--locating {
+  background: #00d2b4;
+  box-shadow: 0 0 10px #00d2b4;
+  animation: rm-blink 0.6s infinite alternate;
+}
+
+@keyframes rm-blink {
+  from { opacity: 0.2; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1.1); }
+}
+
+.rm-bay-model {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rm-bay-capacity {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--teal, #00d2b4);
+  font-family: var(--font-mono, monospace);
+}
+
+.rm-bay-specs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.rm-bay-spec-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.rm-bay-spec-row strong {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.rm-bay-actions {
+  margin-top: auto;
+  padding-top: 10px;
+}
+
+/* ── Partitions Table ─────────────────────────────── */
+.rm-partitions-table {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+}
+
+.rm-partitions-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  text-align: left;
+}
+
+.rm-partitions-table th {
+  background: var(--bg-surface, #1e293b);
+  color: var(--text-secondary);
+  font-weight: 600;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.rm-partitions-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+  vertical-align: middle;
+}
+
+.rm-partitions-table tr:last-child td {
+  border-bottom: none;
+}
+
+.rm-partitions-table tr:hover td {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.02));
+}
+
+/* ── RAID Virtual Disks & Configured Arrays Section ─────────────────────── */
+.rm-vds-section {
+  display: flex !important;
+  flex-direction: column !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  margin-top: 24px !important;
+  padding: 24px !important;
+  background: var(--bg-surface, #161b26) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-md, 8px) !important;
+  align-items: stretch !important;
+}
+
+.rm-vds-header {
+  display: flex !important;
+  flex-direction: row !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  width: 100% !important;
+  margin-bottom: 18px !important;
+  flex-wrap: wrap !important;
+  gap: 12px !important;
+}
+
+.rm-vds-table-wrap {
+  width: 100% !important;
+  overflow-x: auto !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-sm, 6px) !important;
+  background: var(--bg-base, #0d1117) !important;
+}
+
+.rm-vds-table-wrap table {
+  width: 100% !important;
+  border-collapse: collapse !important;
+  font-size: 13px !important;
+  text-align: left !important;
+}
+
+.rm-vds-table-wrap th {
+  background: var(--bg-surface, #1e293b) !important;
+  color: var(--text-secondary) !important;
+  font-weight: 600 !important;
+  padding: 12px 16px !important;
+  border-bottom: 1px solid var(--border) !important;
+  white-space: nowrap !important;
+  font-size: 12px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+}
+
+.rm-vds-table-wrap td {
+  padding: 14px 16px !important;
+  border-bottom: 1px solid var(--border) !important;
+  color: var(--text-primary) !important;
+  vertical-align: middle !important;
+}
+
+.rm-vds-table-wrap tr:last-child td {
+  border-bottom: none !important;
+}
+
+.rm-vds-table-wrap tr:hover td {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.03)) !important;
+}
+
+
+
+/* ── UI-Based Confirm & Alert Popup Modals ───────────────────────────────── */
+.rm-confirm-overlay,
+.mgmt-modal-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  background: rgba(0, 0, 0, 0.72) !important;
+  backdrop-filter: blur(5px) !important;
+  z-index: 9999 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  animation: rmFadeIn 0.16s ease !important;
+  padding: 16px !important;
+  box-sizing: border-box !important;
+}
+
+@keyframes rmFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes rmScaleIn {
+  from { opacity: 0; transform: scale(0.95) translateY(6px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.rm-confirm-dialog,
+.mgmt-modal {
+  background: var(--bg-surface, #161b26) !important;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12)) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.65), 0 0 1px rgba(255, 255, 255, 0.2) !important;
+  width: 100% !important;
+  max-width: 490px !important;
+  overflow: hidden !important;
+  animation: rmScaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  box-sizing: border-box !important;
+}
+
+.rm-confirm-dialog__header,
+.mgmt-modal__header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 18px 22px !important;
+  border-bottom: 1px solid var(--border) !important;
+  background: var(--bg-elevated, #1a2233) !important;
+}
+
+.rm-confirm-title,
+.mgmt-modal__title {
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  color: var(--text-primary, #ffffff) !important;
+  letter-spacing: 0.01em !important;
+}
+
+.rm-confirm-icon {
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: 8px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+}
+
+.rm-confirm-icon--primary {
+  background: rgba(0, 210, 180, 0.12) !important;
+  color: var(--teal, #00d2b4) !important;
+  border: 1px solid rgba(0, 210, 180, 0.3) !important;
+}
+
+.rm-confirm-icon--danger {
+  background: rgba(239, 68, 68, 0.12) !important;
+  color: var(--red, #ef4444) !important;
+  border: 1px solid rgba(239, 68, 68, 0.3) !important;
+}
+
+.rm-confirm-close,
+.mgmt-detail__close {
+  background: transparent !important;
+  border: none !important;
+  font-size: 20px !important;
+  color: var(--text-secondary, #94a3b8) !important;
+  cursor: pointer !important;
+  padding: 4px 8px !important;
+  border-radius: 6px !important;
+  line-height: 1 !important;
+  transition: all 0.15s ease !important;
+}
+
+.rm-confirm-close:hover,
+.mgmt-detail__close:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.08)) !important;
+  color: var(--text-primary, #ffffff) !important;
+}
+
+.rm-confirm-dialog__body,
+.mgmt-modal__body {
+  padding: 22px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 14px !important;
+  box-sizing: border-box !important;
+}
+
+.rm-confirm-msg {
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  color: var(--text-primary, #ffffff) !important;
+  line-height: 1.55 !important;
+  margin: 0 !important;
+}
+
+.rm-confirm-submsg {
+  font-size: 12.5px !important;
+  color: var(--text-secondary, #94a3b8) !important;
+  line-height: 1.6 !important;
+  margin: 0 !important;
+  padding: 12px 14px !important;
+  background: var(--bg-elevated, #0d1117) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+}
+
+.rm-confirm-dialog__footer,
+.mgmt-form__actions {
+  display: flex !important;
+  justify-content: flex-end !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 16px 22px !important;
+  border-top: 1px solid var(--border) !important;
+  background: var(--bg-base, #0d1117) !important;
+}
+
+.sm-btn--danger {
+  color: #ffffff !important;
+  background: rgba(239, 68, 68, 0.85) !important;
+  border: 1px solid #ef4444 !important;
+  box-shadow: 0 2px 10px rgba(239, 68, 68, 0.3) !important;
+}
+
+.sm-btn--danger:hover:not(:disabled) {
+  background: #dc2626 !important;
+  border-color: #b91c1c !important;
+}
+
+.mgmt-form {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 14px !important;
+}
+
+.mgmt-form__row {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+}
+
+.mgmt-form__row label {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: var(--text-secondary) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+}
+
+.mgmt-input {
+  width: 100% !important;
+  padding: 9px 12px !important;
+  background: var(--bg-base, #0d1117) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 6px !important;
+  color: var(--text-primary, #ffffff) !important;
+  font-size: 13px !important;
+  font-family: var(--font-ui) !important;
+  outline: none !important;
+  box-sizing: border-box !important;
+}
+
+.mgmt-input:focus {
+  border-color: var(--teal, #00d2b4) !important;
+}
+
+
+/* ── iSCSI & SAN LUN Management Styles ───────────────────────────────────── */
+.rm-iscsi-target-item {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 14px 18px !important;
+  background: var(--bg-surface, #161b26) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  transition: all 0.15s ease !important;
+}
+
+.rm-iscsi-target-item:hover {
+  border-color: rgba(var(--brand-rgb), 0.35) !important;
+  background: var(--bg-hover, rgba(255, 255, 255, 0.02)) !important;
+}
+
+.rm-iscsi-iqn {
+  font-family: var(--font-mono) !important;
+  font-size: 11.5px !important;
+  color: var(--teal, #00d2b4) !important;
+  word-break: break-all !important;
 }

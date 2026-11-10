@@ -97,6 +97,9 @@ const ICONS = {
 
   // Recording Schedules
   schedules: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/><path d="M7 14h3M14 14h3M7 17h3"/></svg>`,
+
+  // Reports
+  reports: svg(`<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" ${SOFT}/><path d="M14 2v6h6M8 17v-3M12 17v-6M16 17v-4"/>`),
 };
 
 
@@ -139,6 +142,13 @@ const CORE_NAV = [
     section: "Map View",
     page: "map-view",
     icon: ICONS.mapView,
+  },
+
+  // Reports
+  {
+    section: "Reports",
+    page: "reports",
+    icon: ICONS.reports,
   },
 ];
 
@@ -215,6 +225,12 @@ const CLIENT_NAV = [
     section: "Playback",
     page: "media-player",
     icon: ICONS.playback
+  },
+
+  {
+    section: "Reports",
+    page: "reports",
+    icon: ICONS.reports,
   },
 ];
 
@@ -392,6 +408,7 @@ export const PAGE_TITLES = {
   "dashboard-new": "Dashboard (New)",
 
   "live-view": "Live View",
+  reports: "Reports",
   analytics: "Video Analytics",
   "add-devices": "Device Management-",
   cameras: "Cameras",
@@ -409,6 +426,7 @@ export const PAGE_TITLES = {
 
   // Admin pages
   "media-player": "Playback",
+  "multi-playback": "Recordings",
   backup: "Backup",
   logs: "System Logs",
   infrastructure: "Infrastructure",

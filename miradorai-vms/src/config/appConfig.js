@@ -28,6 +28,20 @@ export const synopsisBase = () =>
 export const synopsisUrl = (path = "") =>
   synopsisBase() + (env().SYNOPSIS_PREFIX ?? "/a1/v1/synopsis") + path;
 
+// Rewrites absolute/localhost media URLs from the backend so they go through the same-origin proxy
+export const resolveSynopsisMediaUrl = (raw) => {
+  if (!raw) return raw;
+  try {
+    const u = new URL(raw, window.location.origin);
+    const isLocal = ["127.0.0.1", "localhost", "0.0.0.0"].includes(u.hostname);
+    if (isLocal || /^\/a1\/v1\/synopsis/.test(u.pathname)) {
+      const tail = u.pathname.replace(/^.*?\/a1\/v1\/synopsis/, "");
+      return synopsisUrl(tail) + u.search;
+    }
+  } catch {}
+  return raw;
+};
+
 // ── MediaMTX WHEP
 const whepPrefix = () => env().WHEP_PREFIX ?? "/whep";
 

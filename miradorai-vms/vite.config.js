@@ -13,6 +13,7 @@ export default defineConfig(({ mode }) => {
   const BACKEND_WS   = `ws://${API_HOST}:${API_PORT}`;
   const EXTERNAL_AI  = `http://${env.EXTERNAL_AI_HOST || "localhost"}:${env.EXTERNAL_AI_PORT || "8080"}`;
   const MEDIAMTX     = `http://${env.MEDIAMTX_HOST || "localhost"}:${env.MEDIAMTX_PORT || "8889"}`;
+  const SYNOPSIS     = `http://${env.SYNOPSIS_HOST || API_HOST}:${env.SYNOPSIS_PORT || "8005"}`;
 
   return {
     plugins: [
@@ -34,6 +35,12 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/external-ai-api/, "/api"),
           secure: false,
+        },
+        "/synopsis-api": {
+          target: SYNOPSIS,
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => path.replace(/^\/synopsis-api/, ""),
         },
         "/whep": {
           target: MEDIAMTX,

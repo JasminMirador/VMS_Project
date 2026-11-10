@@ -59,7 +59,7 @@ import ForensicSearchPage from "../../pages/forensic/ForensicSearchPage";
 import AiAnalyticsPage from "../../pages/analytics/AiAnalyticsPage";
 import SystemPerformancePage from "../../pages/diagnostics/SystemPerformancePage"
 import RaidMgmtPage from "../../pages/StorageManagement";
-import PerformanceTestPage from "../../pages/diagnostics/PerformanceTestPage";
+// import PerformanceTestPage from "../../pages/diagnostics/PerformanceTestPage";
 
 import VideoSynopsis from "../../pages/analytics/VideoSynopsisPage";
 import FaceDetectionPage from "../../pages/analytics/FaceDetectionPage";
@@ -154,7 +154,7 @@ const MAP = {
   "topology-map": TopologyPage,
   "designer-view": DesignerView,
   "network-health": NetworkHealthPage,
-  "performance-test": PerformanceTestPage,
+  // "performance-test": PerformanceTestPage,
   "system-performance": SystemPerformancePage,
   // "performance-test-lab": PerformanceTestPage,
   // "performance-lab": PerformanceTestPage,  

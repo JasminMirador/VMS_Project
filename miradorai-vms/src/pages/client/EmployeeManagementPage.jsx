@@ -1,6 +1,18 @@
 import React, { useState, useEffect, useRef } from "react";
 import "./EmployeeManagementPage.css";
 
+const DEPARTMENTS = [
+  "Backend",
+  "Frontend",
+  "Software Testing",
+  "Admin",
+  "IT",
+  "Internship",
+  "AIML",
+  "Devops",
+  "Software Engineer",
+];
+
 export default function EmployeeManagementPage() {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -19,7 +31,7 @@ export default function EmployeeManagementPage() {
   const [formData, setFormData] = useState({
     name: "",
     email: "",
-    department: "General",
+    department: DEPARTMENTS[0],
     status: "authorised",
   });
 
@@ -83,7 +95,7 @@ export default function EmployeeManagementPage() {
     setFormData({
       name: "",
       email: "",
-      department: "General",
+      department: DEPARTMENTS[0],
       status: "authorised",
     });
     setPhotos([]);
@@ -96,7 +108,7 @@ export default function EmployeeManagementPage() {
     setFormData({
       name: emp.name || "",
       email: emp.email || "",
-      department: emp.department || "General",
+      department: emp.department || DEPARTMENTS[0],
       status: (emp.status || "authorised").toLowerCase(),
     });
 
@@ -211,9 +223,6 @@ export default function EmployeeManagementPage() {
       files.forEach((f) => {
         form.append("photos", f);
       });
-      if (files.length > 0) {
-        form.append("photo", files[0]);
-      }
 
       const res = await fetchWithFallback("/employees", {
         method: "POST",
@@ -254,13 +263,16 @@ export default function EmployeeManagementPage() {
       form.append("department", formData.department.trim());
       form.append("status", formData.status);
 
+      // Preserve existing photos that haven't been removed by the user
+      const keptExistingUrls = photos
+        .filter((p) => p && p.isExisting && p.url)
+        .map((p) => p.url);
+      form.append("existing_photos", JSON.stringify(keptExistingUrls));
+
       const newFiles = photos.filter((p) => p && p.file).map((p) => p.file);
       newFiles.forEach((f) => {
         form.append("photos", f);
       });
-      if (newFiles.length > 0) {
-        form.append("photo", newFiles[0]);
-      }
 
       const res = await fetchWithFallback(`/employees/${selectedEmp.emp_id}`, {
         method: "PUT",
@@ -587,6 +599,7 @@ export default function EmployeeManagementPage() {
                   const primaryPhoto = emp.photo_url || (emp.photo_urls && emp.photo_urls[0]);
                   const photoSrc = getFullPhotoUrl(primaryPhoto);
                   const pCount = emp.photos_count || (emp.photo_urls ? emp.photo_urls.length : (emp.photo_url ? 1 : 0));
+                  const hasPhotos = Boolean(emp.has_face_embedding || pCount > 0 || primaryPhoto);
 
                   const initials = (emp.name || "?")
                     .split(" ")
@@ -652,10 +665,15 @@ export default function EmployeeManagementPage() {
                       </td>
 
                       <td>
-                        {emp.has_face_embedding ? (
-                          <span className="emp-bio-badge enrolled" title="Biometric face embeddings enrolled">
+                        {hasPhotos ? (
+                          <span
+                            className="emp-bio-badge enrolled"
+                            title="Biometric face photos enrolled"
+                            style={{ cursor: pCount > 0 ? "pointer" : "default" }}
+                            onClick={() => pCount > 0 && setPreviewGalleryEmp(emp)}
+                          >
                             <span className="material-icons-outlined" style={{ fontSize: "1rem" }}>check_circle</span>
-                            Enrolled ({pCount})
+                            Enrolled ({pCount || 1})
                           </span>
                         ) : (
                           <span className="emp-bio-badge none" title="Upload photos to enable face recognition">
@@ -753,14 +771,14 @@ export default function EmployeeManagementPage() {
                     value={formData.department}
                     onChange={(e) => setFormData({ ...formData, department: e.target.value })}
                   >
-                    <option value="General">General</option>
-                    <option value="Security">Security</option>
-                    <option value="IT & Infrastructure">IT & Infrastructure</option>
-                    <option value="Engineering">Engineering</option>
-                    <option value="Operations">Operations</option>
-                    <option value="Management">Management</option>
-                    <option value="Human Resources">Human Resources</option>
-                    <option value="Finance">Finance</option>
+                    {!DEPARTMENTS.includes(formData.department) && formData.department && (
+                      <option value={formData.department}>{formData.department}</option>
+                    )}
+                    {DEPARTMENTS.map((dept) => (
+                      <option key={dept} value={dept}>
+                        {dept}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -882,14 +900,14 @@ export default function EmployeeManagementPage() {
                     value={formData.department}
                     onChange={(e) => setFormData({ ...formData, department: e.target.value })}
                   >
-                    <option value="General">General</option>
-                    <option value="Security">Security</option>
-                    <option value="IT & Infrastructure">IT & Infrastructure</option>
-                    <option value="Engineering">Engineering</option>
-                    <option value="Operations">Operations</option>
-                    <option value="Management">Management</option>
-                    <option value="Human Resources">Human Resources</option>
-                    <option value="Finance">Finance</option>
+                    {!DEPARTMENTS.includes(formData.department) && formData.department && (
+                      <option value={formData.department}>{formData.department}</option>
+                    )}
+                    {DEPARTMENTS.map((dept) => (
+                      <option key={dept} value={dept}>
+                        {dept}
+                      </option>
+                    ))}
                   </select>
                 </div>
 

@@ -78,12 +78,144 @@
   border: 1px solid #e9d5ff;
 }
 
+.multi-pb-badge-group {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+
 /* Toolbar Right Actions */
 .multi-pb-toolbar__right {
   display: flex;
   align-items: center;
   gap: 10px;
   position: relative;
+}
+
+/* ── Group Selector Dropdown (like LiveViewPage) ── */
+.multi-pb-group-container {
+  position: relative;
+  display: inline-block;
+}
+
+.multi-pb-group-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary, #0f172a);
+  background: var(--bg-surface, #ffffff);
+  border: 1px solid var(--border-light, #cbd5e1);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.multi-pb-group-btn:hover,
+.multi-pb-group-btn.active {
+  background: var(--bg-hover, #f1f5f9);
+  border-color: #0e7490;
+}
+
+.multi-pb-group-label-prefix {
+  color: var(--text-secondary, #64748b);
+  font-size: 11.5px;
+}
+
+.multi-pb-group-name {
+  font-weight: 700;
+  color: #0e7490;
+}
+
+.multi-pb-chevron {
+  transition: transform 0.2s ease;
+  color: var(--text-secondary, #64748b);
+}
+
+.multi-pb-chevron.open {
+  transform: rotate(180deg);
+}
+
+.multi-pb-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--bg-surface, #ffffff);
+  border: 1px solid var(--border-light, #e2e8f0);
+  border-radius: 8px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  padding: 4px;
+  min-width: 170px;
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.multi-pb-dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-primary, #1e293b);
+  border-radius: 4px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.12s ease;
+  text-align: left;
+  width: 100%;
+}
+
+.multi-pb-dropdown-item:hover {
+  background: var(--bg-hover, #f1f5f9);
+  color: #0e7490;
+}
+
+.multi-pb-dropdown-item.selected {
+  background: rgba(14, 116, 144, 0.1);
+  color: #0e7490;
+  font-weight: 700;
+}
+
+.multi-pb-item-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.multi-pb-item-count {
+  font-size: 11.5px;
+  color: var(--text-muted, #94a3b8);
+  font-weight: 600;
+  margin-left: 8px;
+}
+
+/* ── Group Select in Filter Drawer ── */
+.multi-pb-group-select {
+  height: 40px;
+  border: 1px solid var(--border-light, #cbd5e1);
+  border-radius: 6px;
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary, #0f172a);
+  background: var(--bg-surface, #ffffff);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.multi-pb-group-select:focus {
+  border-color: #0e7490;
 }
 
 .multi-pb-mode-btn {
@@ -194,6 +326,8 @@
   padding: 16px;
   gap: 12px;
   background: var(--bg-base);
+  min-height: 0;
+  min-width: 0;
 }
 
 .multi-pb-grid {
@@ -202,7 +336,20 @@
   gap: 10px;
   width: 100%;
   height: 100%;
+  min-height: 0;
+  min-width: 0;
   overflow: auto;
+}
+
+.multi-pb-empty-state {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary, #64748b);
+  font-size: 14px;
+  font-weight: 500;
+  height: 100%;
 }
 
 /* ── Single Camera Tile ──────────────────────────────────────────────────── */
@@ -216,7 +363,10 @@
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  min-height: 160px;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
   transition: border-color 0.15s ease;
 }
@@ -262,6 +412,8 @@
 .multi-pb-video {
   width: 100%;
   height: 100%;
+  max-width: 100%;
+  max-height: 100%;
   object-fit: contain;
   background: #000000;
 }
@@ -272,16 +424,20 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 8px;
   color: #64748b;
   text-align: center;
-  padding: 20px;
+  padding: 10px;
   user-select: none;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  box-sizing: border-box;
 }
 
 .multi-pb-play-circle {
-  width: 52px;
-  height: 52px;
+  width: clamp(32px, 5vw, 48px);
+  height: clamp(32px, 5vw, 48px);
   border-radius: 50%;
   border: 2px solid #334155;
   display: flex;
@@ -289,6 +445,7 @@
   justify-content: center;
   color: #475569;
   transition: all 0.2s ease;
+  flex-shrink: 0;
 }
 
 .multi-pb-tile:hover .multi-pb-play-circle {
@@ -297,11 +454,78 @@
 }
 
 .multi-pb-no-recording-text {
-  font-size: 11px;
+  font-size: clamp(9px, 1.2vw, 11px);
   font-weight: 600;
   letter-spacing: 0.08em;
   color: #475569;
   text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Empty Slot Cell (like LiveViewPage) ─────────────────────────────────── */
+.multi-pb-tile--empty {
+  background: var(--bg-surface, #ffffff);
+  border: 1px dashed var(--border-light, #cbd5e1);
+  box-shadow: none;
+}
+
+[data-theme="dark"] .multi-pb-tile--empty {
+  background: rgba(15, 23, 42, 0.4);
+  border-color: #1e293b;
+}
+
+.multi-pb-empty-cell {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-muted, #94a3b8);
+  font-size: 13px;
+  user-select: none;
+}
+
+/* ── Pagination Bar (like LiveViewPage) ──────────────────────────────────── */
+.multi-pb-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 4px 0;
+  flex-shrink: 0;
+}
+
+.multi-pb-page-btn {
+  background: var(--bg-elevated, #f1f5f9);
+  border: 1px solid var(--border-light, #cbd5e1);
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary, #334155);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.multi-pb-page-btn:hover:not(:disabled) {
+  background: #0e7490;
+  color: #ffffff;
+  border-color: #0e7490;
+}
+
+.multi-pb-page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.multi-pb-page-info {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #64748b);
 }
 
 /* ── Unified Floating Playback Controls Bar ──────────────────────────────── */

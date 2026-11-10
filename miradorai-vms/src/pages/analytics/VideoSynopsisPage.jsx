@@ -3,6 +3,9 @@ import Hls from "hls.js";
 import "./VideoSynopsisPage.css";
 import { useCameras } from "../../context/CamerasContext";
 import DateTimePicker from "../../components/shared/DateTimePicker";
+import { synopsisBase, resolveSynopsisMediaUrl } from "../../config/appConfig";
+
+const SYNOPSIS_API = synopsisBase();
 
 
 const VideoThumbnail = ({ src }) => {
@@ -343,8 +346,8 @@ export default function VideoSynopsisPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createTitle, setCreateTitle] = useState('');
   const [createDescription, setCreateDescription] = useState('');
-  const [createIncidentDate, setCreateIncidentDate] = useState('');
-  const [createIncidentTime, setCreateIncidentTime] = useState('');
+  const [createIncidentDate, setCreateIncidentDate] = useState(() => new Date().toLocaleDateString('en-CA'));
+  const [createIncidentTime, setCreateIncidentTime] = useState(() => new Date().toTimeString().slice(0, 5));
   const [showAddVideoModal, setShowAddVideoModal] = useState(false);
   const [shareModalGroup, setShareModalGroup] = useState(null);
   const [addVideoStep, setAddVideoStep] = useState(1); // 1=Time Range, 2=Camera Selection
@@ -356,7 +359,72 @@ export default function VideoSynopsisPage() {
   const [addVideoToTime, setAddVideoToTime] = useState('');
   const [addVideoCameraSearch, setAddVideoCameraSearch] = useState('');
   const [addVideoSelectedCams, setAddVideoSelectedCams] = useState([]);
+
+  useEffect(() => {
+    if (showCreateModal) {
+      const now = new Date();
+      if (!createIncidentDate) setCreateIncidentDate(now.toLocaleDateString('en-CA'));
+      if (!createIncidentTime) setCreateIncidentTime(now.toTimeString().slice(0, 5));
+    }
+  }, [showCreateModal]);
   
+  // Active player controls state & helpers
+  const [playerIsPlaying, setPlayerIsPlaying] = useState(true);
+  const [playerPlaybackSpeed, setPlayerPlaybackSpeed] = useState(1);
+  const [playerIsMuted, setPlayerIsMuted] = useState(true);
+
+  const togglePlayPause = () => {
+    if (videoRef.current) {
+      if (videoRef.current.paused) {
+        videoRef.current.play().then(() => setPlayerIsPlaying(true)).catch(() => {});
+      } else {
+        videoRef.current.pause();
+        setPlayerIsPlaying(false);
+      }
+    }
+  };
+
+  const skipBackward5s = () => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 5);
+    }
+  };
+
+  const skipForward5s = () => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = Math.min(videoRef.current.duration || 0, videoRef.current.currentTime + 5);
+    }
+  };
+
+  const cyclePlaybackSpeed = () => {
+    const speeds = [1, 1.5, 2, 0.5];
+    const next = speeds[(speeds.indexOf(playerPlaybackSpeed) + 1) % speeds.length];
+    setPlayerPlaybackSpeed(next);
+    if (videoRef.current) {
+      videoRef.current.playbackRate = next;
+    }
+  };
+
+  const togglePlayerMute = () => {
+    if (videoRef.current) {
+      videoRef.current.muted = !videoRef.current.muted;
+      setPlayerIsMuted(videoRef.current.muted);
+    }
+  };
+
+  const togglePlayerFullscreen = () => {
+    if (videoRef.current) {
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      } else {
+        const container = videoRef.current.parentElement || videoRef.current;
+        container.requestFullscreen?.().catch(() => {
+          videoRef.current.requestFullscreen?.().catch(() => {});
+        });
+      }
+    }
+  };
+
   // New state for BriefCam-style multicam view
   const [multicamGroup, setMulticamGroup] = useState([]);
   const [activeCamVideoId, setActiveCamVideoId] = useState(null);
@@ -386,16 +454,26 @@ export default function VideoSynopsisPage() {
     return map;
   }, [addVideoSelectedCams, cameras]);
 
-  // Opens the Add Video modal pre-filled for a given job/case, always
-  // starting on Step 1 and with a clean direction-filter (so a leftover
-  // arrow from a previous run never gets silently attached to this job).
+  const openCreateSynopsisModal = () => {
+    const now = new Date();
+    setCreateTitle('');
+    setCreateDescription('');
+    setCreateIncidentDate(now.toLocaleDateString('en-CA'));
+    setCreateIncidentTime(now.toTimeString().slice(0, 5));
+    setShowCreateModal(true);
+  };
+
   const openAddVideoModal = (job) => {
     const now = new Date();
     setAddVideoFromDate(now.toLocaleDateString('en-CA'));
     setAddVideoToDate(now.toLocaleDateString('en-CA'));
     setAddVideoFromTime('00:00');
     setAddVideoToTime(now.toTimeString().slice(0, 5));
-    setAddVideoSelectedCams(selectedCameras.length ? [...selectedCameras] : []);
+    // Pre-select existing camera if job already had one; otherwise start with empty selection
+    const initialCams = job?.camera_id 
+      ? (Array.isArray(job.camera_id) ? job.camera_id.map(String) : [String(job.camera_id)])
+      : [];
+    setAddVideoSelectedCams(initialCams);
     setAddVideoCameraSearch('');
     setAddVideoSourceTab('CAMERAS');
     setAddVideoStep(1);
@@ -435,7 +513,7 @@ export default function VideoSynopsisPage() {
           multicamGroup.map(async (job) => {
             if (!job.metadata_sidecar_url) return [];
             try {
-              const res = await fetch(`http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005${job.metadata_sidecar_url}`);
+              const res = await fetch(`${SYNOPSIS_API}${job.metadata_sidecar_url}`);
               const data = await res.json();
               const cId = Array.isArray(job.camera_id) ? job.camera_id[0] : job.camera_id;
               const camInfo = cameras?.find(c => (c.id || c._id) === cId);
@@ -498,7 +576,7 @@ export default function VideoSynopsisPage() {
 
   const fetchJobHistory = async () => {
     try {
-      const res = await fetch(`http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005/a1/v1/synopsis/jobs?_t=${Date.now()}`);
+      const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/jobs?_t=${Date.now()}`);
       const data = await res.json();
       setJobHistory(prev => {
         const prevStatusMap = new Map(prev.map(j => [j.job_id, j.status]));
@@ -581,7 +659,7 @@ export default function VideoSynopsisPage() {
   // the same request), pulls every job in that group and merges them so
   // the breakdown shows all cameras, not just this one.
   const fetchGroupedJobDetails = async (job) => {
-    const base = `http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005/a1/v1/synopsis`;
+    const base = `${SYNOPSIS_API}/a1/v1/synopsis`;
     if (job.group_id) {
       const res = await fetch(`${base}/jobs?group_id=${encodeURIComponent(job.group_id)}`);
       if (!res.ok) throw new Error("Failed to load job group");
@@ -597,7 +675,7 @@ export default function VideoSynopsisPage() {
     const job = activeJobs[activeViewIndex];
     if (!job) return;
     try {
-      const res = await fetch(`http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005/a1/v1/synopsis/jobs/${job.job_id}`, {
+      const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/jobs/${job.job_id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ job_name: editNameValue })
@@ -614,19 +692,35 @@ export default function VideoSynopsisPage() {
   };
 
   // Trigger Synopsis Job Creation
-  const handleGenerateSynopsis = async (jobName = '', extraMeta = {}) => {
+  const handleGenerateSynopsis = async (jobName = '', extraMeta = {}, overrideParams = null) => {
+    const targetCams = (overrideParams?.cameras && overrideParams.cameras.length > 0)
+      ? overrideParams.cameras
+      : selectedCameras;
+    const targetStart = overrideParams?.rangeStart || rangeStart;
+    const targetEnd = overrideParams?.rangeEnd || rangeEnd;
+
     const now = new Date();
-    if (new Date(rangeStart) > now || new Date(rangeEnd) > now) {
+    if (new Date(targetStart) > now || new Date(targetEnd) > now) {
       setToastMessage("Future date and time cannot be selected.");
       return;
     }
+    if (new Date(targetStart) >= new Date(targetEnd)) {
+      setToastMessage("Start time must be before end time.");
+      return;
+    }
+
+    // Keep state in sync
+    setSelectedCameras(targetCams);
+    setRangeStart(targetStart);
+    setRangeEnd(targetEnd);
 
     // Close the modal immediately
     setShowCreateModal(false);
     setCreateTitle('');
     setCreateDescription('');
-    setCreateIncidentDate('');
-    setCreateIncidentTime('');
+    const nowDt = new Date();
+    setCreateIncidentDate(nowDt.toLocaleDateString('en-CA'));
+    setCreateIncidentTime(nowDt.toTimeString().slice(0, 5));
 
     setLoading(true);
     setMetadataItems([]);
@@ -642,18 +736,18 @@ export default function VideoSynopsisPage() {
       status: 'queued',
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-      camera_id: selectedCameras[0] || null,
-      range_start: rangeStart,
-      range_end: rangeEnd,
+      camera_id: targetCams[0] || null,
+      range_start: targetStart,
+      range_end: targetEnd,
       _placeholder: true,
     };
     setJobHistory(prev => [placeholder, ...prev]);
 
     try {
       const payload = {
-        camera_id: selectedCameras,
-        range_start: rangeStart,
-        range_end: rangeEnd,
+        camera_id: targetCams,
+        range_start: targetStart,
+        range_end: targetEnd,
         ...(jobName ? { job_name: jobName } : {}),
         ...(extraMeta.description ? { description: extraMeta.description } : {}),
         ...(extraMeta.incidentTime ? { incident_time: extraMeta.incidentTime } : {})
@@ -669,7 +763,7 @@ export default function VideoSynopsisPage() {
         payload.direction_angle = Math.atan2(dy, dx) * (180 / Math.PI);
       }
 
-      const response = await fetch(`http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005/a1/v1/synopsis/jobs`, {
+      const response = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/jobs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -712,7 +806,7 @@ export default function VideoSynopsisPage() {
     pollIntervalRef.current = setInterval(async () => {
       try {
         const updatedJobs = await Promise.all(jobIds.map(async (id) => {
-          const res = await fetch(`http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005/a1/v1/synopsis/jobs/${id}`);
+          const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/jobs/${id}`);
           return await res.json();
         }));
 
@@ -739,7 +833,7 @@ export default function VideoSynopsisPage() {
   // Fetch Metadata Sidecar JSON for interactive click-to-jump overlays
   const fetchMetadataSidecar = async (metaUrl) => {
     try {
-      const fullUrl = `http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005${metaUrl}`;
+      const fullUrl = `${SYNOPSIS_API}${metaUrl}`;
       const res = await fetch(fullUrl);
       const data = await res.json();
       setMetadataItems(data.items || []);
@@ -815,6 +909,12 @@ export default function VideoSynopsisPage() {
         });
       } else {
         rawVideoRef.current.src = fullUrl;
+        try {
+          rawVideoRef.current.load();
+          rawVideoRef.current.play().catch(() => {});
+        } catch (e) {
+          console.error(e);
+        }
       }
     }
     return () => {
@@ -835,7 +935,7 @@ export default function VideoSynopsisPage() {
       const time = item.original_timestamp; // "YYYY-MM-DD HH:MM:SS"
       const formattedTime = time.replace(" ", "T");
       
-      const url = `http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005/a1/v1/synopsis/event-playback?camera_id=${encodeURIComponent(item.camera_id)}&timestamp=${encodeURIComponent(formattedTime)}`;
+      const url = `${SYNOPSIS_API}/a1/v1/synopsis/event-playback?camera_id=${encodeURIComponent(item.camera_id)}&timestamp=${encodeURIComponent(formattedTime)}`;
       // Assuming authorization headers if available in standard flow. If none, just fetch.
       let token = localStorage.getItem('token');
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -845,12 +945,49 @@ export default function VideoSynopsisPage() {
         throw new Error(`Failed to fetch raw video: ${res.statusText}`);
       }
       const data = await res.json();
-      setRawVideoUrl(data.clipUrl);
+      setRawVideoUrl(resolveSynopsisMediaUrl(data.clipUrl));
     } catch (err) {
       console.error(err);
       setRawVideoError(err.message || "Failed to load raw video clip.");
     } finally {
       setRawVideoLoading(false);
+    }
+  };
+
+  const [downloadingRawClip, setDownloadingRawClip] = useState(false);
+
+  const handleDownloadRawClip = async () => {
+    if (!rawVideoUrl || !rawModal.item) return;
+    try {
+      setDownloadingRawClip(true);
+      setToastMessage("Downloading raw clip...");
+      const fullUrl = rawVideoUrl.startsWith('http') 
+        ? rawVideoUrl 
+        : `${API}${rawVideoUrl.startsWith('/') ? '' : '/'}${rawVideoUrl}`;
+      const token = localStorage.getItem('token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+      const downloadUrl = fullUrl.includes('?') ? `${fullUrl}&download=true` : `${fullUrl}?download=true`;
+      const response = await fetch(downloadUrl, { headers });
+      if (!response.ok) throw new Error(`Server returned ${response.status}`);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      const cam = cameras?.find(c => (c.id || c._id) === rawModal.item.camera_id);
+      const camName = (cam?.name || rawModal.item.camera_id || "Camera").replace(/[^a-zA-Z0-9_-]/g, "_");
+      const cleanTs = (rawModal.item.original_timestamp || "").replace(/[^0-9]/g, "_");
+      a.download = `Raw_Clip_${camName}_${cleanTs}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+      setToastMessage("Raw clip downloaded successfully!");
+    } catch (err) {
+      console.error("Download error:", err);
+      setToastMessage("Download failed: " + err.message);
+    } finally {
+      setDownloadingRawClip(false);
     }
   };
 
@@ -966,69 +1103,106 @@ export default function VideoSynopsisPage() {
       <div className="synopsis-bg-blob blob-1"></div>
       <div className="synopsis-bg-blob blob-2"></div>
 
-      {toastMessage && (
-        <div style={{
-          position: 'fixed',
-          bottom: '24px',
-          zIndex: 99999999,
-          right: '24px',
-          backgroundColor: 'rgba(239, 68, 68, 0.95)',
-          backdropFilter: 'blur(10px)',
-          color: 'white',
-          padding: '12px 24px',
-          borderRadius: '8px',
-          boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
-          border: '1px solid rgba(255,100,100,0.3)',
-          zIndex: 99999,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-          animation: 'slideInRight 0.3s ease-out',
-          minWidth: '300px',
-          overflow: 'hidden'
-        }}>
-          <span className="material-icons-outlined" style={{ fontSize: '1.4rem' }}>error_outline</span>
-          <span style={{ fontWeight: 500, fontSize: '0.95rem', flex: 1, zIndex: 1 }}>{toastMessage}</span>
-          <button 
-            onClick={() => setToastMessage(null)} 
-            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', display: 'flex', padding: 0, zIndex: 1 }}
-            title="Close"
-          >
-            <span className="material-icons-outlined" style={{ fontSize: '1.2rem' }}>close</span>
-          </button>
-          
+      {toastMessage && (() => {
+        const isError = /fail|error|invalid|cannot|ensure/i.test(toastMessage);
+        const isDelete = /delete/i.test(toastMessage);
+        
+        const iconName = isError ? 'error_outline' : isDelete ? 'delete_outline' : 'check_circle';
+        const accentColor = isError ? '#ef4444' : 'var(--teal)';
+        const accentBg = isError ? 'rgba(239, 68, 68, 0.12)' : 'var(--teal-subtle)';
+        const borderColor = isError ? 'rgba(239, 68, 68, 0.3)' : 'var(--border)';
+
+        return (
           <div style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            height: '4px',
-            backgroundColor: 'rgba(255, 255, 255, 0.5)',
-            animation: 'toastProgress 5s linear forwards'
-          }}></div>
-        </div>
-      )}
+            position: 'fixed',
+            bottom: '24px',
+            right: '24px',
+            zIndex: 99999999,
+            backgroundColor: 'var(--bg-surface)',
+            backdropFilter: 'blur(12px)',
+            color: 'var(--text-primary)',
+            padding: '12px 18px',
+            borderRadius: 'var(--radius-md, 8px)',
+            boxShadow: '0 12px 32px rgba(0, 0, 0, 0.28)',
+            border: `1px solid ${borderColor}`,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            animation: 'slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+            minWidth: '290px',
+            maxWidth: '440px',
+            overflow: 'hidden'
+          }}>
+            <div style={{
+              width: '32px',
+              height: '32px',
+              borderRadius: '50%',
+              backgroundColor: accentBg,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              color: accentColor
+            }}>
+              <span className="material-icons-outlined" style={{ fontSize: '1.2rem' }}>{iconName}</span>
+            </div>
+
+            <span style={{ fontWeight: 500, fontSize: '0.88rem', flex: 1, zIndex: 1, color: 'var(--text-primary)', lineHeight: 1.4 }}>
+              {toastMessage}
+            </span>
+
+            <button 
+              onClick={() => setToastMessage(null)} 
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '4px',
+                borderRadius: '4px',
+                zIndex: 1
+              }}
+              title="Close"
+            >
+              <span className="material-icons-outlined" style={{ fontSize: '1.15rem' }}>close</span>
+            </button>
+            
+            <div style={{
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              height: '3px',
+              backgroundColor: accentColor,
+              opacity: 0.75,
+              animation: 'toastProgress 5s linear forwards'
+            }}></div>
+          </div>
+        );
+      })()}
 
       <div className="synopsis-content-wrapper">
         {viewMode === 'cases' && (
           <div style={{ padding: '0px', flex: 1, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
             {/* Top Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', padding: '16px 20px', background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)' }}>
-              <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '0.05em' }}>SUMMARIES</h2>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', color: 'var(--text-muted)', fontSize: '0.9rem', gap: '16px' }}>
-                  <span className="material-icons-outlined" style={{ cursor: 'pointer', fontSize: '1.2rem' }}>search</span>
-                  <span>Sort by : <span style={{ color: 'var(--text-primary)', cursor: 'pointer' }}>Last Created</span> | <span style={{ cursor: 'pointer' }}>Last Modified</span></span>
+              <header className="synopsis-header" style={{ marginBottom: 0 }}>
+                <div className="header-title-wrapper" style={{ marginBottom: 0 }}>
+                  <h2>Video Synopsis</h2>
                 </div>
-                <button 
-                  onClick={() => setShowCreateModal(true)}
-                  style={{ 
-                    background: '#0284c7', color: 'white', border: 'none', 
-                    padding: '8px 16px', borderRadius: '4px', fontSize: '0.85rem', fontWeight: 600, 
-                    display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', transition: 'background 0.2s'
-                  }}>
-                  <span className="material-icons-outlined" style={{ fontSize: '1.1rem' }}>add_circle</span> CREATE SUMMARY
-                </button>
-              </div>
+              </header>
+              <button 
+                type="button"
+                onClick={openCreateSynopsisModal}
+                className="btn-primary"
+                style={{ 
+                  padding: '8px 16px', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', fontWeight: 600, 
+                  display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer'
+                }}>
+                <span className="material-icons-outlined" style={{ fontSize: '1.1rem' }}>add_circle</span> CREATE SYNOPSIS
+              </button>
             </div>
 
             {/* Grid Wrapper */}
@@ -1104,14 +1278,16 @@ export default function VideoSynopsisPage() {
                   <div style={{ height: '160px', background: 'var(--bg-base)', position: 'relative' }}>
                     {groupStatus === 'no_video' ? (
                       <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', background: 'var(--bg-base)' }}>
-                        <div style={{ border: '1px dashed rgba(255,255,255,0.15)', borderRadius: '4px', padding: '16px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>This case does not contain videos</span>
+                        <div style={{ border: '1px dashed var(--border-light)', borderRadius: 'var(--radius-sm)', padding: '16px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>This case does not contain videos</span>
                           <button
+                            type="button"
                             onClick={e => {
                               e.stopPropagation();
                               openAddVideoModal(job);
                             }}
-                            style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: '#f8fafc', cursor: 'pointer', padding: '5px 12px', fontSize: '0.8rem', fontWeight: 600 }}
+                            className="m-btn"
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 12px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)' }}
                           >
                             <span className="material-icons-outlined" style={{ fontSize: '1rem' }}>add</span>
                             ADD VIDEO
@@ -1119,26 +1295,46 @@ export default function VideoSynopsisPage() {
                         </div>
                       </div>
                     ) : groupStatus === 'processing' && (
-                      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(10,14,20,0.82)', zIndex: 2, gap: '10px', padding: '0 24px' }}>
+                      <div style={{
+                        position: 'absolute',
+                        inset: 0,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: 'var(--bg-elevated)',
+                        zIndex: 2,
+                        gap: '10px',
+                        padding: '0 24px'
+                      }}>
                         <svg width="36" height="36" viewBox="0 0 36 36" style={{ animation: 'spin 1.2s linear infinite' }}>
-                          <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="3"/>
-                          <path d="M18 3 A15 15 0 0 1 33 18" fill="none" stroke="#38bdf8" strokeWidth="3" strokeLinecap="round"/>
+                          <circle cx="18" cy="18" r="15" fill="none" stroke="var(--border)" strokeWidth="3"/>
+                          <path d="M18 3 A15 15 0 0 1 33 18" fill="none" stroke="var(--teal)" strokeWidth="3" strokeLinecap="round"/>
                         </svg>
-                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', letterSpacing: '0.04em' }}>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)', fontWeight: 600, letterSpacing: '0.02em' }}>
                           {isGrouped ? `Processing (${group.filter(j => j.status === 'completed').length}/${group.length} cameras)` : 'Processing'}
                         </span>
                         <div style={{ width: '100%', maxWidth: '180px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <div style={{ height: '4px', width: '100%', background: 'rgba(255,255,255,0.15)', borderRadius: '2px', overflow: 'hidden' }}>
-                            <div style={{ height: '100%', width: `${avgProgress}%`, background: '#38bdf8', borderRadius: '2px', transition: 'width 0.4s ease' }} />
+                          <div style={{ height: '5px', width: '100%', background: 'var(--border)', borderRadius: '3px', overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${Math.max(avgProgress, 4)}%`, background: 'var(--teal)', borderRadius: '3px', transition: 'width 0.4s ease' }} />
                           </div>
-                          <span style={{ fontSize: '0.7rem', color: '#38bdf8', fontWeight: 600, textAlign: 'center' }}>{avgProgress.toFixed(0)}%</span>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--teal)', fontWeight: 700, textAlign: 'center' }}>{avgProgress.toFixed(0)}%</span>
                         </div>
                       </div>
                     )}
                     {groupStatus === 'completed' ? (
                       <img 
-                        src={`http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005/static/synopsis/backgrounds/${completedJob.camera_id}_${(() => { const hr = new Date(completedJob.range_start || completedJob.created_at).getHours(); if(hr >= 5 && hr < 12) return 'morning'; if(hr >= 12 && hr < 17) return 'afternoon'; if(hr >= 17 && hr < 20) return 'evening'; return 'night'; })()}_bg.png`} 
-                        onError={(e) => { e.target.onerror = null; e.target.src = `http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005${completedJob.heatmap_url}`; }}
+                        src={`${SYNOPSIS_API}/static/synopsis/backgrounds/${completedJob.camera_id}_${(() => { const hr = new Date(completedJob.range_start || completedJob.created_at).getHours(); if(hr >= 5 && hr < 12) return 'morning'; if(hr >= 12 && hr < 17) return 'afternoon'; if(hr >= 17 && hr < 20) return 'evening'; return 'night'; })()}_bg.png`} 
+                        onError={(e) => { 
+                          e.target.onerror = null; 
+                          const cId = Array.isArray(completedJob.camera_id) ? completedJob.camera_id[0] : completedJob.camera_id;
+                          const camInfo = cameras?.find(c => (c.id || c._id) === cId);
+                          if (camInfo?.thumbnail) {
+                            e.target.src = camInfo.thumbnail;
+                          } else if (completedJob.heatmap_url) {
+                            e.target.src = `${SYNOPSIS_API}${completedJob.heatmap_url}`;
+                          }
+                        }}
                         alt="cover" 
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
                       />
@@ -1155,9 +1351,9 @@ export default function VideoSynopsisPage() {
                        const duration = completedJob.metrics?.synopsis_duration_s || 10;
                        const t = Math.max(0.1, duration * pct);
                        return (
-                         <div key={idx} style={{ width: '40px', height: '24px', background: 'var(--bg-active)', borderRadius: '2px', overflow: 'hidden' }}>
+                         <div key={idx} style={{ width: '40px', height: '24px', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: '2px', overflow: 'hidden' }}>
                            {completedJob.output_video_url && groupStatus === 'completed' && (
-                             <VideoThumbnail src={`http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005${completedJob.output_video_url}#t=${t}`} />
+                             <VideoThumbnail src={`${SYNOPSIS_API}${completedJob.output_video_url}#t=${t}`} />
                            )}
                          </div>
                        );
@@ -1181,13 +1377,16 @@ export default function VideoSynopsisPage() {
                                 }
                                 return j;
                               }));
-                              await Promise.all(group.map(j => fetch(`http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005/a1/v1/synopsis/jobs/${j.job_id}`, {
-                                method: 'PATCH',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ job_name: editJobName.trim() })
-                              })));
+                              const backendGroup = group.filter(j => j.job_id && !j.job_id.startsWith('local-'));
+                              if (backendGroup.length > 0) {
+                                await Promise.all(backendGroup.map(j => fetch(`${SYNOPSIS_API}/a1/v1/synopsis/jobs/${j.job_id}`, {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ job_name: editJobName.trim() })
+                                })));
+                                fetchJobHistory();
+                              }
                               setEditingJobId(null);
-                              fetchJobHistory();
                               setToastMessage("Job name updated.");
                             } catch(err) { console.error(err); setToastMessage("Failed to update job name."); }
                           } else if (e.key === 'Escape') {
@@ -1241,6 +1440,10 @@ export default function VideoSynopsisPage() {
                         title="View Processing Details"
                         onClick={async (e) => {
                           e.stopPropagation();
+                          if (job._local || (job.job_id && job.job_id.startsWith('local-')) || job.status === 'no_video') {
+                            setToastMessage("No video or processing details yet for this draft.");
+                            return;
+                          }
                           try {
                             const data = await fetchGroupedJobDetails(job);
                             setCurrentJobDetails(data);
@@ -1260,14 +1463,20 @@ export default function VideoSynopsisPage() {
                       <span className="material-icons-outlined" style={{ fontSize: '1rem', cursor: 'pointer' }} title={isGrouped ? "Delete all cameras in this case" : "Delete"} onClick={async (e) => { 
                           e.stopPropagation(); 
                           const idsToDelete = group.map(j => j.job_id);
+                          const backendIds = idsToDelete.filter(id => id && !id.startsWith('local-'));
                           try {
                             setJobHistory(prev => prev.filter(j => !idsToDelete.includes(j.job_id)));
-                            await Promise.all(idsToDelete.map(id =>
-                              fetch(`http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005/a1/v1/synopsis/jobs/${id}`, { method: 'DELETE' }).catch(e => console.error(e))
-                            ));
-                            fetchJobHistory();
+                            if (backendIds.length > 0) {
+                              await Promise.all(backendIds.map(id =>
+                                fetch(`${SYNOPSIS_API}/a1/v1/synopsis/jobs/${id}`, { method: 'DELETE' }).catch(e => console.error(e))
+                              ));
+                              fetchJobHistory();
+                            }
                             setToastMessage(isGrouped ? "Summary deleted." : "Job deleted.");
-                          }catch(err){console.error(err); setToastMessage("Failed to delete job.");}
+                          } catch(err) {
+                            console.error(err);
+                            setToastMessage("Failed to delete job.");
+                          }
                       }}>delete</span>
                       <span className="material-icons-outlined" style={{ fontSize: '1rem', cursor: 'pointer' }} onClick={(e) => { 
                         e.stopPropagation(); 
@@ -1275,7 +1484,7 @@ export default function VideoSynopsisPage() {
                           setShareModalGroup(group);
                         } else {
                           if (completedJob.output_video_url) {
-                            const url = `http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005${completedJob.output_video_url}`;
+                            const url = `${SYNOPSIS_API}${completedJob.output_video_url}`;
                             navigator.clipboard.writeText(url).then(() => setToastMessage("Video URL copied to clipboard!")).catch(() => setToastMessage("Failed to copy URL"));
                           } else {
                             setToastMessage("Video not available yet.");
@@ -1288,8 +1497,49 @@ export default function VideoSynopsisPage() {
                 );
               })}
               {jobHistory.length === 0 && (
-                <div style={{ color: 'var(--text-muted)', gridColumn: '1 / -1', padding: '40px', textAlign: 'center' }}>
-                  No summaries available. Click "CREATE SUMMARY" to start.
+                <div style={{
+                  gridColumn: '1 / -1',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '50px 24px',
+                  background: 'var(--bg-surface)',
+                  border: '1px dashed var(--border-light)',
+                  borderRadius: 'var(--radius-lg)',
+                  textAlign: 'center',
+                  margin: '20px 0',
+                  boxShadow: 'var(--shadow-sm)'
+                }}>
+                  <div style={{
+                    width: '60px',
+                    height: '60px',
+                    borderRadius: '50%',
+                    background: 'var(--teal-subtle)',
+                    border: '1px solid var(--teal-dim)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: '16px',
+                    color: 'var(--teal)'
+                  }}>
+                    <span className="material-icons-outlined" style={{ fontSize: '32px' }}>movie_filter</span>
+                  </div>
+                  <h3 style={{ margin: '0 0 8px', fontSize: '1.15rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                    No Synopsis Cases Available
+                  </h3>
+                  <p style={{ margin: '0 0 20px', fontSize: '0.88rem', color: 'var(--text-secondary)', maxWidth: '440px', lineHeight: 1.5 }}>
+                    Generate intelligent video synopsis to compress hours of footage into concise, actionable events.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={openCreateSynopsisModal}
+                    style={{ padding: '8px 20px', fontSize: '0.85rem', fontWeight: 600, borderRadius: 'var(--radius-sm)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                  >
+                    <span className="material-icons-outlined" style={{ fontSize: '1.1rem' }}>add_circle</span>
+                    CREATE SYNOPSIS
+                  </button>
                 </div>
               )}
             </div>
@@ -1312,24 +1562,32 @@ export default function VideoSynopsisPage() {
                   style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', fontWeight: 500 }}
                 >
                   <span className="material-icons-outlined" style={{ fontSize: '1.2rem' }}>arrow_back</span>
-                  Back to Summaries
+                  Back to Synopsis
                 </button>
                 <div style={{ width: '1px', height: '20px', background: 'var(--border)' }}></div>
                 <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                  {multicamGroup[0]?.job_name || "Multi-Camera Summary"}
+                  {multicamGroup[0]?.job_name || "Multi-Camera Synopsis"}
                 </h3>
               </div>
-              <button onClick={() => setShowCreateModal(true)} style={{ background: '#3b82f6', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  const job = multicamGroup[0];
+                  openAddVideoModal(job);
+                }}
+                className="btn-primary"
+                style={{ padding: '6px 14px', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
                 <span className="material-icons-outlined" style={{ fontSize: '1rem' }}>add</span>
                 ADD VIDEO
               </button>
             </div>
 
             {/* Main Layout Area */}
-            <div style={{ display: 'flex', flex: 1, minHeight: 0, background: '#0a0a0a' }}>
+            <div style={{ display: 'flex', flex: 1, minHeight: 0, background: 'var(--bg-base)' }}>
               
               {/* Left Camera Strip */}
-              <div style={{ width: '180px', display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border)', background: '#111', flexShrink: 0, minHeight: 0 }}>
+              <div style={{ width: '180px', display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border)', background: 'var(--bg-surface)', flexShrink: 0, minHeight: 0 }}>
                 <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
                 {multicamGroup.map(job => {
                   const cId = Array.isArray(job.camera_id) ? job.camera_id[0] : job.camera_id;
@@ -1347,33 +1605,33 @@ export default function VideoSynopsisPage() {
                       key={cId}
                       onClick={() => setActiveCamVideoId(isActive ? null : cId)}
                       style={{ 
-                        padding: '12px', borderBottom: '1px solid #222', cursor: 'pointer',
-                        borderLeft: isActive ? '4px solid #38bdf8' : '4px solid transparent',
-                        background: isActive ? '#1a1a1a' : 'transparent', transition: 'all 0.2s'
+                        padding: '12px', borderBottom: '1px solid var(--border)', cursor: 'pointer',
+                        borderLeft: isActive ? '4px solid var(--teal)' : '4px solid transparent',
+                        background: isActive ? 'var(--bg-active)' : 'transparent', transition: 'all 0.2s'
                       }}
                     >
                       <div style={{ width: '100%', aspectRatio: '16/9', background: '#000', marginBottom: '8px', borderRadius: '4px', overflow: 'hidden' }}>
                         {job.output_video_url ? (
-                          <VideoThumbnail src={`http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005${job.output_video_url}#t=0.5`} />
+                          <VideoThumbnail src={`${SYNOPSIS_API}${job.output_video_url}#t=0.5`} />
                         ) : (
                           <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <span className="material-icons-outlined" style={{ color: '#555', fontSize: '2rem' }}>videocam</span>
+                            <span className="material-icons-outlined" style={{ color: 'var(--text-muted)', fontSize: '2rem' }}>videocam</span>
                           </div>
                         )}
                       </div>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#e2e8f0', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {camInfo?.name || cId}
                       </div>
-                      <div style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        {/* Area | Path tags — visual placeholders until area/path filtering exists in the backend */}
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#64748b' }} title="Area / Path filters are not available yet">
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        {/* Area | Path tags */}
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-muted)' }} title="Area / Path filters are not available yet">
                           <span className="material-icons-outlined" style={{ fontSize: '0.85rem' }}>layers</span>
                           <span>Area</span>
                           <span style={{ opacity: 0.4 }}>|</span>
                           <span className="material-icons-outlined" style={{ fontSize: '0.85rem' }}>timeline</span>
                           <span>Path</span>
                         </span>
-                        <span style={{ color: '#10b981', fontWeight: 600 }}>{objectCount}</span>
+                        <span style={{ color: 'var(--teal)', fontWeight: 600 }}>{objectCount}</span>
                       </div>
                     </div>
                   );
@@ -1389,22 +1647,22 @@ export default function VideoSynopsisPage() {
                 {activeCamVideoId === null ? (
                   <>
                   {/* Grid Top Control Bar */}
-                  <div style={{ display: 'flex', flexDirection: 'column', background: '#111827', borderBottom: '1px solid #1e293b' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 16px', background: '#1f2937' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 16px', background: 'var(--bg-elevated)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Sort by:</span>
+                        <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Sort by:</span>
                         <div style={{ display: 'flex', gap: '8px', fontSize: '0.85rem' }}>
-                          <button onClick={() => setGridSortBy('Oldest')} style={{ background: 'none', border: 'none', color: gridSortBy === 'Oldest' ? '#f8fafc' : '#64748b', fontWeight: gridSortBy === 'Oldest' ? 600 : 400, cursor: 'pointer', padding: 0 }}>Oldest</button>
-                          <span style={{ color: '#475569' }}>|</span>
-                          <button onClick={() => setGridSortBy('Newest')} style={{ background: 'none', border: 'none', color: gridSortBy === 'Newest' ? '#f8fafc' : '#64748b', fontWeight: gridSortBy === 'Newest' ? 600 : 400, cursor: 'pointer', padding: 0 }}>Newest</button>
+                          <button onClick={() => setGridSortBy('Oldest')} style={{ background: 'none', border: 'none', color: gridSortBy === 'Oldest' ? 'var(--text-primary)' : 'var(--text-muted)', fontWeight: gridSortBy === 'Oldest' ? 600 : 400, cursor: 'pointer', padding: 0 }}>Oldest</button>
+                          <span style={{ color: 'var(--border)' }}>|</span>
+                          <button onClick={() => setGridSortBy('Newest')} style={{ background: 'none', border: 'none', color: gridSortBy === 'Newest' ? 'var(--text-primary)' : 'var(--text-muted)', fontWeight: gridSortBy === 'Newest' ? 600 : 400, cursor: 'pointer', padding: 0 }}>Newest</button>
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1', cursor: 'pointer' }}>
-                          <input type="checkbox" checked={selectedObjects.length > 0 && selectedObjects.length === filteredMulticamMetadata.length} onChange={(e) => setSelectedObjects(e.target.checked ? filteredMulticamMetadata.map(m => m.track_id) : [])} style={{ accentColor: '#38bdf8' }} />
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: 'var(--text-primary)', cursor: 'pointer' }}>
+                          <input type="checkbox" checked={selectedObjects.length > 0 && selectedObjects.length === filteredMulticamMetadata.length} onChange={(e) => setSelectedObjects(e.target.checked ? filteredMulticamMetadata.map(m => m.track_id) : [])} style={{ accentColor: 'var(--teal)' }} />
                           Select all
                         </label>
-                        <span style={{ fontSize: '0.85rem', color: '#cbd5e1' }}>
+                        <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                           {multicamGroup[0]?.range_start && new Date(multicamGroup[0].range_start.includes('+') ? multicamGroup[0].range_start : multicamGroup[0].range_start + '+05:30').toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true })}
                           {' - '}
                           {multicamGroup[0]?.range_end && new Date(multicamGroup[0].range_end.includes('+') ? multicamGroup[0].range_end : multicamGroup[0].range_end + '+05:30').toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true })}
@@ -1414,19 +1672,19 @@ export default function VideoSynopsisPage() {
                   </div>
 
                   {/* Detection Object Grid - one tile per detected person/vehicle, sorted chronologically */}
-                  <div style={{ flex: 1, overflowY: 'auto', padding: '20px', background: '#0d1117' }}>
+                  <div style={{ flex: 1, overflowY: 'auto', padding: '20px', background: 'var(--bg-base)' }}>
                     {allMulticamMetadata.length === 0 ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '12px', color: '#555' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '12px', color: 'var(--text-muted)' }}>
                         <span className="material-icons-outlined" style={{ fontSize: '3rem' }}>hourglass_empty</span>
                         <span style={{ fontSize: '0.9rem' }}>Loading detections...</span>
                       </div>
                     ) : filteredMulticamMetadata.length === 0 ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '12px', color: '#555' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '12px', color: 'var(--text-muted)' }}>
                         <span className="material-icons-outlined" style={{ fontSize: '3rem' }}>filter_alt_off</span>
                         <span style={{ fontSize: '0.9rem' }}>No detections match the current filters.</span>
                         <button
                           onClick={() => { setFilterCams(null); setFilterTimeFrom(''); setFilterTimeTo(''); setFilterDwell([0, 60]); }}
-                          style={{ background: 'transparent', border: '1px solid #333', color: '#94a3b8', borderRadius: '4px', padding: '4px 12px', cursor: 'pointer', fontSize: '0.8rem' }}
+                          style={{ background: 'transparent', border: '1px solid var(--border-light)', color: 'var(--text-secondary)', borderRadius: '4px', padding: '4px 12px', cursor: 'pointer', fontSize: '0.8rem' }}
                         >Reset filters</button>
                       </div>
                     ) : (
@@ -1435,7 +1693,6 @@ export default function VideoSynopsisPage() {
                         const grouped = {};
                         filteredMulticamMetadata.forEach(item => {
                           const rawTs = item.original_timestamp || '';
-                          // Backend stores timestamps in IST — append +05:30 if no timezone info present
                           const toISTDate = (ts) => {
                             if (!ts) return null;
                             const normalized = ts.replace(' ', 'T');
@@ -1452,18 +1709,16 @@ export default function VideoSynopsisPage() {
                         return Object.entries(grouped).map(([dateKey, items]) => (
                           <div key={dateKey} style={{ marginBottom: '28px' }}>
                             {/* Date header */}
-                            <div style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600, marginBottom: '12px', paddingBottom: '6px', borderBottom: '1px solid #1e293b', letterSpacing: '0.05em' }}>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600, marginBottom: '12px', paddingBottom: '6px', borderBottom: '1px solid var(--border)', letterSpacing: '0.05em' }}>
                               {dateKey}
                             </div>
                             {/* Detection tiles grid */}
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '8px' }}>
                               {items.map((item, idx) => {
-                                // Clean URL without #t= — VideoFrameAt seeks via currentTime, which is reliable
                                 const baseVideoUrl = item._outputVideoUrl
-                                  ? `http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005${item._outputVideoUrl}`
+                                  ? `${SYNOPSIS_API}${item._outputVideoUrl}`
                                   : null;
                                 const frameTime = item.synopsis_timestamp_s ?? 1;
-                                // Show time in IST — backend stores as IST, so treat bare timestamps as +05:30
                                 const toISTDate = (ts) => {
                                   if (!ts) return null;
                                   const normalized = ts.replace(' ', 'T');
@@ -1474,32 +1729,32 @@ export default function VideoSynopsisPage() {
                                   ? toISTDate(item.original_timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
                                   : '—';
 
-
                                 return (
                                   <div
                                     key={`${item.track_id}-${item.camera_id}-${idx}`}
                                     onClick={() => handleJumpToOriginal(item)}
                                     title={`Click to view raw recording — ${item._camName} @ ${item.original_timestamp}`}
                                     style={{
-                                      background: '#111827', borderRadius: '4px', overflow: 'hidden',
-                                      cursor: 'pointer', border: '1px solid #1e293b',
+                                      background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)', overflow: 'hidden',
+                                      cursor: 'pointer', border: '1px solid var(--border)',
+                                      boxShadow: 'var(--shadow-sm)',
                                       transition: 'border-color 0.15s, transform 0.1s',
                                       display: 'flex', flexDirection: 'column'
                                     }}
-                                    onMouseEnter={e => { e.currentTarget.style.borderColor = '#38bdf8'; e.currentTarget.style.transform = 'scale(1.02)'; }}
-                                    onMouseLeave={e => { e.currentTarget.style.borderColor = '#1e293b'; e.currentTarget.style.transform = 'scale(1)'; }}
+                                    onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--teal)'; e.currentTarget.style.transform = 'scale(1.02)'; }}
+                                    onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = 'scale(1)'; }}
                                   >
-                                    {/* Thumbnail — exact cropped person/object region via canvas + bbox */}
+                                    {/* Thumbnail */}
                                     <div style={{ width: '100%', aspectRatio: '3/4', background: '#000', position: 'relative', overflow: 'hidden' }}>
                                       {baseVideoUrl ? (
                                         <VideoFrameCrop src={baseVideoUrl} timeSeconds={frameTime} bbox={item.bbox} />
                                       ) : (
                                         <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                          <span className="material-icons-outlined" style={{ color: '#444', fontSize: '1.8rem' }}>person</span>
+                                          <span className="material-icons-outlined" style={{ color: 'var(--text-muted)', fontSize: '1.8rem' }}>person</span>
                                         </div>
                                       )}
                                       {/* Camera badge */}
-                                      <div style={{ position: 'absolute', top: '4px', left: '4px', background: 'rgba(0,0,0,0.75)', padding: '2px 5px', borderRadius: '3px', fontSize: '0.6rem', color: '#38bdf8', fontWeight: 700, maxWidth: '80%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      <div style={{ position: 'absolute', top: '4px', left: '4px', background: 'rgba(0,0,0,0.75)', padding: '2px 5px', borderRadius: '3px', fontSize: '0.6rem', color: 'var(--brand)', fontWeight: 700, maxWidth: '80%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                         {item._camName}
                                       </div>
                                       {/* Play icon hint */}
@@ -1513,7 +1768,7 @@ export default function VideoSynopsisPage() {
                                       </div>
                                     </div>
                                     {/* Timestamp */}
-                                    <div style={{ padding: '5px 6px', fontSize: '0.68rem', color: '#94a3b8', textAlign: 'center', background: '#0d1117', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    <div style={{ padding: '5px 6px', fontSize: '0.68rem', color: 'var(--text-secondary)', textAlign: 'center', background: 'var(--bg-elevated)', borderTop: '1px solid var(--border)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                       {timeLabel}
                                     </div>
                                   </div>
@@ -1535,65 +1790,89 @@ export default function VideoSynopsisPage() {
                     });
                     const camInfo = cameras?.find(c => (c.id || c._id) === activeCamVideoId);
                     const videoSrc = activeJob?.output_video_url
-                      ? `http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005${activeJob.output_video_url}`
+                      ? `${SYNOPSIS_API}${activeJob.output_video_url}`
                       : null;
 
                     return (
-                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#000', overflow: 'hidden', minHeight: 0 }}>
-                        {/* Header bar */}
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', background: '#000', borderBottom: '1px solid #222', flexShrink: 0 }}>
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg-base)', overflow: 'hidden', minHeight: 0 }}>
+                        {/* Header bar - White theme compatible */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 18px', background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
                           {/* Left: Camera Name */}
-                          <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
-                            <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#e2e8f0' }}>{camInfo?.name || activeCamVideoId}</span>
+                          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span className="material-icons-outlined" style={{ fontSize: '1.25rem', color: 'var(--teal)' }}>videocam</span>
+                            <span style={{ fontSize: '0.92rem', fontWeight: 600, color: 'var(--text-primary)' }}>{camInfo?.name || activeCamVideoId}</span>
                           </div>
 
                           {/* Center: Time Range */}
                           <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', whiteSpace: 'nowrap' }}>
                             {activeJob?.range_start && activeJob?.range_end && (
-                              <span style={{ fontSize: '0.8rem', color: '#cbd5e1' }}>
+                              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', background: 'var(--bg-elevated)', padding: '3px 12px', borderRadius: '4px', border: '1px solid var(--border)' }}>
                                 {new Date(activeJob.range_start.includes('Z') || activeJob.range_start.includes('+') ? activeJob.range_start : activeJob.range_start + '+05:30').toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: '2-digit', day: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true })}
-                                {' - '}
+                                {' — '}
                                 {new Date(activeJob.range_end.includes('Z') || activeJob.range_end.includes('+') ? activeJob.range_end : activeJob.range_end + '+05:30').toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: '2-digit', day: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true })}
                               </span>
                             )}
                           </div>
 
                           {/* Right: Controls & Close */}
-                          <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '16px' }}>
+                          <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px' }}>
                             {activeJob?.heatmap_url && (
                               <button
                                 className={`heatmap-toggle-btn ${showHeatmap ? 'active' : ''}`}
                                 onClick={() => setShowHeatmap(!showHeatmap)}
-                                style={{ padding: '2px 8px', fontSize: '0.75rem', background: 'transparent', border: '1px solid #333', color: '#ccc', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                style={{
+                                  padding: '4px 10px',
+                                  fontSize: '0.78rem',
+                                  background: showHeatmap ? 'var(--teal-subtle)' : 'var(--bg-elevated)',
+                                  border: showHeatmap ? '1px solid var(--teal)' : '1px solid var(--border)',
+                                  color: showHeatmap ? 'var(--teal)' : 'var(--text-primary)',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}
                               >
-                                <span className="material-icons-outlined" style={{ fontSize: '0.9rem' }}>{showHeatmap ? 'visibility_off' : 'whatshot'}</span>
-                                {showHeatmap ? 'Hide' : 'Heatmap'}
+                                <span className="material-icons-outlined" style={{ fontSize: '0.95rem' }}>{showHeatmap ? 'visibility_off' : 'whatshot'}</span>
+                                {showHeatmap ? 'Hide Heatmap' : 'Heatmap'}
                               </button>
                             )}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#e2e8f0' }}>
-                              <span style={{ fontSize: '0.85rem' }}>Video Synopsis</span>
-                              <button
-                                onClick={() => { setActiveCamVideoId(null); setMetadataItems([]); setCurrentActiveObjects([]); setShowHeatmap(false); }}
-                                style={{ background: 'none', border: 'none', color: '#e2e8f0', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px' }}
-                                title="Close Video Synopsis"
-                              >
-                                <span className="material-icons-outlined" style={{ fontSize: '1.2rem' }}>close</span>
-                              </button>
-                            </div>
+                            <button
+                              onClick={() => { setActiveCamVideoId(null); setMetadataItems([]); setCurrentActiveObjects([]); setShowHeatmap(false); }}
+                              style={{
+                                background: 'var(--bg-elevated)',
+                                border: '1px solid var(--border)',
+                                color: 'var(--text-primary)',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '4px 10px',
+                                borderRadius: '4px',
+                                fontSize: '0.78rem',
+                                fontWeight: 500
+                              }}
+                              title="Close Video Synopsis"
+                            >
+                              <span className="material-icons-outlined" style={{ fontSize: '1rem' }}>close</span>
+                              <span>Close</span>
+                            </button>
                           </div>
                         </div>
 
                         {/* Video player + overlays */}
                         {videoSrc ? (
-                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, background: '#000' }}>
-                            <div style={{ position: 'relative', width: '100%', flexGrow: 1, minHeight: 0 }}>
+                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, background: '#0a0c10' }}>
+                            <div style={{ position: 'relative', width: '100%', flexGrow: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                               <video
                                 key={activeCamVideoId}
                                 ref={videoRef}
                                 src={videoSrc}
                                 autoPlay
-                                muted
+                                muted={playerIsMuted}
                                 disablePictureInPicture
+                                onPlay={() => setPlayerIsPlaying(true)}
+                                onPause={() => setPlayerIsPlaying(false)}
                                 onTimeUpdate={(e) => {
                                   handleTimeUpdate(e);
                                   const timeEl = document.getElementById('custom-time-display');
@@ -1605,7 +1884,7 @@ export default function VideoSynopsisPage() {
                                       const sec = Math.floor(s % 60);
                                       return `${pad(m)}:${pad(sec)}`;
                                     };
-                                    timeEl.textContent = `${format(e.target.currentTime)}/${format(e.target.duration)}`;
+                                    timeEl.textContent = `${format(e.target.currentTime)} / ${format(e.target.duration)}`;
                                     // Mirror into the left-strip global player bar
                                     const stripTime = document.getElementById('strip-time-display');
                                     if (stripTime) stripTime.textContent = `${format(e.target.currentTime)} / ${format(e.target.duration)}`;
@@ -1619,15 +1898,13 @@ export default function VideoSynopsisPage() {
                                     stripProgress.style.width = `${(e.target.currentTime / e.target.duration) * 100}%`;
                                   }
                                 }}
-                                onPlay={() => { const el = document.getElementById('strip-play-icon'); if (el) el.textContent = 'pause'; }}
-                                onPause={() => { const el = document.getElementById('strip-play-icon'); if (el) el.textContent = 'play_arrow'; }}
                                 onLoadedMetadata={handleResize}
                                 className="synopsis-video-player"
-                                style={{ width: '100%', height: '100%', maxHeight: '100%', display: 'block', objectFit: 'contain', background: '#000' }}
+                                style={{ width: '100%', height: '100%', maxHeight: '100%', display: 'block', objectFit: 'contain' }}
                               />
                               {/* Heatmap overlay */}
                               {showHeatmap && activeJob?.heatmap_url && (
-                                <img src={`http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005${activeJob.heatmap_url}`} className="heatmap-overlay" alt="Activity Heatmap" />
+                                <img src={`${SYNOPSIS_API}${activeJob.heatmap_url}`} className="heatmap-overlay" alt="Activity Heatmap" />
                               )}
                               {/* Bounding box overlays — click to jump to raw recording */}
                               {videoDimensions.width > 0 && currentActiveObjects.map((obj, idx) => {
@@ -1644,46 +1921,107 @@ export default function VideoSynopsisPage() {
                               })}
                             </div>
                             
-                            {/* Custom BriefCam-style Control Bar */}
-                            <div style={{ display: 'flex', alignItems: 'center', background: '#000', padding: '10px 16px', gap: '20px', borderTop: '1px solid #1a1a1a', color: '#94a3b8', flexShrink: 0 }}>
-                              <span className="material-icons-outlined" style={{ fontSize: '1.2rem', cursor: 'pointer' }}>more_vert</span>
-                              
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                                <span className="material-icons-outlined" style={{ fontSize: '1.3rem', cursor: 'pointer', color: '#cbd5e1' }}>arrow_left</span>
-                                <span className="material-icons-outlined" style={{ fontSize: '1.5rem', cursor: 'pointer', color: '#cbd5e1' }} onClick={() => videoRef.current?.paused ? videoRef.current.play() : videoRef.current?.pause()}>pause</span>
-                                <span className="material-icons-outlined" style={{ fontSize: '1.3rem', cursor: 'pointer', color: '#cbd5e1' }}>arrow_right</span>
-                              </div>
+                            {/* Streamlined Functional Control Bar */}
+                            <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-surface)', padding: '8px 16px', gap: '14px', borderTop: '1px solid var(--border)', color: 'var(--text-secondary)', flexShrink: 0 }}>
+                              {/* Play / Pause */}
+                              <button
+                                type="button"
+                                onClick={togglePlayPause}
+                                style={{
+                                  background: 'var(--teal-subtle)',
+                                  border: '1px solid var(--teal-dim)',
+                                  color: 'var(--teal)',
+                                  borderRadius: '50%',
+                                  width: '34px',
+                                  height: '34px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  cursor: 'pointer',
+                                  flexShrink: 0,
+                                  transition: 'all 0.15s ease'
+                                }}
+                                title={playerIsPlaying ? "Pause" : "Play"}
+                              >
+                                <span className="material-icons-outlined" style={{ fontSize: '1.3rem' }}>
+                                  {playerIsPlaying ? 'pause' : 'play_arrow'}
+                                </span>
+                              </button>
 
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                                <span className="material-icons-outlined" style={{ fontSize: '1.2rem', cursor: 'pointer' }}>skip_previous</span>
-                                <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>1/2</span>
-                                <span className="material-icons-outlined" style={{ fontSize: '1.2rem', cursor: 'pointer' }}>skip_next</span>
-                              </div>
+                              {/* Rewind 5s */}
+                              <button
+                                type="button"
+                                onClick={skipBackward5s}
+                                style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px', borderRadius: '4px' }}
+                                title="Rewind 5 seconds"
+                              >
+                                <span className="material-icons-outlined" style={{ fontSize: '1.3rem' }}>replay_5</span>
+                              </button>
 
-                              <div id="custom-time-display" style={{ fontSize: '0.8rem', fontFamily: 'monospace', minWidth: '95px', letterSpacing: '0.05em' }}>00:00/00:00</div>
+                              {/* Forward 5s */}
+                              <button
+                                type="button"
+                                onClick={skipForward5s}
+                                style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px', borderRadius: '4px' }}
+                                title="Forward 5 seconds"
+                              >
+                                <span className="material-icons-outlined" style={{ fontSize: '1.3rem' }}>forward_5</span>
+                              </button>
+
+                              {/* Time Display */}
+                              <div id="custom-time-display" style={{ fontSize: '0.82rem', fontFamily: 'var(--font-mono)', minWidth: '95px', letterSpacing: '0.04em', color: 'var(--text-primary)', fontWeight: 500, userSelect: 'none' }}>
+                                00:00 / 00:00
+                              </div>
                               
-                              <div style={{ flex: 1, height: '4px', background: '#333', borderRadius: '2px', position: 'relative', cursor: 'pointer', display: 'flex', alignItems: 'center' }} onClick={(e) => {
-                                if (videoRef.current) {
-                                  const rect = e.currentTarget.getBoundingClientRect();
-                                  const pos = (e.clientX - rect.left) / rect.width;
-                                  videoRef.current.currentTime = pos * videoRef.current.duration;
-                                }
-                              }}>
-                                <div id="custom-progress-bar" style={{ position: 'absolute', left: 0, height: '100%', background: '#3b82f6', width: '0%', borderRadius: '2px' }}>
-                                  <div style={{ position: 'absolute', right: '-5px', top: '50%', transform: 'translateY(-50%)', width: '10px', height: '10px', background: '#fff', borderRadius: '50%', boxShadow: '0 0 4px rgba(0,0,0,0.5)' }}></div>
+                              {/* Scrubber / Progress Bar */}
+                              <div
+                                style={{ flex: 1, height: '6px', background: 'var(--border-light)', borderRadius: '3px', position: 'relative', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                                onClick={(e) => {
+                                  if (videoRef.current && videoRef.current.duration) {
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                                    videoRef.current.currentTime = pos * videoRef.current.duration;
+                                  }
+                                }}
+                              >
+                                <div id="custom-progress-bar" style={{ position: 'absolute', left: 0, height: '100%', background: 'var(--teal)', width: '0%', borderRadius: '3px' }}>
+                                  <div style={{ position: 'absolute', right: '-6px', top: '50%', transform: 'translateY(-50%)', width: '12px', height: '12px', background: '#ffffff', border: '2px solid var(--teal)', borderRadius: '50%', boxShadow: '0 1px 4px rgba(0,0,0,0.4)' }}></div>
                                 </div>
                               </div>
                               
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                                <span style={{ fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', color: '#cbd5e1' }}>1X</span>
-                                <span className="material-icons-outlined" style={{ fontSize: '1.3rem', cursor: 'pointer' }}>zoom_in</span>
-                                <span className="material-icons-outlined" style={{ fontSize: '1.2rem', cursor: 'pointer' }}>branding_watermark</span>
-                                <span className="material-icons-outlined" style={{ fontSize: '1.4rem', cursor: 'pointer', color: '#cbd5e1' }} onClick={() => videoRef.current?.requestFullscreen()}>fullscreen</span>
+                              {/* Right Controls: Speed, Mute, Fullscreen */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                                <button
+                                  type="button"
+                                  onClick={cyclePlaybackSpeed}
+                                  style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: '4px', padding: '3px 8px', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-primary)', cursor: 'pointer', fontFamily: 'var(--font-mono)' }}
+                                  title="Change playback speed"
+                                >
+                                  {playerPlaybackSpeed}x
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={togglePlayerMute}
+                                  style={{ background: 'transparent', border: 'none', color: playerIsMuted ? 'var(--text-muted)' : 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px' }}
+                                  title={playerIsMuted ? "Unmute" : "Mute"}
+                                >
+                                  <span className="material-icons-outlined" style={{ fontSize: '1.3rem' }}>
+                                    {playerIsMuted ? 'volume_off' : 'volume_up'}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={togglePlayerFullscreen}
+                                  style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px' }}
+                                  title="Fullscreen"
+                                >
+                                  <span className="material-icons-outlined" style={{ fontSize: '1.35rem' }}>fullscreen</span>
+                                </button>
                               </div>
                             </div>
                           </div>
                         ) : (
-                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#555', gap: '8px' }}>
+                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', gap: '8px' }}>
                             <span className="material-icons-outlined" style={{ fontSize: '3rem' }}>videocam_off</span>
                             <span style={{ fontSize: '0.85rem' }}>Video not available</span>
                           </div>
@@ -1697,15 +2035,16 @@ export default function VideoSynopsisPage() {
                 
               </div>
 
-              {/* Right Filters Panel */}
-              <div style={{ width: '230px', flexShrink: 0, borderLeft: '1px solid var(--border)', background: '#111', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                <div style={{ padding: '12px 16px', borderBottom: '1px solid #222', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-                  <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.1em' }}>
+              {/* Right Filters Panel (Hidden) */}
+              {/*
+              <div style={{ width: '230px', flexShrink: 0, borderLeft: '1px solid var(--border)', background: 'var(--bg-surface)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                  <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.1em' }}>
                     FILTERS{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
                   </span>
                   <span
                     onClick={() => { setFilterCams(null); setFilterTimeFrom(''); setFilterTimeTo(''); setFilterDwell([0, 60]); }}
-                    style={{ fontSize: '0.7rem', color: activeFilterCount > 0 ? '#38bdf8' : '#475569', cursor: activeFilterCount > 0 ? 'pointer' : 'default' }}
+                    style={{ fontSize: '0.7rem', color: activeFilterCount > 0 ? 'var(--teal)' : 'var(--text-muted)', cursor: activeFilterCount > 0 ? 'pointer' : 'default', fontWeight: 600 }}
                   >Reset</span>
                 </div>
 
@@ -1715,19 +2054,19 @@ export default function VideoSynopsisPage() {
                     const isLive = f.status === 'live';
                     const isApplied = (f.key === 'source' && filterCams) || (f.key === 'time_range' && (filterTimeFrom || filterTimeTo)) || (f.key === 'dwell' && (filterDwell[0] > 0 || filterDwell[1] < 60));
                     return (
-                      <div key={f.key} style={{ borderBottom: '1px solid #1e293b' }}>
+                      <div key={f.key} style={{ borderBottom: '1px solid var(--border)' }}>
                         <div
                           onClick={() => setExpandedFilter(isOpen ? null : f.key)}
-                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 16px', cursor: 'pointer', background: isOpen ? '#161b22' : 'transparent' }}
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 16px', cursor: 'pointer', background: isOpen ? 'var(--bg-hover)' : 'transparent' }}
                         >
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: isLive ? '#e2e8f0' : '#94a3b8' }}>
-                            <span className="material-icons-outlined" style={{ fontSize: '1rem', color: isApplied ? '#38bdf8' : '#64748b' }}>{f.icon}</span>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: isLive ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                            <span className="material-icons-outlined" style={{ fontSize: '1rem', color: isApplied ? 'var(--teal)' : 'var(--text-muted)' }}>{f.icon}</span>
                             {f.label}
-                            {isApplied && <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#38bdf8' }} />}
+                            {isApplied && <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--teal)' }} />}
                           </span>
                           <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            {!isLive && <span style={{ fontSize: '0.58rem', color: '#64748b', border: '1px solid #2a3340', borderRadius: '3px', padding: '1px 4px', letterSpacing: '0.04em' }}>SOON</span>}
-                            <span className="material-icons-outlined" style={{ fontSize: '1rem', color: '#475569', transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>expand_more</span>
+                            {!isLive && <span style={{ fontSize: '0.58rem', color: 'var(--text-muted)', border: '1px solid var(--border-light)', borderRadius: '3px', padding: '1px 4px', letterSpacing: '0.04em' }}>SOON</span>}
+                            <span className="material-icons-outlined" style={{ fontSize: '1rem', color: 'var(--text-muted)', transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>expand_more</span>
                           </span>
                         </div>
 
@@ -1739,11 +2078,11 @@ export default function VideoSynopsisPage() {
                               const allIds = multicamGroup.map(j => Array.isArray(j.camera_id) ? j.camera_id[0] : j.camera_id);
                               const checked = !filterCams || filterCams.includes(cId);
                               return (
-                                <label key={cId} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0', fontSize: '0.8rem', color: checked ? '#e2e8f0' : '#64748b', cursor: 'pointer' }}>
+                                <label key={cId} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 0', fontSize: '0.8rem', color: checked ? 'var(--text-primary)' : 'var(--text-muted)', cursor: 'pointer' }}>
                                   <input
                                     type="checkbox"
                                     checked={checked}
-                                    style={{ accentColor: '#38bdf8' }}
+                                    style={{ accentColor: 'var(--teal)' }}
                                     onChange={() => {
                                       const current = filterCams || allIds;
                                       const next = current.includes(cId) ? current.filter(x => x !== cId) : [...current, cId];
@@ -1758,21 +2097,23 @@ export default function VideoSynopsisPage() {
                         )}
 
                         {isOpen && f.key === 'time_range' && (
-                          <div style={{ padding: '4px 16px 12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            <label style={{ fontSize: '0.68rem', color: '#64748b', letterSpacing: '0.06em' }}>FROM
+                          <div style={{ padding: '6px 16px 14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            <div className="synopsis-field">
+                              <label>FROM</label>
                               <input type="time" value={filterTimeFrom} onChange={e => setFilterTimeFrom(e.target.value)}
-                                style={{ display: 'block', width: '100%', marginTop: '3px', background: 'transparent', border: 'none', borderBottom: '1px solid #2a3340', color: '#e2e8f0', fontSize: '0.85rem', outline: 'none', colorScheme: 'dark' }} />
-                            </label>
-                            <label style={{ fontSize: '0.68rem', color: '#64748b', letterSpacing: '0.06em' }}>TO
+                                className="synopsis-date-input" style={{ width: '100%' }} />
+                            </div>
+                            <div className="synopsis-field">
+                              <label>TO</label>
                               <input type="time" value={filterTimeTo} onChange={e => setFilterTimeTo(e.target.value)}
-                                style={{ display: 'block', width: '100%', marginTop: '3px', background: 'transparent', border: 'none', borderBottom: '1px solid #2a3340', color: '#e2e8f0', fontSize: '0.85rem', outline: 'none', colorScheme: 'dark' }} />
-                            </label>
+                                className="synopsis-date-input" style={{ width: '100%' }} />
+                            </div>
                           </div>
                         )}
 
                         {isOpen && f.key === 'dwell' && (
-                          <div style={{ padding: '4px 16px 16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '0.75rem' }}>
+                          <div style={{ padding: '6px 16px 16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
                               <span>Min: {filterDwell[0]}s</span>
                               <span>Max: {filterDwell[1]}s</span>
                             </div>
@@ -1781,20 +2122,20 @@ export default function VideoSynopsisPage() {
                               min="0" max="60" step="1"
                               value={filterDwell[0]} 
                               onChange={e => setFilterDwell([Number(e.target.value), Math.max(Number(e.target.value), filterDwell[1])])}
-                              style={{ width: '100%', accentColor: '#38bdf8' }}
+                              style={{ width: '100%', accentColor: 'var(--teal)' }}
                             />
                             <input 
                               type="range" 
                               min="0" max="60" step="1"
                               value={filterDwell[1]} 
                               onChange={e => setFilterDwell([Math.min(Number(e.target.value), filterDwell[0]), Number(e.target.value)])}
-                              style={{ width: '100%', accentColor: '#38bdf8' }}
+                              style={{ width: '100%', accentColor: 'var(--teal)' }}
                             />
                           </div>
                         )}
 
                         {isOpen && !isLive && (
-                          <div style={{ padding: '2px 16px 12px', fontSize: '0.72rem', color: '#64748b', lineHeight: 1.45 }}>
+                          <div style={{ padding: '2px 16px 12px', fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.45 }}>
                             {f.note}
                           </div>
                         )}
@@ -1803,6 +2144,7 @@ export default function VideoSynopsisPage() {
                   })}
                 </div>
               </div>
+              */}
             </div>
           </div>
         )}
@@ -1903,7 +2245,7 @@ export default function VideoSynopsisPage() {
                       onClick={async () => {
                         try {
                           const jobsData = await Promise.all(activeJobs.map(async j => {
-                            const res = await fetch(`http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005/a1/v1/synopsis/jobs/${j.job_id}`);
+                            const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/jobs/${j.job_id}`);
                             return res.json();
                           }));
                           setCurrentJobDetails(aggregateJobDetails(jobsData));
@@ -1959,7 +2301,7 @@ export default function VideoSynopsisPage() {
                     <div style={{ position: 'relative', width: '100%', flexGrow: 1, minHeight: 0 }}>
                       <video
                         ref={videoRef}
-                        src={`http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005${activeJobs[activeViewIndex].output_video_url}`}
+                        src={`${SYNOPSIS_API}${activeJobs[activeViewIndex].output_video_url}`}
                         controls
                         autoPlay
                         muted
@@ -1969,7 +2311,7 @@ export default function VideoSynopsisPage() {
                         style={{ width: '100%', height: '100%', maxHeight: '100%', borderRadius: '8px', display: 'block', objectFit: 'contain', background: '#000' }}
                       />
                       {showHeatmap && activeJobs[activeViewIndex]?.heatmap_url && (
-                        <img src={`http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005${activeJobs[activeViewIndex].heatmap_url}`} className="heatmap-overlay" alt="Activity Heatmap" />
+                        <img src={`${SYNOPSIS_API}${activeJobs[activeViewIndex].heatmap_url}`} className="heatmap-overlay" alt="Activity Heatmap" />
                       )}
                       {videoDimensions.width > 0 && currentActiveObjects.map((obj, idx) => {
                         const scaled = getScaledBBox(obj.bbox);
@@ -2039,22 +2381,21 @@ export default function VideoSynopsisPage() {
       </div>
       {/* Details Modal */}
       {showDetailsModal && currentJobDetails && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          zIndex: 9999999
-        }}>
-          <div style={{
-            background: 'var(--bg-surface)', border: '1px solid var(--border)',
-            borderRadius: '12px', width: '90%', maxWidth: '700px', maxHeight: '85vh',
-            display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)'
-          }}>
-            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, fontSize: '1.25rem', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <i className="fa-solid fa-server" style={{ color: '#38bdf8' }}></i> Processing Details
+        <div className="synopsis-modal-overlay" onClick={() => setShowDetailsModal(false)}>
+          <div
+            className="synopsis-modal"
+            style={{ width: '90%', maxWidth: '700px', maxHeight: '85vh' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="synopsis-modal-header" style={{ padding: '16px 20px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <i className="fa-solid fa-server" style={{ color: 'var(--teal)' }}></i> Processing Details
               </h3>
-              <button onClick={() => setShowDetailsModal(false)} style={{ background: 'none', border: 'none', color: '#ffffff', cursor: 'pointer', display: 'flex' }}>
+              <button
+                type="button"
+                className="synopsis-modal-close"
+                onClick={() => setShowDetailsModal(false)}
+              >
                 <span className="material-icons-outlined">close</span>
               </button>
             </div>
@@ -2064,7 +2405,7 @@ export default function VideoSynopsisPage() {
               const cIds = rawCIds.map(id => Array.isArray(id) ? id[0] : id);
               if (cIds.filter(Boolean).length <= 1) return null;
               return (
-                <div style={{ padding: '0 24px', borderBottom: '1px solid var(--border)', display: 'flex', gap: '20px', overflowX: 'auto' }}>
+                <div style={{ padding: '0 20px', borderBottom: '1px solid var(--border)', display: 'flex', gap: '20px', overflowX: 'auto', background: 'var(--bg-base)' }}>
                   {[
                     ...cIds.filter(Boolean).map(id => ({ id, name: cameras?.find(c => (c.id || c._id) === id)?.name || id })),
                     { id: 'overall', name: 'Overall Summary' }
@@ -2073,9 +2414,9 @@ export default function VideoSynopsisPage() {
                       key={tab.id}
                       onClick={() => setActiveProcessingTab(tab.id)}
                       style={{
-                        background: 'none', border: 'none', borderBottom: activeProcessingTab === tab.id ? '2px solid #38bdf8' : '2px solid transparent',
-                        color: activeProcessingTab === tab.id ? '#38bdf8' : '#94a3b8',
-                        padding: '16px 0', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.2s'
+                        background: 'none', border: 'none', borderBottom: activeProcessingTab === tab.id ? '2px solid var(--teal)' : '2px solid transparent',
+                        color: activeProcessingTab === tab.id ? 'var(--teal)' : 'var(--text-secondary)',
+                        padding: '12px 0', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.2s'
                       }}
                     >
                       {tab.name}
@@ -2085,7 +2426,7 @@ export default function VideoSynopsisPage() {
               );
             })()}
             
-            <div style={{ padding: '24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div style={{ padding: '20px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '20px', background: 'var(--bg-surface)' }}>
               {(() => {
                 const rawCIds = Array.isArray(currentJobDetails.camera_ids) ? currentJobDetails.camera_ids : [currentJobDetails.camera_id || currentJobDetails.camera_ids];
                 const cIds = rawCIds.map(id => Array.isArray(id) ? id[0] : id);
@@ -2118,8 +2459,8 @@ export default function VideoSynopsisPage() {
                         return (
                           <>
                             <div style={{ flex: 1, background: 'var(--bg-base)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                              <p style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: '#ffffff' }}>{activeProcessingTab === 'overall' ? 'Overall Status' : 'Status'}</p>
-                              <p style={{ margin: 0, fontSize: '1.1rem', fontWeight: 'bold', color: dispStatus === 'completed' ? '#10b981' : dispStatus === 'failed' ? '#ef4444' : '#38bdf8' }}>
+                              <p style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{activeProcessingTab === 'overall' ? 'Overall Status' : 'Status'}</p>
+                              <p style={{ margin: 0, fontSize: '1.1rem', fontWeight: 'bold', color: dispStatus === 'completed' ? '#10b981' : dispStatus === 'failed' ? '#ef4444' : 'var(--teal)' }}>
                                 {(dispStatus || 'unknown').toUpperCase()}
                               </p>
                               {dispStatus === 'failed' && (currentJobDetails.error_message || currentJobDetails.reason) && (
@@ -2132,14 +2473,14 @@ export default function VideoSynopsisPage() {
                               )}
                             </div>
                             <div style={{ flex: 1, background: 'var(--bg-base)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                              <p style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: '#ffffff' }}>Progress</p>
-                              <p style={{ margin: 0, fontSize: '1.1rem', fontWeight: 'bold', color: '#f8fafc' }}>
+                              <p style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Progress</p>
+                              <p style={{ margin: 0, fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--text-primary)' }}>
                                 {Math.round(dispProgress || 0)}%
                               </p>
                             </div>
                             <div style={{ flex: 1, background: 'var(--bg-base)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                              <p style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: '#ffffff' }}>Videos Processed</p>
-                              <p style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 'bold', color: '#f8fafc' }}>
+                              <p style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Videos Processed</p>
+                              <p style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--text-primary)' }}>
                                 {dispProcessed} / {dispTotal}
                               </p>
                               {activeProcessingTab === 'overall' && currentJobDetails.total_clips_by_camera && Object.entries(currentJobDetails.total_clips_by_camera).map(([cid, total]) => {
@@ -2149,8 +2490,8 @@ export default function VideoSynopsisPage() {
                                   return c.status === 'completed' && !c.is_system && cId === cid;
                                 }).length;
                                 return (
-                                  <p key={cid} style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: '#ffffff' }}>
-                                    <span style={{ color: '#38bdf8' }}>{camName}</span>: {processed} / {total}
+                                  <p key={cid} style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+                                    <span style={{ color: 'var(--teal)' }}>{camName}</span>: {processed} / {total}
                                   </p>
                                 );
                               })}
@@ -2162,7 +2503,7 @@ export default function VideoSynopsisPage() {
 
                     {(!isMultiCam || showCameraTimeline) && (
                       <div>
-                        <h4 style={{ margin: '0 0 12px 0', color: '#e2e8f0', fontSize: '1.05rem' }}>Timeline</h4>
+                        <h4 style={{ margin: '0 0 12px 0', color: 'var(--text-primary)', fontSize: '1.05rem' }}>Timeline</h4>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                           {(currentJobDetails.clip_details || []).filter(clip => {
                             const clipCId = Array.isArray(clip.camera_id) ? clip.camera_id[0] : clip.camera_id;
@@ -2174,26 +2515,26 @@ export default function VideoSynopsisPage() {
                               <div key={idx} style={{ 
                                 display: 'flex', alignItems: 'center', gap: '16px', background: 'var(--bg-base)', 
                                 padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--border)',
-                                borderLeft: `4px solid ${clip.status === 'completed' ? '#10b981' : '#38bdf8'}`
+                                borderLeft: `4px solid ${clip.status === 'completed' ? '#10b981' : 'var(--teal)'}`
                               }}>
                                 <div style={{ width: '40px', display: 'flex', justifyContent: 'center' }}>
                                   {clip.status === 'completed' ? (
                                     <span className="material-icons-outlined" style={{ color: '#10b981' }}>check_circle</span>
                                   ) : (
-                                    <div className="spinner" style={{ width: '20px', height: '20px', borderWidth: '2px', borderTopColor: '#38bdf8' }}></div>
+                                    <div className="spinner" style={{ width: '20px', height: '20px', borderWidth: '2px', borderTopColor: 'var(--teal)' }}></div>
                                   )}
                                 </div>
                                 <div style={{ flex: 1 }}>
-                                  <p style={{ margin: '0 0 4px 0', fontSize: '0.9rem', color: '#f8fafc', fontWeight: 500 }}>
+                                  <p style={{ margin: '0 0 4px 0', fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: 500 }}>
                                     {clip.is_system ? clip.task_name : `Video Time: ${clip.timestamp !== 'Unknown' ? new Date(clip.timestamp).toLocaleString(undefined, { hour12: false }) : 'Unknown'}`}
                                   </p>
-                                  <p style={{ margin: 0, fontSize: '0.8rem', color: '#ffffff' }}>
+                                  <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                                     {clip.is_system ? 'System Process' : `Camera: ${camName}`}
                                   </p>
                                 </div>
                                 <div style={{ textAlign: 'right' }}>
-                                  <p style={{ margin: '0 0 4px 0', fontSize: '0.9rem', color: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
-                                    <span className="material-icons-outlined" style={{ color: '#38bdf8', fontSize: '1rem' }}>directions_run</span>
+                                  <p style={{ margin: '0 0 4px 0', fontSize: '0.9rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
+                                    <span className="material-icons-outlined" style={{ color: 'var(--teal)', fontSize: '1rem' }}>directions_run</span>
                                     {(() => {
                                       if (clip.is_system && clip.task_name === 'Deduplication & Finalizing' && clip.status === 'completed') {
                                         const finalCount = currentJobDetails.objects?.length || 0;
@@ -2212,16 +2553,16 @@ export default function VideoSynopsisPage() {
                                       return clip.is_system && count === '-' ? '- Objects' : `${count !== undefined ? count : 0} Objects`;
                                     })()}
                                   </p>
-                                  <p style={{ margin: 0, fontSize: '0.8rem', color: '#ffffff' }}>
+                                  <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                                     Time taken: {clip.time_taken_s !== null && clip.time_taken_s !== undefined ? new Date(clip.time_taken_s * 1000).toISOString().substring(11, 19) : '...'}
                                   </p>
                                   {!clip.is_system && clip.video_duration_s != null && (
-                                    <p style={{ margin: 0, fontSize: '0.8rem', color: '#ffffff' }}>
+                                    <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                                       Video duration: {new Date(clip.video_duration_s * 1000).toISOString().substring(11, 19)}
                                     </p>
                                   )}
                                   {!clip.is_system && clip.processed_duration_str && (
-                                    <p style={{ margin: 0, fontSize: '0.8rem', color: '#38bdf8' }}>
+                                    <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--teal)' }}>
                                       Processed: {clip.processed_duration_str}
                                     </p>
                                   )}
@@ -2233,7 +2574,7 @@ export default function VideoSynopsisPage() {
                             const clipCId = Array.isArray(clip.camera_id) ? clip.camera_id[0] : clip.camera_id;
                             return !isMultiCam || clipCId === activeProcessingTab;
                           }).length === 0 && (
-                            <div style={{ textAlign: 'center', padding: '20px', color: '#ffffff', background: 'var(--bg-base)', borderRadius: '8px', border: '1px dashed var(--border)' }}>
+                            <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)', background: 'var(--bg-base)', borderRadius: '8px', border: '1px dashed var(--border)' }}>
                               Preparing background processes...
                             </div>
                           )}
@@ -2243,40 +2584,40 @@ export default function VideoSynopsisPage() {
 
                     {currentJobDetails.status === 'completed' && (
                       <div style={{ marginTop: '16px' }}>
-                        <h4 style={{ margin: '0 0 16px 0', color: '#f8fafc', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span className="material-icons-outlined" style={{ color: '#38bdf8' }}>analytics</span> Job Summary
+                        <h4 style={{ margin: '0 0 16px 0', color: 'var(--text-primary)', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span className="material-icons-outlined" style={{ color: 'var(--teal)' }}>analytics</span> Job Summary
                         </h4>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
                           
-                          <div style={{ background: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                          <div style={{ background: 'var(--bg-elevated)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                              <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(56, 189, 248, 0.1)', color: '#38bdf8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--teal-subtle)', color: 'var(--teal)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                 <span className="material-icons-outlined" style={{ fontSize: '18px' }}>schedule</span>
                               </div>
-                              <span style={{ color: '#94a3b8', fontSize: '0.85rem', fontWeight: 500 }}>Search Range</span>
+                              <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 500 }}>Search Range</span>
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                               <div>
-                                <div style={{ color: '#64748b', fontSize: '0.7rem', marginBottom: '2px' }}>FROM</div>
-                                <div style={{ fontSize: '0.85rem', color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentJobDetails.range_start ? new Date(currentJobDetails.range_start.includes('Z') || currentJobDetails.range_start.includes('+') ? currentJobDetails.range_start : currentJobDetails.range_start + '+05:30').toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'}</div>
+                                <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginBottom: '2px' }}>FROM</div>
+                                <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentJobDetails.range_start ? new Date(currentJobDetails.range_start.includes('Z') || currentJobDetails.range_start.includes('+') ? currentJobDetails.range_start : currentJobDetails.range_start + '+05:30').toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'}</div>
                               </div>
                               <div>
-                                <div style={{ color: '#64748b', fontSize: '0.7rem', marginBottom: '2px' }}>TO</div>
-                                <div style={{ fontSize: '0.85rem', color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentJobDetails.range_end ? new Date(currentJobDetails.range_end.includes('Z') || currentJobDetails.range_end.includes('+') ? currentJobDetails.range_end : currentJobDetails.range_end + '+05:30').toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'}</div>
+                                <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginBottom: '2px' }}>TO</div>
+                                <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentJobDetails.range_end ? new Date(currentJobDetails.range_end.includes('Z') || currentJobDetails.range_end.includes('+') ? currentJobDetails.range_end : currentJobDetails.range_end + '+05:30').toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'}</div>
                               </div>
                             </div>
                           </div>
 
-                          <div style={{ background: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                          <div style={{ background: 'var(--bg-elevated)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
                               <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                 <span className="material-icons-outlined" style={{ fontSize: '18px' }}>videocam</span>
                               </div>
-                              <span style={{ color: '#94a3b8', fontSize: '0.85rem', fontWeight: 500 }}>Sources</span>
+                              <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 500 }}>Sources</span>
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                              <div style={{ fontSize: '0.9rem', color: '#f8fafc', display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ color: '#64748b' }}>Camera</span>
+                              <div style={{ fontSize: '0.9rem', color: 'var(--text-primary)', display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-muted)' }}>Camera</span>
                                 <span style={{ fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100px' }} title={(() => {
                                   if (activeProcessingTab !== 'overall') return cameras?.find(c => (c.id || c._id) === activeProcessingTab)?.name || activeProcessingTab;
                                   if (Array.isArray(currentJobDetails.camera_ids)) return currentJobDetails.camera_ids.map(id => cameras?.find(c => (c.id || c._id) === id)?.name || id).join(', ');
@@ -2292,16 +2633,16 @@ export default function VideoSynopsisPage() {
                             </div>
                           </div>
 
-                          <div style={{ background: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                          <div style={{ background: 'var(--bg-elevated)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
                               <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                 <span className="material-icons-outlined" style={{ fontSize: '18px' }}>bolt</span>
                               </div>
-                              <span style={{ color: '#94a3b8', fontSize: '0.85rem', fontWeight: 500 }}>Performance</span>
+                              <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 500 }}>Performance</span>
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                              <div style={{ fontSize: '0.9rem', color: '#f8fafc', display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ color: '#64748b' }}>Total Video Length</span>
+                              <div style={{ fontSize: '0.9rem', color: 'var(--text-primary)', display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-muted)' }}>Total Video Length</span>
                                 <span style={{ fontWeight: 500 }}>{(() => {
                                   let lenS;
                                   if (activeProcessingTab !== 'overall' && currentJobDetails.metrics_by_camera) {
@@ -2313,9 +2654,9 @@ export default function VideoSynopsisPage() {
                                   return new Date(lenS * 1000).toISOString().substring(11, 19);
                                 })()}</span>
                               </div>
-                              <div style={{ fontSize: '0.9rem', color: '#f8fafc', display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ color: '#64748b' }}>Processed Video Length</span>
-                                <span style={{ fontWeight: 500, color: '#38bdf8' }}>{(() => {
+                              <div style={{ fontSize: '0.9rem', color: 'var(--text-primary)', display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-muted)' }}>Processed Video Length</span>
+                                <span style={{ fontWeight: 500, color: 'var(--teal)' }}>{(() => {
                                   const clipsToSum = (activeProcessingTab === 'overall')
                                     ? (currentJobDetails.clip_details || [])
                                     : (currentJobDetails.clip_details || []).filter(c => {
@@ -2336,8 +2677,8 @@ export default function VideoSynopsisPage() {
                                   return new Date(processedSeconds * 1000).toISOString().substring(11, 19);
                                 })()}</span>
                               </div>
-                              <div style={{ fontSize: '0.9rem', color: '#f8fafc', display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ color: '#64748b' }}>Processing Time</span>
+                              <div style={{ fontSize: '0.9rem', color: 'var(--text-primary)', display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-muted)' }}>Processing Time</span>
                                 <span style={{ fontWeight: 600, color: '#8b5cf6' }}>{(() => {
                                   if (activeProcessingTab !== 'overall') {
                                       const clipsToSum = (currentJobDetails.clip_details || []).filter(c => {
@@ -2368,38 +2709,121 @@ export default function VideoSynopsisPage() {
           </div>
         </div>
       )}
-      {/* Raw Video Modal */}
+      {/* Raw Video Instant Playback Popup Modal */}
       {rawModal.isOpen && (
         <div className="raw-video-modal-backdrop" onClick={() => setRawModal({ isOpen: false, item: null })}>
           <div className="raw-video-modal-content" onClick={e => e.stopPropagation()}>
             <div className="raw-modal-header">
-              <h3>Raw Camera Playback</h3>
-              <button onClick={() => setRawModal({ isOpen: false, item: null })} className="close-btn">
-                <span className="material-icons-outlined">close</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  width: '36px', height: '36px', borderRadius: '50%',
+                  background: 'var(--teal-subtle)', color: 'var(--teal)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}>
+                  <span className="material-icons-outlined" style={{ fontSize: '1.25rem' }}>play_circle</span>
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>Instant Playback</h3>
+                  <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Original Recording Archive Clip</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setRawModal({ isOpen: false, item: null })} 
+                className="close-btn"
+                title="Close"
+              >
+                <span className="material-icons-outlined" style={{ fontSize: '1.3rem' }}>close</span>
               </button>
             </div>
+
             <div className="raw-modal-body">
-              <p>Requested Timestamp: <strong>{rawModal.item.original_timestamp}</strong></p>
-              <p className="text-muted">
-                Camera: {cameras?.find(c => (c.id || c._id) === rawModal.item.camera_id)?.name || rawModal.item.camera_id}
-              </p>
+              {/* Meta details strip */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '6px',
+                    background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                    padding: '4px 10px', borderRadius: 'var(--radius-sm)',
+                    fontSize: '0.8rem', fontWeight: 600, color: 'var(--teal)'
+                  }}>
+                    <span className="material-icons-outlined" style={{ fontSize: '0.95rem' }}>videocam</span>
+                    {cameras?.find(c => (c.id || c._id) === rawModal.item.camera_id)?.name || rawModal.item.camera_id || "Camera"}
+                  </span>
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '6px',
+                    background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                    padding: '4px 10px', borderRadius: 'var(--radius-sm)',
+                    fontSize: '0.8rem', color: 'var(--text-primary)'
+                  }}>
+                    <span className="material-icons-outlined" style={{ fontSize: '0.95rem', color: 'var(--text-muted)' }}>schedule</span>
+                    {rawModal.item.original_timestamp}
+                  </span>
+                </div>
+
+                {rawVideoUrl && (
+                  <button
+                    onClick={handleDownloadRawClip}
+                    disabled={downloadingRawClip}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '6px',
+                      background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                      padding: '5px 12px', borderRadius: 'var(--radius-sm)',
+                      fontSize: '0.8rem', fontWeight: 600, color: 'var(--teal)',
+                      cursor: downloadingRawClip ? 'not-allowed' : 'pointer',
+                      opacity: downloadingRawClip ? 0.7 : 1,
+                      transition: 'all 0.15s ease'
+                    }}
+                    onMouseEnter={e => { if (!downloadingRawClip) { e.currentTarget.style.background = 'var(--teal)'; e.currentTarget.style.color = '#fff'; } }}
+                    onMouseLeave={e => { if (!downloadingRawClip) { e.currentTarget.style.background = 'var(--bg-elevated)'; e.currentTarget.style.color = 'var(--teal)'; } }}
+                  >
+                    <span className="material-icons-outlined" style={{ fontSize: '1rem' }}>
+                      {downloadingRawClip ? 'hourglass_top' : 'download'}
+                    </span>
+                    {downloadingRawClip ? 'Downloading...' : 'Download Clip'}
+                  </button>
+                )}
+              </div>
               
-              <div className="raw-video-player">
+              {/* Video Player */}
+              <div className="raw-video-player" style={{ marginTop: '4px' }}>
                 {rawVideoLoading ? (
-                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px', background: 'var(--bg-base)', borderRadius: '8px', marginTop: '16px', color: 'var(--text-muted)' }}>
-                    <div className="spinner" style={{ marginRight: '12px' }}></div> Extracting Raw Clip from Archive...
+                  <div style={{
+                    display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
+                    height: '360px', background: 'var(--bg-base)', borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border)', color: 'var(--text-secondary)', gap: '12px'
+                  }}>
+                    <div className="spinner" style={{ width: '28px', height: '28px', borderTopColor: 'var(--teal)' }}></div>
+                    <span style={{ fontSize: '0.9rem' }}>Extracting raw recording clip from archive...</span>
                   </div>
                 ) : rawVideoError ? (
-                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px', background: 'var(--bg-base)', borderRadius: '8px', marginTop: '16px', color: '#ef4444' }}>
-                    <span className="material-icons-outlined" style={{ marginRight: '8px' }}>error_outline</span>
-                    {rawVideoError}
+                  <div style={{
+                    display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
+                    height: '360px', background: 'var(--bg-base)', borderRadius: 'var(--radius-md)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)', color: 'var(--red)', padding: '24px', textAlign: 'center', gap: '8px'
+                  }}>
+                    <span className="material-icons-outlined" style={{ fontSize: '2.5rem' }}>error_outline</span>
+                    <p style={{ margin: 0, fontSize: '0.9rem', fontWeight: 500 }}>{rawVideoError}</p>
                   </div>
                 ) : rawVideoUrl ? (
-                  <video ref={rawVideoRef} controls autoPlay muted style={{ width: '100%', borderRadius: '8px', marginTop: '16px', background: 'var(--bg-base)' }}>
-                    Your browser does not support the video tag.
-                  </video>
+                  <div style={{
+                    borderRadius: 'var(--radius-md)', overflow: 'hidden',
+                    border: '1px solid var(--border)', background: '#000',
+                    boxShadow: 'var(--shadow-md)'
+                  }}>
+                    <video
+                      ref={rawVideoRef}
+                      controls
+                      autoPlay
+                      playsInline
+                      preload="auto"
+                      onError={() => setRawVideoError("Failed to play raw video archive. Browser could not decode media.")}
+                      style={{ width: '100%', maxHeight: '58vh', display: 'block', background: '#000' }}
+                    >
+                      Your browser does not support the video tag.
+                    </video>
+                  </div>
                 ) : (
-                  <div style={{ height: '300px', background: 'var(--bg-base)', borderRadius: '8px', marginTop: '16px' }}></div>
+                  <div style={{ height: '360px', background: 'var(--bg-base)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}></div>
                 )}
               </div>
             </div>
@@ -2424,7 +2848,7 @@ export default function VideoSynopsisPage() {
                 const cId = Array.isArray(j.camera_id) ? j.camera_id[0] : j.camera_id;
                 const camInfo = cameras?.find(c => (c.id || c._id) === cId);
                 const camName = camInfo?.name || cId;
-                const url = j.output_video_url ? `http://${import.meta.env.VITE_API_HOST || 'localhost'}:8005${j.output_video_url}` : null;
+                const url = j.output_video_url ? `${SYNOPSIS_API}${j.output_video_url}` : null;
                 return (
                   <div key={j.job_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'var(--bg-base)', borderRadius: '6px', border: '1px solid var(--border)' }}>
                     <span style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '200px' }}>{camName}</span>
@@ -2451,87 +2875,72 @@ export default function VideoSynopsisPage() {
 
       {showAddVideoModal && (
         <div
-          style={{
-            position: 'fixed', inset: 0,
-            background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(3px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            zIndex: 9999998
-          }}
+          className="synopsis-modal-overlay"
           onClick={() => setShowAddVideoModal(false)}
         >
           <div
+            className="synopsis-modal"
             style={{
-              background: '#111418', border: '1px solid var(--border)',
-              borderRadius: '4px', width: '740px', maxWidth: '96vw',
-              maxHeight: '90vh', display: 'flex', flexDirection: 'column',
-              boxShadow: '0 30px 70px rgba(0,0,0,0.7)'
+              width: '840px', maxWidth: '96vw',
+              maxHeight: '92vh',
+              display: 'flex', flexDirection: 'column'
             }}
             onClick={e => e.stopPropagation()}
           >
             {/* Header */}
-            <div style={{ padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--border)' }}>
+            <div className="synopsis-modal-header" style={{ padding: '16px 24px', borderBottom: '1px solid var(--border)' }}>
               <div>
-                <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: '#f8fafc', letterSpacing: '0.04em' }}>ADD VIDEO</h3>
-                <p style={{ margin: '3px 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  {addVideoStep === 1 ? 'Time Range' : addVideoStep === 2 ? 'Camera Selection' : 'Direction (Optional)'}
+                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '0.04em' }}>ADD VIDEO</h3>
+                <p style={{ margin: '3px 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                  {addVideoStep === 1 ? 'Step 1: Select Time Range' : addVideoStep === 2 ? 'Step 2: Select Cameras' : 'Step 3: Filter by Direction (Optional)'}
                 </p>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 {[{ n: 1, label: 'Time\nRange' }, { n: 2, label: 'Camera\nSelection' }, { n: 3, label: 'Direction\n(Optional)' }].map(s => (
-                  <div key={s.n} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', cursor: 'pointer', opacity: addVideoStep === s.n ? 1 : 0.5 }}
+                  <div key={s.n} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', cursor: 'pointer', opacity: addVideoStep === s.n ? 1 : 0.6 }}
                     onClick={() => { if (s.n < addVideoStep) setAddVideoStep(s.n); }}>
                     <div style={{
-                      width: '26px', height: '26px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700,
-                      background: addVideoStep >= s.n ? '#0284c7' : 'rgba(255,255,255,0.1)',
+                      width: '28px', height: '28px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700,
+                      background: addVideoStep >= s.n ? 'var(--teal)' : 'var(--bg-hover)',
                       color: addVideoStep >= s.n ? '#fff' : 'var(--text-muted)',
-                      border: addVideoStep === s.n ? '2px solid #38bdf8' : '2px solid transparent'
+                      border: addVideoStep === s.n ? '2px solid var(--teal)' : '2px solid transparent'
                     }}>{s.n}</div>
-                    <span style={{ fontSize: '0.6rem', color: addVideoStep === s.n ? '#38bdf8' : 'var(--text-muted)', textAlign: 'center', whiteSpace: 'pre-line', lineHeight: '1.2' }}>{s.label}</span>
+                    <span style={{ fontSize: '0.65rem', color: addVideoStep === s.n ? 'var(--teal)' : 'var(--text-secondary)', textAlign: 'center', whiteSpace: 'pre-line', lineHeight: '1.2' }}>{s.label}</span>
                   </div>
                 ))}
-                <button onClick={() => setShowAddVideoModal(false)}
-                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', marginLeft: '8px' }}>
-                  <span className="material-icons-outlined" style={{ fontSize: '1.2rem' }}>close</span>
+                <button
+                  type="button"
+                  onClick={() => setShowAddVideoModal(false)}
+                  className="synopsis-modal-close"
+                  style={{ marginLeft: '8px' }}
+                >
+                  <span className="material-icons-outlined" style={{ fontSize: '1.25rem' }}>close</span>
                 </button>
               </div>
             </div>
 
-            {/* Source tabs */}
-            <div style={{ borderBottom: '1px solid var(--border)', display: 'flex' }}>
-              {['CAMERAS', 'FILES', 'NETWORK'].map(tab => (
-                <button key={tab} onClick={() => setAddVideoSourceTab(tab)}
-                  style={{
-                    background: 'none', border: 'none', padding: '10px 24px',
-                    fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', letterSpacing: '0.04em',
-                    color: addVideoSourceTab === tab ? '#38bdf8' : 'var(--text-muted)',
-                    borderBottom: addVideoSourceTab === tab ? '2px solid #38bdf8' : '2px solid transparent',
-                    marginBottom: '-1px'
-                  }}>{tab}</button>
-              ))}
-            </div>
-
             {/* Body */}
-            <div style={{ flex: 1, overflow: 'auto', minHeight: '260px' }}>
+            <div style={{ flex: 1, overflow: 'auto', minHeight: '260px', background: 'var(--bg-surface)' }}>
 
               {/* Step 1: Time Range */}
               {addVideoStep === 1 && (
                 <div style={{ padding: '36px 40px', display: 'flex', alignItems: 'flex-start', gap: '48px' }}>
-                  <div>
-                    <p style={{ margin: '0 0 10px', fontSize: '0.7rem', color: 'var(--text-muted)', letterSpacing: '0.08em' }}>FROM</p>
+                  <div className="synopsis-field">
+                    <label>FROM</label>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                       <input type="date" value={addVideoFromDate} onChange={e => setAddVideoFromDate(e.target.value)}
-                        style={{ background: 'transparent', border: 'none', borderBottom: '1px solid var(--border)', color: '#f8fafc', fontSize: '0.9rem', outline: 'none', padding: '2px 0', colorScheme: 'dark', minWidth: '120px' }} />
+                        className="synopsis-date-input" style={{ minWidth: '130px' }} />
                       <input type="time" value={addVideoFromTime} onChange={e => setAddVideoFromTime(e.target.value)}
-                        style={{ background: 'transparent', border: 'none', borderBottom: '1px solid var(--border)', color: '#f8fafc', fontSize: '0.9rem', outline: 'none', padding: '2px 0', colorScheme: 'dark', width: '80px' }} />
+                        className="synopsis-date-input" style={{ width: '90px' }} />
                     </div>
                   </div>
-                  <div>
-                    <p style={{ margin: '0 0 10px', fontSize: '0.7rem', color: 'var(--text-muted)', letterSpacing: '0.08em' }}>TO</p>
+                  <div className="synopsis-field">
+                    <label>TO</label>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                       <input type="date" value={addVideoToDate} onChange={e => setAddVideoToDate(e.target.value)}
-                        style={{ background: 'transparent', border: 'none', borderBottom: '1px solid var(--border)', color: '#f8fafc', fontSize: '0.9rem', outline: 'none', padding: '2px 0', colorScheme: 'dark', minWidth: '120px' }} />
+                        className="synopsis-date-input" style={{ minWidth: '130px' }} />
                       <input type="time" value={addVideoToTime} onChange={e => setAddVideoToTime(e.target.value)}
-                        style={{ background: 'transparent', border: 'none', borderBottom: '1px solid var(--border)', color: '#f8fafc', fontSize: '0.9rem', outline: 'none', padding: '2px 0', colorScheme: 'dark', width: '80px' }} />
+                        className="synopsis-date-input" style={{ width: '90px' }} />
                     </div>
                   </div>
                 </div>
@@ -2540,35 +2949,75 @@ export default function VideoSynopsisPage() {
               {/* Step 2: Camera Selection */}
               {addVideoStep === 2 && (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '340px' }}>
-                  <div style={{ padding: '10px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <input type="text" placeholder="Search..." value={addVideoCameraSearch} onChange={e => setAddVideoCameraSearch(e.target.value)}
-                      style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: '#f8fafc', fontSize: '0.88rem', padding: '4px 0' }} />
+                  <div style={{ padding: '10px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-base)' }}>
+                    <input type="text" placeholder="Search cameras..." value={addVideoCameraSearch} onChange={e => setAddVideoCameraSearch(e.target.value)}
+                      style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: 'var(--text-primary)', fontSize: '0.88rem', padding: '4px 0' }} />
                     <span className="material-icons-outlined" style={{ color: 'var(--text-muted)', fontSize: '1.1rem' }}>search</span>
                   </div>
                   <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-                    <div style={{ width: '130px', borderRight: '1px solid var(--border)', padding: '12px 0', flexShrink: 0 }}>
-                      <p style={{ margin: '0 0 8px 12px', fontSize: '0.65rem', color: 'var(--text-muted)', letterSpacing: '0.08em' }}>DIRECTORY</p>
-                      <div style={{ padding: '6px 12px', fontSize: '0.82rem', color: '#38bdf8', background: 'rgba(56,189,248,0.08)' }}>127.0.0.1</div>
+                    <div style={{ width: '130px', borderRight: '1px solid var(--border)', padding: '12px 0', flexShrink: 0, background: 'var(--bg-base)' }}>
+                      <p style={{ margin: '0 0 8px 12px', fontSize: '0.65rem', color: 'var(--text-secondary)', letterSpacing: '0.08em', fontWeight: 600 }}>DIRECTORY</p>
+                      <div style={{ padding: '6px 12px', fontSize: '0.82rem', color: 'var(--teal)', background: 'var(--teal-subtle)', fontWeight: 500 }}>{window.location.hostname}</div>
                     </div>
                     <div style={{ flex: 1, overflow: 'auto', padding: '12px 0' }}>
-                      <p style={{ margin: '0 0 8px 16px', fontSize: '0.65rem', color: 'var(--text-muted)', letterSpacing: '0.08em' }}>CAMERAS</p>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px 8px' }}>
+                        <p style={{ margin: 0, fontSize: '0.65rem', color: 'var(--text-secondary)', letterSpacing: '0.08em', fontWeight: 600 }}>
+                          CAMERAS {addVideoSelectedCams.length > 0 && `(${addVideoSelectedCams.length} SELECTED)`}
+                        </p>
+                        {cameras && cameras.length > 0 && (
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const allIds = cameras.map(c => String(c.id || c._id));
+                                setAddVideoSelectedCams(allIds);
+                              }}
+                              style={{ background: 'none', border: 'none', color: 'var(--teal)', fontSize: '0.72rem', cursor: 'pointer', padding: 0 }}
+                            >
+                              Select All
+                            </button>
+                            <span style={{ color: 'var(--border)', fontSize: '0.72rem' }}>|</span>
+                            <button
+                              type="button"
+                              onClick={() => setAddVideoSelectedCams([])}
+                              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.72rem', cursor: 'pointer', padding: 0 }}
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        )}
+                      </div>
                       {(cameras || [])
                         .filter(c => !addVideoCameraSearch || (c.name || '').toLowerCase().includes(addVideoCameraSearch.toLowerCase()))
                         .map(c => {
-                          const cid = c.id || c._id;
-                          const checked = addVideoSelectedCams.includes(cid);
+                          const cid = String(c.id || c._id);
+                          const isChecked = addVideoSelectedCams.some(x => String(x) === cid);
                           return (
-                            <div key={cid}
-                              onClick={() => setAddVideoSelectedCams(prev => checked ? prev.filter(x => x !== cid) : [...prev, cid])}
+                            <label key={cid}
                               style={{
-                                display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 16px',
-                                cursor: 'pointer', background: checked ? 'rgba(56,189,248,0.1)' : 'transparent',
-                                borderBottom: '1px solid rgba(255,255,255,0.03)',
-                                color: checked ? '#f8fafc' : 'var(--text-muted)', fontSize: '0.84rem'
+                                display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 16px',
+                                cursor: 'pointer', background: isChecked ? 'var(--teal-subtle)' : 'transparent',
+                                borderBottom: '1px solid var(--border)',
+                                color: isChecked ? 'var(--text-primary)' : 'var(--text-secondary)', fontSize: '0.84rem',
+                                transition: 'background 0.15s ease'
                               }}>
-                              <input type="checkbox" checked={checked} readOnly style={{ accentColor: '#38bdf8', cursor: 'pointer', flexShrink: 0 }} />
-                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name || cid}</span>
-                            </div>
+                              <input 
+                                type="checkbox" 
+                                checked={isChecked} 
+                                onChange={(e) => {
+                                  const checked = e.target.checked;
+                                  setAddVideoSelectedCams(prev => {
+                                    if (checked) {
+                                      return prev.some(x => String(x) === cid) ? prev : [...prev, cid];
+                                    } else {
+                                      return prev.filter(x => String(x) !== cid);
+                                    }
+                                  });
+                                }}
+                                style={{ accentColor: 'var(--teal)', cursor: 'pointer', flexShrink: 0, width: '16px', height: '16px' }} 
+                              />
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: isChecked ? 600 : 400 }}>{c.name || cid}</span>
+                            </label>
                           );
                         })}
                       {(cameras || []).filter(c => !addVideoCameraSearch || (c.name || '').toLowerCase().includes(addVideoCameraSearch.toLowerCase())).length === 0 && (
@@ -2581,50 +3030,59 @@ export default function VideoSynopsisPage() {
 
               {/* Step 3: Direction (optional) */}
               {addVideoStep === 3 && (
-                <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '10px', height: '340px' }}>
+                <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '12px', height: '460px', maxHeight: '58vh' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
                     <div>
-                      <p style={{ margin: '0 0 4px', fontSize: '0.8rem', color: '#f8fafc', fontWeight: 600 }}>Filter by Direction (Optional)</p>
-                      <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      <p style={{ margin: '0 0 4px', fontSize: '0.88rem', color: 'var(--text-primary)', fontWeight: 600 }}>Filter by Direction (Optional)</p>
+                      <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                         Draw an arrow below to only include objects moving in that direction, or skip and submit.
                       </p>
                     </div>
                     {directionAngle !== null && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                        <span style={{ fontSize: '0.85rem', fontWeight: 500, color: '#38bdf8' }}>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--teal)' }}>
                           <span className="material-icons-outlined" style={{ fontSize: '0.9rem', verticalAlign: 'middle', marginRight: '2px' }}>explore</span>
                           {directionAngle.toFixed(1)}°
                         </span>
-                        <button type="button" onClick={clearDirection} style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#f87171', cursor: 'pointer', fontSize: '0.75rem', padding: '2px 8px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <button type="button" onClick={clearDirection} style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', color: 'var(--red)', cursor: 'pointer', fontSize: '0.75rem', padding: '2px 8px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                           <span className="material-icons-outlined" style={{ fontSize: '0.8rem' }}>clear</span> Clear
                         </button>
                       </div>
                     )}
                   </div>
 
-                  <div style={{ flex: 1, minHeight: 0, position: 'relative', width: '100%', backgroundColor: 'var(--bg-active)', border: directionAngle !== null ? '1px solid #38bdf8' : '1px dashed var(--border)', borderRadius: '8px', overflow: 'hidden', boxShadow: directionAngle !== null ? '0 0 0 2px rgba(56, 189, 248, 0.2)' : 'none', transition: 'all 0.2s' }}>
-                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1, display: 'grid', gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(addVideoSelectedCams.length || 1))}, 1fr)`, gap: '2px', background: '#000' }}>
+                  <div style={{ flex: 1, minHeight: 0, position: 'relative', width: '100%', backgroundColor: '#000', border: directionAngle !== null ? '2px solid var(--teal)' : '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden', boxShadow: directionAngle !== null ? '0 0 0 2px var(--teal-glow)' : 'none', transition: 'all 0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ position: 'absolute', inset: 0, zIndex: 1, display: 'grid', gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(addVideoSelectedCams.length || 1))}, 1fr)`, gap: '2px', background: '#000' }}>
                       {addVideoSelectedCams.map(camId => (
-                        addVideoLiveSnapshots[camId] && <img key={camId} src={addVideoLiveSnapshots[camId]} alt="cam" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(4px) brightness(0.45)', transform: 'scale(1.06)' }} />
+                        addVideoLiveSnapshots[camId] && (
+                          <img 
+                            key={camId} 
+                            src={addVideoLiveSnapshots[camId]} 
+                            alt="cam" 
+                            style={{ 
+                              width: '100%', 
+                              height: '100%', 
+                              objectFit: 'contain', 
+                              display: 'block' 
+                            }} 
+                          />
+                        )
                       ))}
                     </div>
-                    {addVideoSelectedCams.some(id => addVideoLiveSnapshots[id]) && (
-                      <div style={{ position: 'absolute', inset: 0, zIndex: 2, background: 'rgba(0,0,0,0.35)', pointerEvents: 'none' }} />
-                    )}
                     <canvas
                       ref={canvasRef}
                       width={1280}
                       height={720}
-                      style={{ width: '100%', height: '100%', cursor: 'crosshair', display: 'block', zIndex: 10, position: 'relative' }}
+                      style={{ width: '100%', height: '100%', cursor: 'crosshair', display: 'block', zIndex: 10, position: 'relative', objectFit: 'contain' }}
                       onMouseDown={handleMouseDown}
                       onMouseMove={handleMouseMove}
                       onMouseUp={handleMouseUp}
                       onMouseLeave={handleMouseUp}
                     />
                     {!directionAngle && !isDrawing && (
-                      <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', pointerEvents: 'none', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', zIndex: 5 }}>
-                        <span className="material-icons-outlined" style={{ fontSize: '1.5rem', opacity: 0.5 }}>draw</span>
-                        <span style={{ fontSize: '0.8rem' }}>Drag to draw direction</span>
+                      <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', pointerEvents: 'none', color: '#fff', background: 'rgba(0, 0, 0, 0.72)', backdropFilter: 'blur(4px)', padding: '8px 16px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.18)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', zIndex: 12 }}>
+                        <span className="material-icons-outlined" style={{ fontSize: '1.4rem', color: 'var(--teal)' }}>draw</span>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 500 }}>Click and drag to draw direction arrow</span>
                       </div>
                     )}
                   </div>
@@ -2633,61 +3091,79 @@ export default function VideoSynopsisPage() {
             </div>
 
             {/* Footer */}
-            <div style={{ borderTop: '1px solid var(--border)' }}>
-              <div style={{ height: '3px', background: 'rgba(255,255,255,0.06)' }}>
-                <div style={{ height: '100%', width: `${(addVideoStep / 3) * 100}%`, background: '#ef4444', transition: 'width 0.3s' }} />
+            <div style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-elevated)' }}>
+              <div style={{ height: '3px', background: 'var(--border)' }}>
+                <div style={{ height: '100%', width: `${(addVideoStep / 3) * 100}%`, background: 'var(--teal)', transition: 'width 0.3s' }} />
               </div>
-              <div style={{ padding: '10px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <button onClick={() => addVideoStep === 1 ? setShowAddVideoModal(false) : setAddVideoStep(addVideoStep - 1)}
-                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, letterSpacing: '0.06em' }}>
-                  {addVideoStep === 1 ? 'CANCEL' : 'PREV'}
+              <div style={{ padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="m-btn"
+                  onClick={() => addVideoStep === 1 ? setShowAddVideoModal(false) : setAddVideoStep(addVideoStep - 1)}
+                >
+                  {addVideoStep === 1 ? 'Cancel' : 'Back'}
                 </button>
                 {addVideoStep === 1 && (
-                  <button onClick={() => setAddVideoStep(2)}
-                    style={{ background: '#0284c7', color: 'white', border: 'none', padding: '7px 20px', borderRadius: '4px', fontSize: '0.82rem', fontWeight: 600, letterSpacing: '0.06em', cursor: 'pointer' }}>
-                    NEXT
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => setAddVideoStep(2)}
+                  >
+                    Next
                   </button>
                 )}
                 {addVideoStep === 2 && (
                   <button
+                    type="button"
+                    className="btn-primary"
                     onClick={() => {
                       if (addVideoSelectedCams.length === 0) { setToastMessage('Select at least one camera.'); return; }
                       setAddVideoStep(3);
                     }}
                     disabled={addVideoSelectedCams.length === 0}
-                    style={{
-                      background: addVideoSelectedCams.length === 0 ? 'rgba(2,132,199,0.3)' : '#0284c7',
-                      color: 'white', border: 'none', padding: '7px 20px',
-                      borderRadius: '4px', fontSize: '0.82rem', fontWeight: 600, letterSpacing: '0.06em',
-                      cursor: addVideoSelectedCams.length === 0 ? 'not-allowed' : 'pointer'
-                    }}>NEXT</button>
+                  >Next</button>
                 )}
                 {addVideoStep === 3 && (
                   <button
+                    type="button"
+                    className="btn-primary"
                     onClick={async () => {
-                      if (addVideoSelectedCams.length === 0) { setToastMessage('Select at least one camera.'); return; }
-                      const fromISO = `${addVideoFromDate}T${addVideoFromTime || '00:00'}`;
-                      const toISO = `${addVideoToDate}T${addVideoToTime || '23:59'}`;
-                      setSelectedCameras(addVideoSelectedCams);
-                      setRangeStart(fromISO);
-                      setRangeEnd(toISO);
-                      setShowAddVideoModal(false);
-                      // Direction is optional: startPoint/endPoint (if the user drew
-                      // an arrow on Step 3) are already picked up inside
-                      // handleGenerateSynopsis, no extra wiring needed here.
-                      setTimeout(() => handleGenerateSynopsis(addVideoJob?.job_name || '', { description: addVideoJob?.description || '', incidentTime: addVideoJob?.incident_time || '' }), 80);
-                      // Remove the local no_video card if it exists
-                      if (addVideoJob?._local) {
-                        setJobHistory(prev => prev.filter(j => j.job_id !== addVideoJob.job_id));
+                      if (!addVideoSelectedCams || addVideoSelectedCams.length === 0) {
+                        setToastMessage('Select at least one camera.');
+                        return;
                       }
+                      const formatTimeStr = (t, defaultVal) => {
+                        if (!t) return defaultVal;
+                        return t.length === 5 ? `${t}:00` : t;
+                      };
+                      const fromISO = `${addVideoFromDate}T${formatTimeStr(addVideoFromTime, '00:00:00')}`;
+                      const toISO = `${addVideoToDate}T${formatTimeStr(addVideoToTime, '23:59:59')}`;
+
+                      const jobName = addVideoJob?.job_name || '';
+                      const description = addVideoJob?.description || '';
+                      const incidentTime = addVideoJob?.incident_time || '';
+                      const isLocal = addVideoJob?._local;
+                      const localJobId = addVideoJob?.job_id;
+
+                      setShowAddVideoModal(false);
+                      if (isLocal && localJobId) {
+                        setJobHistory(prev => prev.filter(j => j.job_id !== localJobId));
+                      }
+
+                      await handleGenerateSynopsis(
+                        jobName,
+                        { description, incidentTime },
+                        {
+                          cameras: [...addVideoSelectedCams],
+                          rangeStart: fromISO,
+                          rangeEnd: toISO
+                        }
+                      );
                     }}
                     disabled={addVideoSelectedCams.length === 0}
-                    style={{
-                      background: addVideoSelectedCams.length === 0 ? 'rgba(2,132,199,0.3)' : '#0284c7',
-                      color: 'white', border: 'none', padding: '7px 20px',
-                      borderRadius: '4px', fontSize: '0.82rem', fontWeight: 600, letterSpacing: '0.06em',
-                      cursor: addVideoSelectedCams.length === 0 ? 'not-allowed' : 'pointer'
-                    }}>SUBMIT</button>
+                  >
+                    Submit Synopsis
+                  </button>
                 )}
               </div>
             </div>
@@ -2696,103 +3172,108 @@ export default function VideoSynopsisPage() {
       )}
       {showCreateModal && (
         <div
-          style={{
-            position: 'fixed', inset: 0,
-            background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(4px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            zIndex: 9999999
-          }}
+          className="synopsis-modal-overlay"
           onClick={() => setShowCreateModal(false)}
         >
           <div
-            style={{
-              background: '#0d1117', border: '1px solid var(--border)',
-              borderRadius: '4px', width: '480px', maxWidth: '95vw',
-              display: 'flex', flexDirection: 'column',
-              boxShadow: '0 25px 60px rgba(0,0,0,0.7)'
-            }}
+            className="synopsis-modal"
+            style={{ width: '480px', maxWidth: '95vw' }}
             onClick={e => e.stopPropagation()}
           >
             {/* Header */}
-            <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div className="synopsis-modal-header">
               <div>
-                <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, color: '#f8fafc', letterSpacing: '0.04em' }}>
-                  CREATE A NEW SUMMARY
-                </h3>
-                <p style={{ margin: '3px 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  Please fill in the fields below
-                </p>
+                <h3>CREATE NEW SYNOPSIS</h3>
+                <p>Please fill in the synopsis case details below</p>
               </div>
-              <button onClick={() => setShowCreateModal(false)}
-                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', marginTop: '2px', padding: '2px' }}>
-                <span className="material-icons-outlined" style={{ fontSize: '1.2rem' }}>close</span>
+              <button
+                type="button"
+                className="synopsis-modal-close"
+                onClick={() => setShowCreateModal(false)}
+                title="Close"
+              >
+                <span className="material-icons-outlined" style={{ fontSize: '1.25rem' }}>close</span>
               </button>
             </div>
 
             {/* Body */}
-            <div style={{ padding: '28px 24px', display: 'flex', flexDirection: 'column', gap: '0' }}>
-
+            <div className="synopsis-modal-body">
               {/* Title */}
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ fontSize: '0.82rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Title</label>
-                <div style={{ borderBottom: '2px solid #0284c7' }}>
-                  <input
-                    autoFocus
-                    type="text"
-                    value={createTitle}
-                    onChange={e => setCreateTitle(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && createTitle.trim() && (() => {
-                      const id = `local-${Date.now()}`;
-                      setJobHistory(prev => [{ job_id: id, job_name: createTitle.trim(), description: createDescription.trim(), incident_time: createIncidentDate && createIncidentTime ? (createIncidentDate + ' ' + createIncidentTime) : (createIncidentDate || ''), status: 'no_video', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), _local: true }, ...prev]);
-                      setShowCreateModal(false); setCreateTitle(''); setCreateDescription(''); setCreateIncidentDate(''); setCreateIncidentTime('');
-                    })()}
-                    style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', color: '#f8fafc', fontSize: '0.9rem', padding: '4px 0', boxSizing: 'border-box' }}
-                  />
-                </div>
+              <div className="synopsis-field">
+                <label>
+                  Title <span style={{ color: 'var(--red)' }}>*</span>
+                </label>
+                <input
+                  autoFocus
+                  type="text"
+                  placeholder="e.g. Incident Review - Entry Gates"
+                  value={createTitle}
+                  onChange={e => setCreateTitle(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && createTitle.trim() && (() => {
+                    const id = `local-${Date.now()}`;
+                    setJobHistory(prev => [{ job_id: id, job_name: createTitle.trim() || 'Untitled Synopsis', description: createDescription.trim(), incident_time: createIncidentDate && createIncidentTime ? (createIncidentDate + ' ' + createIncidentTime) : (createIncidentDate || ''), status: 'no_video', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), _local: true }, ...prev]);
+                    const now = new Date();
+                    setShowCreateModal(false); setCreateTitle(''); setCreateDescription(''); setCreateIncidentDate(now.toLocaleDateString('en-CA')); setCreateIncidentTime(now.toTimeString().slice(0, 5));
+                  })()}
+                  className="synopsis-input"
+                />
               </div>
 
               {/* Description */}
-              <div style={{ marginBottom: '16px' }}>
-                <div style={{ borderBottom: '1px solid rgba(255,255,255,0.12)' }}>
-                  <input
-                    type="text"
-                    placeholder="Description (optional)"
-                    value={createDescription}
-                    onChange={e => setCreateDescription(e.target.value)}
-                    style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', color: '#f8fafc', fontSize: '0.9rem', padding: '4px 0', boxSizing: 'border-box' }}
-                  />
-                </div>
+              <div className="synopsis-field">
+                <label>Description (optional)</label>
+                <textarea
+                  rows={2}
+                  placeholder="Add notes or incident summary context..."
+                  value={createDescription}
+                  onChange={e => setCreateDescription(e.target.value)}
+                  className="synopsis-textarea"
+                />
               </div>
 
               {/* Incident Time */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginTop: '8px' }}>
-                <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', minWidth: '148px' }}>
-                  Incident Time (optional)
-                </span>
-                <input type="date" value={createIncidentDate} onChange={e => setCreateIncidentDate(e.target.value)}
-                  style={{ background: 'transparent', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.12)', color: 'var(--text-muted)', fontSize: '0.85rem', outline: 'none', padding: '2px 0', colorScheme: 'dark', flex: 1 }} />
-                <input type="time" value={createIncidentTime} onChange={e => setCreateIncidentTime(e.target.value)}
-                  style={{ background: 'transparent', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.12)', color: 'var(--text-muted)', fontSize: '0.85rem', outline: 'none', padding: '2px 0', colorScheme: 'dark', width: '80px' }} />
+              <div className="synopsis-field">
+                <label>Incident Date & Time (optional)</label>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <input
+                    type="date"
+                    value={createIncidentDate}
+                    onChange={e => setCreateIncidentDate(e.target.value)}
+                    className="synopsis-date-input"
+                    style={{ flex: 1 }}
+                  />
+                  <input
+                    type="time"
+                    value={createIncidentTime}
+                    onChange={e => setCreateIncidentTime(e.target.value)}
+                    className="synopsis-date-input"
+                    style={{ width: '120px' }}
+                  />
+                </div>
               </div>
-
             </div>
 
             {/* Footer */}
-            <div style={{ padding: '12px 20px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.3)' }}>
-              <button onClick={() => setShowCreateModal(false)}
-                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, letterSpacing: '0.06em' }}>
-                CANCEL
+            <div className="synopsis-modal-footer">
+              <button
+                type="button"
+                className="m-btn"
+                onClick={() => setShowCreateModal(false)}
+              >
+                Cancel
               </button>
               <button
+                type="button"
+                className="btn-primary"
                 onClick={() => {
                   const id = `local-${Date.now()}`;
-                  setJobHistory(prev => [{ job_id: id, job_name: createTitle.trim() || 'Untitled Summary', description: createDescription.trim(), incident_time: createIncidentDate && createIncidentTime ? (createIncidentDate + ' ' + createIncidentTime) : (createIncidentDate || ''), status: 'no_video', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), _local: true }, ...prev]);
+                  setJobHistory(prev => [{ job_id: id, job_name: createTitle.trim() || 'Untitled Synopsis', description: createDescription.trim(), incident_time: createIncidentDate && createIncidentTime ? (createIncidentDate + ' ' + createIncidentTime) : (createIncidentDate || ''), status: 'no_video', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), _local: true }, ...prev]);
+                  const now = new Date();
                   setShowCreateModal(false);
-                  setCreateTitle(''); setCreateDescription(''); setCreateIncidentDate(''); setCreateIncidentTime('');
+                  setCreateTitle(''); setCreateDescription(''); setCreateIncidentDate(now.toLocaleDateString('en-CA')); setCreateIncidentTime(now.toTimeString().slice(0, 5));
                 }}
-                style={{ background: '#0284c7', color: 'white', border: 'none', padding: '8px 20px', borderRadius: '4px', fontSize: '0.82rem', fontWeight: 600, letterSpacing: '0.06em', cursor: 'pointer' }}
               >
-                CREATE
+                Create Synopsis
               </button>
             </div>
           </div>

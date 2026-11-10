@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { useNavigate } from "react-router-dom";
 import { useCameras } from "../../context/CamerasContext";
 import { useAuth } from "../../context/AuthContext";
+import useGroups from "../../hooks/useGroups";
 import { apiUrl } from "../../config/appConfig";
 import "./MultiPlaybackPage.css";
 
@@ -62,12 +63,14 @@ function format12h(timeStr) {
 }
 
 const GRID_LAYOUTS = [
-  { id: "2x2", label: "2×2", rows: 2, cols: 2, capacity: 4 },
-  { id: "3x3", label: "3×3", rows: 3, cols: 3, capacity: 9 },
-  { id: "4x4", label: "4×4", rows: 4, cols: 4, capacity: 16 },
-  { id: "5x5", label: "5×5", rows: 5, cols: 5, capacity: 25 },
-  { id: "6x6", label: "6×6", rows: 6, cols: 6, capacity: 36 },
-  { id: "7x7", label: "7×7", rows: 7, cols: 7, capacity: 49 },
+  { id: "1x1", label: "1×1", rows: 1, cols: 1 },
+  { id: "2x2", label: "2×2", rows: 2, cols: 2 },
+  { id: "2x3", label: "2×3", rows: 2, cols: 3 },
+  { id: "3x3", label: "3×3", rows: 3, cols: 3 },
+  { id: "3x4", label: "3×4", rows: 3, cols: 4 },
+  { id: "4x4", label: "4×4", rows: 4, cols: 4 },
+  { id: "5x5", label: "5×5", rows: 5, cols: 5 },
+  { id: "6x6", label: "6×6", rows: 6, cols: 6 },
 ];
 
 const TIME_PRESETS = [
@@ -82,9 +85,16 @@ export default function MultiPlaybackPage() {
   const navigate = useNavigate();
   const { cameras: allCameras = [] } = useCameras();
   const { user } = useAuth();
+  const [groups = []] = useGroups();
+
+  // ── Group Selection State (like LiveViewPage) ──
+  const [selectedGroupId, setSelectedGroupId] = useState("all");
+  const [groupDropdownOpen, setGroupDropdownOpen] = useState(false);
+  const groupDropdownRef = useRef(null);
 
   // ── Layout State ──
   const [layout, setLayout] = useState("2x2");
+  const [currentPage, setCurrentPage] = useState(1);
   const [showLayoutMenu, setShowLayoutMenu] = useState(false);
   const layoutDropdownRef = useRef(null);
 
@@ -99,6 +109,7 @@ export default function MultiPlaybackPage() {
 
   // Drawer modal state
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [draftGroupId, setDraftGroupId] = useState("all");
   const [draftCameras, setDraftCameras] = useState(["ALL"]);
   const [draftDate, setDraftDate] = useState(todayStr);
   const [draftPreset, setDraftPreset] = useState("Night");
@@ -114,42 +125,87 @@ export default function MultiPlaybackPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const videoRefs = useRef({});
+  const isScrubbingRef = useRef(false);
 
-  // Close layout menu on outside click
+  // Close menus on outside click
   useEffect(() => {
     const handleOutside = (e) => {
       if (layoutDropdownRef.current && !layoutDropdownRef.current.contains(e.target)) {
         setShowLayoutMenu(false);
+      }
+      if (groupDropdownRef.current && !groupDropdownRef.current.contains(e.target)) {
+        setGroupDropdownOpen(false);
       }
     };
     document.addEventListener("mousedown", handleOutside);
     return () => document.removeEventListener("mousedown", handleOutside);
   }, []);
 
-  // Filter available cameras that match selectedCameras
+  // Compute selected group label
+  const selectedGroupLabel = useMemo(() => {
+    if (!selectedGroupId || selectedGroupId === "all") return "ALL";
+    if (selectedGroupId === "default") return "Default";
+    const found = groups.find((g) => (g.id || g._id) === selectedGroupId);
+    return found ? found.name : "ALL";
+  }, [selectedGroupId, groups]);
+
+  // Count cameras per group
+  const groupCamsCounts = useMemo(() => {
+    const counts = { all: allCameras.length, default: 0 };
+    allCameras.forEach((c) => {
+      const gid = c.group_id || "default";
+      counts[gid] = (counts[gid] || 0) + 1;
+    });
+    return counts;
+  }, [allCameras]);
+
+  // Filter available cameras by selectedGroupId and selectedCameras
   const activeCameras = useMemo(() => {
-    if (selectedCameras.includes("ALL")) {
-      return allCameras;
+    let list = allCameras;
+    if (selectedGroupId === "default") {
+      list = list.filter((c) => !c.group_id || c.group_id === "default");
+    } else if (selectedGroupId && selectedGroupId !== "all") {
+      list = list.filter(
+        (c) => c.group_id === selectedGroupId || String(c.group_id) === String(selectedGroupId)
+      );
     }
-    return allCameras.filter((cam) => {
+
+    if (selectedCameras.includes("ALL")) {
+      return list;
+    }
+    return list.filter((cam) => {
       const key = cam.stream_key || String(cam.id);
       return selectedCameras.includes(key);
     });
-  }, [allCameras, selectedCameras]);
+  }, [allCameras, selectedGroupId, selectedCameras]);
 
-  // Determine grid capacity & visible cameras
+  // Determine grid capacity & visible cameras (matching LiveViewPage rectangular grid)
   const activeLayoutConfig = useMemo(
-    () => GRID_LAYOUTS.find((l) => l.id === layout) || GRID_LAYOUTS[0],
+    () => GRID_LAYOUTS.find((l) => l.id === layout) || GRID_LAYOUTS[1],
     [layout]
   );
+  const cols = activeLayoutConfig.cols;
+  const rows = activeLayoutConfig.rows;
+  const gridSize = cols * rows;
 
-  const visibleCameras = useMemo(() => {
-    return activeCameras.slice(0, activeLayoutConfig.capacity);
-  }, [activeCameras, activeLayoutConfig]);
+  const totalPages = Math.max(1, Math.ceil(activeCameras.length / gridSize));
 
-  // ── Fetch recordings for active cameras whenever selectedDate or activeCameras change ──
   useEffect(() => {
-    if (visibleCameras.length === 0) return;
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
+
+  const pageCams = useMemo(() => {
+    return activeCameras.slice((currentPage - 1) * gridSize, currentPage * gridSize);
+  }, [activeCameras, currentPage, gridSize]);
+
+  const dynamicGap =
+    cols >= 6 ? "4px" : cols >= 5 ? "6px" : cols >= 4 ? "8px" : "10px";
+
+  // ── Fetch recordings for page cameras whenever selectedDate or pageCams change ──
+  useEffect(() => {
+    if (pageCams.length === 0) return;
     let cancelled = false;
 
     const fetchAllRecordings = async () => {
@@ -157,7 +213,8 @@ export default function MultiPlaybackPage() {
       const newFilesMap = {};
 
       await Promise.all(
-        visibleCameras.map(async (cam) => {
+        pageCams.map(async (cam) => {
+          if (!cam) return;
           const streamKey = cam.stream_key || String(cam.id);
           try {
             const res = await fetch(
@@ -185,7 +242,7 @@ export default function MultiPlaybackPage() {
       );
 
       if (!cancelled) {
-        setCameraFiles(newFilesMap);
+        setCameraFiles((prev) => ({ ...prev, ...newFilesMap }));
         setLoadingRecordings(false);
       }
     };
@@ -194,7 +251,7 @@ export default function MultiPlaybackPage() {
     return () => {
       cancelled = true;
     };
-  }, [visibleCameras, selectedDate]);
+  }, [pageCams, selectedDate]);
 
   // Synchronize unified play/pause
   const togglePlayAll = () => {
@@ -219,19 +276,75 @@ export default function MultiPlaybackPage() {
   // Seek all to a given time in seconds
   const handleSeek = (newSeconds) => {
     setSeekSeconds(newSeconds);
-    // Find the offset inside current 5-min segment
-    Object.values(videoRefs.current).forEach((v) => {
+    // Find the offset inside current segment for each video
+    Object.entries(videoRefs.current).forEach(([streamKey, v]) => {
       if (v) {
-        const offset = newSeconds % 300;
-        if (v.duration && offset <= v.duration) {
-          v.currentTime = offset;
+        const files = cameraFiles[streamKey] || [];
+        const matched = files.find(
+          (f) => newSeconds >= f.start_secs && newSeconds < f.start_secs + (f.duration || 300)
+        );
+        if (matched) {
+          const offset = Math.max(0, newSeconds - matched.start_secs);
+          if (v.duration && offset <= v.duration) {
+            v.currentTime = offset;
+          }
         }
       }
     });
   };
 
+  // ── Unified Playback Ticker: advances time and slider while playing ───────
+  useEffect(() => {
+    if (!isPlaying) return;
+
+    const intervalMs = Math.max(100, Math.round(1000 / playbackSpeed));
+    const timer = setInterval(() => {
+      if (isScrubbingRef.current) return;
+
+      setSeekSeconds((prevSec) => {
+        // Inspect active playing videos to accurately track playback progression
+        const activeEntries = Object.entries(videoRefs.current).filter(
+          ([_, v]) => v && !v.paused && !v.ended && v.readyState >= 2
+        );
+
+        if (activeEntries.length > 0) {
+          const [activeKey, activeVid] = activeEntries[0];
+          const files = cameraFiles[activeKey] || [];
+          const currentFile = files.find(
+            (f) => prevSec >= f.start_secs && prevSec < f.start_secs + (f.duration || 300)
+          );
+
+          if (currentFile && typeof activeVid.currentTime === "number") {
+            const calculatedSec = Math.floor(currentFile.start_secs + activeVid.currentTime);
+            // If nearing file duration, jump to next segment
+            if (activeVid.currentTime >= (activeVid.duration || 300) - 0.5) {
+              return currentFile.start_secs + (currentFile.duration || 300);
+            }
+            if (
+              calculatedSec >= currentFile.start_secs &&
+              calculatedSec <= currentFile.start_secs + (currentFile.duration || 300)
+            ) {
+              return calculatedSec;
+            }
+          }
+        }
+
+        // Fallback: advance 1 second if no video actively playing (buffering or gap)
+        const nextSec = prevSec + 1;
+        if (nextSec > 86399) {
+          setIsPlaying(false);
+          return 86399;
+        }
+        return nextSec;
+      });
+    }, intervalMs);
+
+    return () => clearInterval(timer);
+  }, [isPlaying, playbackSpeed, cameraFiles]);
+
   // ── Filter Drawer Handlers ──
   const openFilter = () => {
+    setDraftGroupId(selectedGroupId);
     setDraftCameras(selectedCameras);
     setDraftDate(selectedDate);
     setDraftPreset(selectedPreset);
@@ -246,11 +359,13 @@ export default function MultiPlaybackPage() {
   };
 
   const handleApplyFilter = () => {
+    setSelectedGroupId(draftGroupId);
     setSelectedCameras(draftCameras);
     setSelectedDate(draftDate);
     setSelectedPreset(draftPreset);
     setStartTime(draftStart);
     setEndTime(draftEnd);
+    setCurrentPage(1);
 
     // Update seek time to start of selected range
     const startSec = timeStrToSeconds(draftStart);
@@ -261,6 +376,7 @@ export default function MultiPlaybackPage() {
   };
 
   const handleClearFilter = () => {
+    setDraftGroupId("all");
     setDraftCameras(["ALL"]);
     setDraftDate(todayStr);
     setDraftPreset("Full Day");
@@ -301,27 +417,34 @@ export default function MultiPlaybackPage() {
     );
   };
 
-  // Find matching recording segment for a camera at seekSeconds
-  const getCameraPlaybackSource = (streamKey) => {
-    const files = cameraFiles[streamKey] || [];
-    // A 5-min segment covers [start_secs, start_secs + 300]
-    const matched = files.find(
-      (f) => seekSeconds >= f.start_secs && seekSeconds < f.start_secs + (f.duration || 300)
-    );
-
-    if (!matched) return null;
-
+  // Stable playback sources map per page camera
+  const playbackSources = useMemo(() => {
+    const map = {};
     const tk = getToken();
-    const url =
-      apiUrl("/recordings/play") +
-      `?camera_id=${encodeURIComponent(matched.camera_id)}` +
-      `&date=${encodeURIComponent(matched.date)}` +
-      `&start_time=${encodeURIComponent(matched.start_time)}` +
-      `&_cb=${Date.now()}` +
-      (tk ? `&token=${encodeURIComponent(tk)}` : "");
+    pageCams.forEach((cam) => {
+      if (!cam) return;
+      const streamKey = cam.stream_key || String(cam.id);
+      const files = cameraFiles[streamKey] || [];
+      const matched = files.find(
+        (f) => seekSeconds >= f.start_secs && seekSeconds < f.start_secs + (f.duration || 300)
+      );
 
-    return { file: matched, url };
-  };
+      if (matched) {
+        map[streamKey] = {
+          file: matched,
+          url:
+            apiUrl("/recordings/play") +
+            `?camera_id=${encodeURIComponent(matched.camera_id)}` +
+            `&date=${encodeURIComponent(matched.date)}` +
+            `&start_time=${encodeURIComponent(matched.start_time)}` +
+            (tk ? `&token=${encodeURIComponent(tk)}` : ""),
+        };
+      } else {
+        map[streamKey] = null;
+      }
+    });
+    return map;
+  }, [pageCams, cameraFiles, seekSeconds]);
 
   return (
     <div className="multi-pb-shell">
@@ -332,11 +455,14 @@ export default function MultiPlaybackPage() {
 
           {/* Active Filter Badges */}
           <div className="multi-pb-badges">
+            <span className="multi-pb-badge multi-pb-badge-group">
+              Group: {selectedGroupLabel}
+            </span>
             <span className="multi-pb-badge multi-pb-badge-cameras">
               Cameras:{" "}
               {selectedCameras.includes("ALL")
-                ? "All"
-                : `${selectedCameras.length} Selected`}
+                ? `${activeCameras.length} in Group`
+                : `${activeCameras.length} Selected`}
             </span>
             <span className="multi-pb-badge multi-pb-badge-date">
               Date: {formatDateBadge(selectedDate)}
@@ -347,7 +473,95 @@ export default function MultiPlaybackPage() {
           </div>
         </div>
 
-        <div className="multi-pb-toolbar__right" ref={layoutDropdownRef}>
+        <div className="multi-pb-toolbar__right">
+          {/* Group Selector Dropdown (like LiveViewPage) */}
+          <div className="multi-pb-group-container" ref={groupDropdownRef}>
+            <button
+              type="button"
+              className={`multi-pb-group-btn ${groupDropdownOpen ? "active" : ""}`}
+              onClick={() => setGroupDropdownOpen((prev) => !prev)}
+              title="Filter cameras by group"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                width="14"
+                height="14"
+              >
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              </svg>
+              <span className="multi-pb-group-label-prefix">Group:</span>
+              <span className="multi-pb-group-name">{selectedGroupLabel}</span>
+              <svg
+                className={`multi-pb-chevron ${groupDropdownOpen ? "open" : ""}`}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                width="11"
+                height="11"
+              >
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </button>
+
+            {groupDropdownOpen && (
+              <div className="multi-pb-dropdown-menu">
+                <button
+                  type="button"
+                  className={`multi-pb-dropdown-item ${selectedGroupId === "all" ? "selected" : ""}`}
+                  onClick={() => {
+                    setSelectedGroupId("all");
+                    setCurrentPage(1);
+                    setGroupDropdownOpen(false);
+                  }}
+                >
+                  <span className="multi-pb-item-label">ALL</span>
+                  <span className="multi-pb-item-count">({groupCamsCounts.all || 0})</span>
+                </button>
+
+                {groupCamsCounts.default > 0 && (
+                  <button
+                    type="button"
+                    className={`multi-pb-dropdown-item ${selectedGroupId === "default" ? "selected" : ""}`}
+                    onClick={() => {
+                      setSelectedGroupId("default");
+                      setCurrentPage(1);
+                      setGroupDropdownOpen(false);
+                    }}
+                  >
+                    <span className="multi-pb-item-label">Default</span>
+                    <span className="multi-pb-item-count">({groupCamsCounts.default})</span>
+                  </button>
+                )}
+
+                {groups
+                  .filter((g) => g.id !== "default" && g.name?.toLowerCase() !== "default")
+                  .map((g) => {
+                    const gid = g.id || g._id;
+                    const count = groupCamsCounts[gid] || 0;
+                    return (
+                      <button
+                        key={gid}
+                        type="button"
+                        className={`multi-pb-dropdown-item ${selectedGroupId === gid ? "selected" : ""}`}
+                        onClick={() => {
+                          setSelectedGroupId(gid);
+                          setCurrentPage(1);
+                          setGroupDropdownOpen(false);
+                        }}
+                      >
+                        <span className="multi-pb-item-label">{g.name}</span>
+                        <span className="multi-pb-item-count">({count})</span>
+                      </button>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+
           {/* Switch to Single Camera Playback */}
           <button
             className="multi-pb-mode-btn"
@@ -369,18 +583,19 @@ export default function MultiPlaybackPage() {
           </button>
 
           {/* Grid Layout Selector Button */}
-          <button
-            className="multi-pb-icon-btn"
-            title="Change Grid Layout"
-            onClick={() => setShowLayoutMenu((prev) => !prev)}
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-              <rect x="3" y="3" width="7.5" height="7.5" rx="1.5" />
-              <rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" />
-              <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5" />
-              <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5" />
-            </svg>
-          </button>
+          <div style={{ position: "relative" }} ref={layoutDropdownRef}>
+            <button
+              className="multi-pb-icon-btn"
+              title="Change Grid Layout"
+              onClick={() => setShowLayoutMenu((prev) => !prev)}
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                <rect x="3" y="3" width="7.5" height="7.5" rx="1.5" />
+                <rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" />
+                <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5" />
+                <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5" />
+              </svg>
+            </button>
 
           {/* Grid Layout Dropdown */}
           {showLayoutMenu && (
@@ -391,6 +606,7 @@ export default function MultiPlaybackPage() {
                   className={`multi-pb-layout-opt ${layout === opt.id ? "active" : ""}`}
                   onClick={() => {
                     setLayout(opt.id);
+                    setCurrentPage(1);
                     setShowLayoutMenu(false);
                   }}
                 >
@@ -399,6 +615,7 @@ export default function MultiPlaybackPage() {
               ))}
             </div>
           )}
+          </div>
 
           {/* Filter Drawer Toggle Button */}
           <button
@@ -427,58 +644,133 @@ export default function MultiPlaybackPage() {
           <div
             className="multi-pb-grid"
             style={{
-              gridTemplateColumns: `repeat(${activeLayoutConfig.cols}, minmax(0, 1fr))`,
-              gridTemplateRows: `repeat(${activeLayoutConfig.rows}, minmax(0, 1fr))`,
+              display: "grid",
+              gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+              gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
+              gap: dynamicGap,
             }}
           >
-            {visibleCameras.map((cam, idx) => {
-              const streamKey = cam.stream_key || String(cam.id);
-              const camName = cam.name || `Camera ${idx + 1}`;
-              const playback = getCameraPlaybackSource(streamKey);
+            {activeCameras.length === 0 ? (
+              <div className="multi-pb-empty-state">
+                <p>No cameras match the selected filter.</p>
+              </div>
+            ) : (
+              Array.from({ length: gridSize }).map((_, i) => {
+                const cam = pageCams[i];
 
-              return (
-                <div key={streamKey} className="multi-pb-tile">
-                  {/* Top Left Camera Name */}
-                  <div className="multi-pb-tile-header">
-                    <span className="multi-pb-tile-cam-name">{camName} ·</span>
-                    <span
-                      className={`multi-pb-tile-dot ${playback ? "" : "offline"}`}
-                    />
-                  </div>
-
-                  {/* Video Tile or "NO RECORDING AT THIS TIME" Placeholder */}
-                  {playback ? (
-                    <video
-                      ref={(el) => (videoRefs.current[streamKey] = el)}
-                      src={playback.url}
-                      className="multi-pb-video"
-                      playsInline
-                      crossOrigin="anonymous"
-                      autoPlay={isPlaying}
-                      onPlay={() => setIsPlaying(true)}
-                      onPause={() => {}}
-                    />
-                  ) : (
-                    <div className="multi-pb-no-recording">
-                      <div className="multi-pb-play-circle">
+                if (!cam) {
+                  return (
+                    <div key={`empty-${i}`} className="multi-pb-tile multi-pb-tile--empty">
+                      <div className="multi-pb-empty-cell">
                         <svg
                           viewBox="0 0 24 24"
-                          width="24"
-                          height="24"
-                          fill="currentColor"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1"
+                          width={cols >= 5 ? 20 : 28}
+                          height={cols >= 5 ? 20 : 28}
                         >
-                          <polygon points="9 7 17 12 9 17 9 7" />
+                          <path d="M23 7l-7 5 7 5V7z" />
+                          <rect x="1" y="5" width="15" height="14" rx="2" />
                         </svg>
+                        {cols <= 4 && <span>No Camera</span>}
                       </div>
-                      <span className="multi-pb-no-recording-text">
-                        NO RECORDING AT THIS TIME
-                      </span>
                     </div>
-                  )}
-                </div>
-              );
-            })}
+                  );
+                }
+
+                const streamKey = cam.stream_key || String(cam.id);
+                const camName = cam.name || `Camera ${i + 1}`;
+                const playback = playbackSources[streamKey];
+
+                return (
+                  <div key={streamKey} className="multi-pb-tile">
+                    {/* Top Left Camera Name */}
+                    <div className="multi-pb-tile-header">
+                      <span className="multi-pb-tile-cam-name">{camName} ·</span>
+                      <span
+                        className={`multi-pb-tile-dot ${playback ? "" : "offline"}`}
+                      />
+                    </div>
+
+                    {/* Video Tile or "NO RECORDING AT THIS TIME" Placeholder */}
+                    {playback ? (
+                      <video
+                        ref={(el) => {
+                          if (el) {
+                            videoRefs.current[streamKey] = el;
+                          } else {
+                            delete videoRefs.current[streamKey];
+                          }
+                        }}
+                        src={playback.url}
+                        className="multi-pb-video"
+                        playsInline
+                        crossOrigin="anonymous"
+                        autoPlay={isPlaying}
+                        onPlay={() => setIsPlaying(true)}
+                        onPause={() => {}}
+                        onLoadedMetadata={(e) => {
+                          const offset = seekSeconds - playback.file.start_secs;
+                          if (offset > 0 && offset < e.target.duration) {
+                            e.target.currentTime = offset;
+                          }
+                          e.target.playbackRate = playbackSpeed;
+                          if (isPlaying) {
+                            e.target.play().catch(() => {});
+                          }
+                        }}
+                        onEnded={() => {
+                          setSeekSeconds((prev) => Math.min(86399, prev + 1));
+                        }}
+                      />
+                    ) : (
+                      <div className="multi-pb-no-recording">
+                        <div className="multi-pb-play-circle">
+                          <svg
+                            viewBox="0 0 24 24"
+                            width={cols >= 5 ? 20 : 24}
+                            height={cols >= 5 ? 20 : 24}
+                            fill="currentColor"
+                          >
+                            <polygon points="9 7 17 12 9 17 9 7" />
+                          </svg>
+                        </div>
+                        <span className="multi-pb-no-recording-text">
+                          NO RECORDING AT THIS TIME
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
+
+          {/* Pagination bar when cameras exceed current grid capacity */}
+          {totalPages > 1 && (
+            <div className="multi-pb-pagination">
+              <button
+                className="multi-pb-page-btn"
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                type="button"
+              >
+                &lt; Prev
+              </button>
+              <span className="multi-pb-page-info">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                className="multi-pb-page-btn"
+                disabled={currentPage === totalPages}
+                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                type="button"
+              >
+                Next &gt;
+              </button>
+            </div>
+          )}
 
           {/* Unified Controls Bar at Bottom */}
           <div className="multi-pb-controls-bar">
@@ -523,7 +815,22 @@ export default function MultiPlaybackPage() {
                 min={0}
                 max={86399}
                 value={seekSeconds}
+                onMouseDown={() => {
+                  isScrubbingRef.current = true;
+                }}
+                onTouchStart={() => {
+                  isScrubbingRef.current = true;
+                }}
+                onMouseUp={() => {
+                  isScrubbingRef.current = false;
+                }}
+                onTouchEnd={() => {
+                  isScrubbingRef.current = false;
+                }}
                 onChange={(e) => handleSeek(Number(e.target.value))}
+                style={{
+                  background: `linear-gradient(to right, #0e7490 ${(seekSeconds / 86399) * 100}%, #cbd5e1 ${(seekSeconds / 86399) * 100}%)`,
+                }}
               />
             </div>
 
@@ -594,6 +901,46 @@ export default function MultiPlaybackPage() {
             </div>
 
             <div className="multi-pb-drawer-body">
+              {/* 0. Camera Group Selection */}
+              <div className="multi-pb-form-group">
+                <label className="multi-pb-form-label">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    width="14"
+                    height="14"
+                  >
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                  </svg>
+                  Camera Group
+                </label>
+                <select
+                  className="multi-pb-group-select"
+                  value={draftGroupId}
+                  onChange={(e) => {
+                    setDraftGroupId(e.target.value);
+                    setDraftCameras(["ALL"]);
+                  }}
+                >
+                  <option value="all">ALL ({groupCamsCounts.all || 0})</option>
+                  {groupCamsCounts.default > 0 && (
+                    <option value="default">Default ({groupCamsCounts.default})</option>
+                  )}
+                  {groups
+                    .filter((g) => g.id !== "default" && g.name?.toLowerCase() !== "default")
+                    .map((g) => {
+                      const gid = g.id || g._id;
+                      return (
+                        <option key={gid} value={gid}>
+                          {g.name} ({groupCamsCounts[gid] || 0})
+                        </option>
+                      );
+                    })}
+                </select>
+              </div>
+
               {/* 1. Cameras Multi-Select */}
               <div className="multi-pb-form-group">
                 <label className="multi-pb-form-label">Cameras</label>
@@ -671,7 +1018,15 @@ export default function MultiPlaybackPage() {
                       <span>All Cameras</span>
                     </div>
 
-                    {allCameras.map((cam) => {
+                    {allCameras
+                      .filter((c) => {
+                        if (draftGroupId === "default") return !c.group_id || c.group_id === "default";
+                        if (draftGroupId && draftGroupId !== "all") {
+                          return c.group_id === draftGroupId || String(c.group_id) === String(draftGroupId);
+                        }
+                        return true;
+                      })
+                      .map((cam) => {
                       const key = cam.stream_key || String(cam.id);
                       const isChecked =
                         draftCameras.includes("ALL") || draftCameras.includes(key);

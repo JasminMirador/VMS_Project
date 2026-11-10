@@ -1,4 +1,4 @@
-const API = import.meta.env.VITE_API_URL || "";
+import { apiUrl } from "../../config/appConfig";
 
 function getAuthHeaders() {
   const t =
@@ -332,7 +332,7 @@ export async function fetchCameraModels({ brand = null, type = null, search = ""
     if (type)   params.append("type",   type);
     if (search) params.append("search", search);
 
-    const r = await fetch(`${API}/api/designer/camera-models?${params}`, {
+    const r = await fetch(apiUrl(`/designer/camera-models?${params}`), {
       headers: getAuthHeaders(),
     });
     if (r.ok) {

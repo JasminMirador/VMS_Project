@@ -2077,55 +2077,80 @@ const NetworkHealthPage = () => {
                           <div className="nh-chart-tooltip nh-rich-tooltip">
                             <div className="nh-tooltip-title">{exactTime}</div>
                             {selectedCamera === "all" ? (
-                              <>
-                                {historyCameras.map((cam, idx) => {
-                                  const camVal = point[cam.dataKey];
+                              (() => {
+                                // Show only active cameras that have a valid bandwidth measurement at this time
+                                const activeAtPoint = historyCameras.filter((cam) => {
+                                  const camVal = point[cam.dataKey] ?? point[`cam_${cam.id}`];
+                                  return camVal != null && !isNaN(camVal) && Number(camVal) > 0;
+                                });
+
+                                if (activeAtPoint.length === 0) {
+                                  return (
+                                    <div className="nh-tooltip-row" style={{ color: "var(--nh-text-muted)" }}>
+                                      <span>No active streams at this time</span>
+                                    </div>
+                                  );
+                                }
+
+                                return activeAtPoint.map((cam) => {
+                                  const camVal = point[cam.dataKey] ?? point[`cam_${cam.id}`];
+                                  const matchedCam = cameras.find((c) => String(c.id) === String(cam.id) || c.ip === cam.ip);
+                                  const cameraName = matchedCam?.name || cam.name || cam.device_name || cam.ip || "Camera";
                                   return (
                                     <div key={cam.id} className="nh-tooltip-row">
                                       <span className="nh-tooltip-cam-label">
                                         <i style={{ background: cam.color || "#10d6a0" }} />
-                                        <b>{`Channel ${String(idx + 1).padStart(2, "0")}`}</b>
+                                        <b>{cameraName}</b>
                                       </span>
-                                      <b>{camVal != null ? `${Number(camVal).toFixed(2)} Mbps` : "—"}</b>
+                                      <b>{`${Number(camVal).toFixed(2)} Mbps`}</b>
                                     </div>
                                   );
-                                })}
-                              </>
+                                });
+                              })()
                             ) : (
                               <div className="nh-tooltip-row">
                                 <span className="nh-tooltip-cam-label">
                                   <i style={{ background: selectedCameraInfo?.color || "var(--nh-green)" }} />
-                                  <b>Incoming Stream</b>
+                                  <b>{selectedCameraInfo?.name || selectedCameraInfo?.device_name || selectedCameraInfo?.ip || "Incoming Stream"}</b>
                                 </span>
                                 <b>{Number(point[selectedCameraInfo?.dataKey] ?? totalVal).toFixed(2)} Mbps</b>
                               </div>
-                            )}
-                            {point.source && (
-                              <div className="nh-tooltip-source">Source: {point.source}</div>
                             )}
                           </div>
                         );
                       }}
                     />
 
-                    {/* Bandwidth Stream Areas: Display every camera's graph in All Cameras mode */}
+                    {/* Bandwidth Stream Areas: Display only active camera series with actual camera names */}
                     {selectedCamera === "all" ? (
                       <>
-                        {historyCameras.map((cam, idx) => (
-                          <Area
-                            key={cam.id}
-                            yAxisId="bandwidth"
-                            type="monotone"
-                            dataKey={cam.dataKey}
-                            name={`Channel ${String(idx + 1).padStart(2, "0")}`}
-                            stroke={cam.color}
-                            strokeWidth={2.4}
-                            fill={`url(#fill_${cam.id})`}
-                            connectNulls={false}
-                            isAnimationActive={false}
-                            activeDot={{ r: 4.5, strokeWidth: 1.5, stroke: "var(--nh-card)" }}
-                          />
-                        ))}
+                        {historyCameras
+                          .filter((cam) => {
+                            // Only display graph lines for cameras that have recorded data in this history
+                            return history.some((p) => {
+                              const val = p[cam.dataKey] ?? p[`cam_${cam.id}`];
+                              return !p.isGap && val != null && !isNaN(val) && Number(val) > 0;
+                            });
+                          })
+                          .map((cam) => {
+                            const matchedCam = cameras.find((c) => String(c.id) === String(cam.id) || c.ip === cam.ip);
+                            const cameraName = matchedCam?.name || cam.name || cam.device_name || cam.ip || "Camera";
+                            return (
+                              <Area
+                                key={cam.id}
+                                yAxisId="bandwidth"
+                                type="monotone"
+                                dataKey={cam.dataKey}
+                                name={cameraName}
+                                stroke={cam.color}
+                                strokeWidth={2.4}
+                                fill={`url(#fill_${cam.id})`}
+                                connectNulls={false}
+                                isAnimationActive={false}
+                                activeDot={{ r: 4.5, strokeWidth: 1.5, stroke: "var(--nh-card)" }}
+                              />
+                            );
+                          })}
                       </>
                     ) : (
                       <Area
