@@ -165,8 +165,8 @@ const MAP = {
 
 // Pages that require supervisor unlock for CLIENT role
 const CLIENT_SUPERVISOR_PAGES = ["media-player", "multi-playback", "backup", "masking"];
-// const CLIENT_BLOCKED_PAGES = ["designer-view", "topology-map", "network-health", "system-performance", "performance-test", "raid-mgmt", "viewing-stations", "user-management"];
-const CLIENT_BLOCKED_PAGES = ["designer-view", "topology-map", "network-health", "system-performance", "performance-test", "raid-mgmt", "viewing-stations", "user-management"];
+// const CLIENT_BLOCKED_PAGES = ["performance-test", "raid-mgmt", "viewing-stations", "user-management"];
+const CLIENT_BLOCKED_PAGES = ["performance-test", "raid-mgmt", "viewing-stations", "user-management"];
 
 // Pages the OPERATOR role is allowed to access
 const OPERATOR_ALLOWED_PAGES = ["live-view", "map-view", "client-settings", "profile", "ai-analytics"];

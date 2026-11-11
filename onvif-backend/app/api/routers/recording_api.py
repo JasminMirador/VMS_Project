@@ -47,30 +47,12 @@ from app.managers.stream_manager import stop_worker_pool
 # ------------------------------------------------------------------
 # Config
 # ------------------------------------------------------------------
-MONGO_URI = os.environ.get("MONGO_URI")
-KEY_FILE  = os.environ.get("VIDEO_KEY_FILE", "/app/data/video.key")
-
-if os.name == 'nt' and KEY_FILE == "/app/data/video.key":
-    player_path = "c:/Users/miradorwin/Documents/GitHub/VMS_Project/onvif-backend/player/video.key"
-    local_backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "devices_data", "video.key"))
-    if os.path.exists(local_backend_path):
-        KEY_FILE = local_backend_path
-    elif os.path.exists(player_path):
-        KEY_FILE = player_path
-    else:
-        sibling_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "devices_data", "video.key"))
-        if os.path.exists(sibling_path):
-            KEY_FILE = sibling_path
-        else:
-            hardcoded_path = "c:/Users/miradorwin/Documents/GitHub/VMS_Project/devices_data/video.key"
-            if os.path.exists(hardcoded_path):
-                KEY_FILE = hardcoded_path
-            else:
-                KEY_FILE = sibling_path
+MONGO_URI = os.environ["MONGO_URI"]
+KEY_FILE  = os.environ["VIDEO_KEY_FILE"]
 
 # ── Startup sanity check: warn loudly if the key file is missing ──────────────
 # Both this module and encrypt_service.py MUST use the same KEY_FILE path.
-# They both default to /app/data/video.key, controlled by VIDEO_KEY_FILE env var.
+# Controlled by VIDEO_KEY_FILE env var.
 if not os.path.exists(KEY_FILE):
     print(f"[DECRYPT] ⚠⚠  WARNING: video.key NOT FOUND at '{KEY_FILE}'")
     print(f"[DECRYPT]          Set VIDEO_KEY_FILE env var to the correct path,")
@@ -80,22 +62,16 @@ else:
 
 # Path to a small JSON file that persists the user-chosen recording directory.
 # Stored alongside devices.json so it survives container restarts.
-_CONFIG_FILE = os.environ.get(
-    "RECORDING_CONFIG_FILE",
-    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "devices_data", "recording_config.json"))
-    if os.path.exists(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "devices_data", "recording_config.json")))
-    else "/app/data/recording_config.json"
-)
+_CONFIG_FILE = os.environ["RECORDING_CONFIG_FILE"]
 
-# The container-side base mount point — D:\REC on the host maps here.
-# Used to validate and sanitize Windows paths entered in the UI.
-_CONTAINER_RECORDINGS_ROOT = os.environ.get("RECORDINGS_DIR", "/recordings")
+# The recording base mount point from .env
+_CONTAINER_RECORDINGS_ROOT = os.environ["RECORDINGS_DIR"]
 
 # ------------------------------------------------------------------
 # MongoDB
 # ------------------------------------------------------------------
 _client     = mongo_client
-MONGO_DB_NAME = os.environ.get("MONGO_DB_NAME", "vms_db")
+MONGO_DB_NAME = os.environ["MONGO_DB_NAME"]
 _db = _client[MONGO_DB_NAME] if _client else None
 _collection = _db["recordings"] if _db is not None else None
 storage_collection = _db["storage_settings"] if _db is not None else None

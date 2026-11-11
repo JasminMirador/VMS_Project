@@ -118,7 +118,7 @@ def health():
     try:
         minio_endpoint = os.environ["MINIO_ENDPOINT"]
         m_host = minio_endpoint.split(":")[0] if ":" in minio_endpoint else minio_endpoint
-        m_port = int(minio_endpoint.split(":")[1]) if ":" in minio_endpoint else 9000
+        m_port = int(minio_endpoint.split(":")[1]) if ":" in minio_endpoint else int(os.environ["MINIO_PORT"])
         with socket.create_connection((m_host, m_port), timeout=1):
             minio_ok = True
     except Exception:

@@ -434,7 +434,7 @@ export default function ManualSearchModal({
         },
         body: JSON.stringify({
           ip,
-          port: port ? Number(port) : getNumber("CAMERA_DEFAULT_PORT", 80),
+          port: port ? Number(port) : getNumber("CAMERA_DEFAULT_PORT"),
           username: user,
           password: pass,
           group_id: selectedGroupId,
@@ -558,7 +558,7 @@ export default function ManualSearchModal({
       : [{ source: 1, profiles: discovered?.profiles || [] }];
 
     if (mode === "onvif") {
-      const enrollPort = detectedPort || port || String(getNumber("CAMERA_DEFAULT_PORT", 80));
+      const enrollPort = detectedPort || port || String(getNumber("CAMERA_DEFAULT_PORT"));
       onEnroll?.({
         cameraName,
         ip,
@@ -702,10 +702,10 @@ export default function ManualSearchModal({
                 <input
                   tabIndex={3}
                   className={`msm-input ${errors.port ? "error" : ""}`}
-                  placeholder={String(getNumber("CAMERA_DEFAULT_PORT", 80))}
+                  placeholder={String(getNumber("CAMERA_DEFAULT_PORT"))}
                   value={port}
                   onChange={(e) => { setPort(e.target.value); setErrors((s) => ({ ...s, port: "" })); }}
-                  onBlur={() => { if (!port) setPort(String(getNumber("CAMERA_DEFAULT_PORT", 80))); }}
+                  onBlur={() => { if (!port) setPort(String(getNumber("CAMERA_DEFAULT_PORT"))); }}
                 />
                 {errors.port && <span className="msm-error-msg">{errors.port}</span>}
               </div>

@@ -51,7 +51,7 @@ from pathlib import Path as FilePath
 from datetime import datetime
 from app.services.redis_stream_publisher import publish_event as _redis_publish
 
-_CAM_STREAM = lambda: os.environ.get("REDIS_STREAM_CAMERA_EVENTS", "vms:events:camera")
+_CAM_STREAM = lambda: os.environ["REDIS_STREAM_CAMERA_EVENTS"]
 import requests as http_requests
 
 from app.core.lifecycle import _analytics_tasks

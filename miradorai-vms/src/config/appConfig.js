@@ -89,6 +89,10 @@ export const prefixes = () => ({
 
 // ── Plain getters
 // getEnv("SSO_PORT") → "3000"
-// getNumber("CAMERA_DEFAULT_PORT", 80) → 80
-export const getEnv = (key, fallback = "") => env()[key] ?? fallback;
-export const getNumber = (key, fallback) => Number(env()[key] ?? fallback);
+// getNumber("CAMERA_DEFAULT_PORT") → 80
+export const getEnv = (key, fallback = "") => (env()[key] !== undefined && env()[key] !== null && env()[key] !== "" ? env()[key] : fallback);
+export const getNumber = (key, fallback) => {
+  const val = env()[key];
+  if (val !== undefined && val !== null && val !== "") return Number(val);
+  return fallback !== undefined ? Number(fallback) : NaN;
+};

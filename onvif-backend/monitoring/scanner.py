@@ -18,7 +18,15 @@ except ImportError:
 class NetworkScanner:
     def __init__(self):
         self.subnet = get_local_subnet()
-        self.ports = [554, 80, 8080, 8000, 8081, 8899, 22]
+        self.ports = [
+            int(os.environ["RTSP_PORT"]),
+            int(os.environ["CAMERA_DEFAULT_PORT"]),
+            int(os.environ["CAMERA_ALT_PORT"]),
+            int(os.environ["BACKEND_PORT"]),
+            8081,
+            8899,
+            22
+        ]
         self.is_scanning = False
 
     def ping_device(self, ip, timeout=1):
@@ -71,12 +79,12 @@ class NetworkScanner:
         manufacturer = ""
         model = ""
 
-        switch_ip = os.environ.get("SWITCH_IP")
+        switch_ip = os.environ["SWITCH_IP"]
         if ip == switch_ip:
             device_type = "switch"
             manufacturer = "Cisco Systems, Inc."
             model = "Cisco Switch"
-        elif 554 in open_ports:
+        elif int(os.environ["RTSP_PORT"]) in open_ports:
             device_type = "camera"
             # Try rich ONVIF probe
             onvif_data = probe_onvif_device(ip)
@@ -85,9 +93,9 @@ class NetworkScanner:
                 model = onvif_data.get("model", "")
         elif 22 in open_ports:
             device_type = "server"
-        elif 80 in open_ports or 8080 in open_ports:
-            cam_default_port = int(os.environ.get("CAMERA_DEFAULT_PORT"))
-            cam_alt_port = int(os.environ.get("CAMERA_ALT_PORT"))
+        elif int(os.environ["CAMERA_DEFAULT_PORT"]) in open_ports or int(os.environ["CAMERA_ALT_PORT"]) in open_ports:
+            cam_default_port = int(os.environ["CAMERA_DEFAULT_PORT"])
+            cam_alt_port = int(os.environ["CAMERA_ALT_PORT"])
             port = cam_default_port if cam_default_port in open_ports else cam_alt_port
             dtype, mfr, mdl = _classify_device(ip, port)
             device_type = dtype if dtype != "unknown" else "web_device"

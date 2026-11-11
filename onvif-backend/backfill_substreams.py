@@ -57,7 +57,7 @@ def stream_path_exists_in_mediamtx(mediamtx_api: str, path_name: str) -> bool:
 
 def backfill():
     mongo_uri = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
-    mongo_db_name = os.environ.get("MONGO_DB_NAME", "vms_db")
+    mongo_db_name = os.environ.get("MONGO_DB_NAME")
     mediamtx_api = os.environ.get("MEDIAMTX_API_URL", "http://localhost:9997").rstrip("/")
 
     print(f"[BACKFILL] Connecting to MongoDB (DB: {mongo_db_name})")

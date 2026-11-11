@@ -21,7 +21,7 @@ async function sendPTZMove(device, pan, tilt, zoom) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ip:       device.ip,
-        port:     device.port || getNumber("CAMERA_DEFAULT_PORT", 80),
+        port:     device.port || getNumber("CAMERA_DEFAULT_PORT"),
         username: device.username || "",
         password: device.password || "",
         pan:      parseFloat((pan  / 180).toFixed(3)),

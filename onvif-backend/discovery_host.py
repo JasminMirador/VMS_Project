@@ -9,7 +9,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
-SUBNET  = os.environ.get("HOST_SUBNET", "192.168.126")
+SUBNET  = os.environ.get("HOST_SUBNET")
 PORTS   = [int(os.environ.get('RTSP_PORT'))]   # Scan RTSP port to prevent WSL2 NAT congestion/packet drops
 TIMEOUT = 1.5     # Increased to 1.5s to account for virtualization latency
 MAX_WORKERS = 100 # Reduced from 200 to lower connection rate and avoid firewalls/NAT limit

@@ -377,7 +377,7 @@ export default function RecordingMethodPage() {
             headers: getAuthHeaders(),
             body: JSON.stringify({
               ip: cam.ip,
-              port: cam.port || getNumber("CAMERA_DEFAULT_PORT", 80),
+              port: cam.port || getNumber("CAMERA_DEFAULT_PORT"),
               username: cam.username || "",
               live_rtsp: cam.rtsp_url,
               recording_rtsp: authedRtsp,

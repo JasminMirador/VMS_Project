@@ -39,7 +39,7 @@ async def async_capture_snapshot(alert, ip_slug):
             if minio_client.upload_bytes(minio_path, img_bytes):
                 default_minio = f"{os.environ.get('HOST_IP')}:{os.environ.get('MINIO_PORT')}"
                 minio_endpoint = os.environ.get("MINIO_ENDPOINT", default_minio)
-                minio_bucket = os.environ.get("MINIO_BUCKET", "vms-recordings")
+                minio_bucket = os.environ.get("MINIO_BUCKET")
                 alert["imageUrl"] = f"http://{minio_endpoint}/{minio_bucket}/{minio_path}"
 
 

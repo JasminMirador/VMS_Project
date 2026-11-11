@@ -14,7 +14,7 @@ import os
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
+MONGO_URI = os.environ["MONGO_URI"]
 _client   = mongo_client
 _db = _client[os.environ.get("MONGO_DB_NAME")] if _client else None
 maps_col = _db["map_layouts"] if _db is not None else None

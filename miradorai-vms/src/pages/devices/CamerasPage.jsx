@@ -342,7 +342,7 @@ export default function CamerasPage({ onNavigate, onCameraSelect }) {
       name:        c.name        || "",
       description: c.description || "",
       ip:          c.ip          || "",
-      port:        c.port ? Number(c.port) : getNumber("CAMERA_DEFAULT_PORT", 80),
+      port:        c.port ? Number(c.port) : getNumber("CAMERA_DEFAULT_PORT"),
       username:    c.username    || "",
       password:    c.password    || "",
     });

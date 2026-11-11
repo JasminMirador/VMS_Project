@@ -566,7 +566,7 @@ export default function StreamProfilesPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ip: camera.ip, port: camera.port || getNumber("CAMERA_DEFAULT_PORT", 80),
+          ip: camera.ip, port: camera.port || getNumber("CAMERA_DEFAULT_PORT"),
           username: camera.username || "",
           manufacturer: camera.manufacturer || "",
           model: camera.model || "",

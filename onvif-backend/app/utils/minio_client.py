@@ -5,15 +5,14 @@ from minio.error import S3Error
 from minio.commonconfig import ComposeSource
 
 # Load MinIO configuration from environment variables
-default_minio = f"{os.environ.get('HOST_IP')}:{os.environ.get('MINIO_PORT')}"
-MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", default_minio)
+MINIO_ENDPOINT = os.environ["MINIO_ENDPOINT"]
 # Remove http/https prefix if present, as Minio client expects raw endpoint
 if "://" in MINIO_ENDPOINT:
     MINIO_ENDPOINT = MINIO_ENDPOINT.split("://")[1]
 
-MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "your_access_key")
-MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "your_secret_key")
-MINIO_BUCKET = os.environ.get("MINIO_BUCKET", "vms-recordings")
+MINIO_ACCESS_KEY = os.environ["MINIO_ACCESS_KEY"]
+MINIO_SECRET_KEY = os.environ["MINIO_SECRET_KEY"]
+MINIO_BUCKET = os.environ["MINIO_BUCKET"]
 
 import urllib3
 
@@ -162,7 +161,7 @@ WORKER_TO_SHARD_MAP = {
 def get_shard_prefix(worker_id: str) -> str:
     """Authority for mapping worker_id to logical shard prefix."""
     if not worker_id:
-        return "shard1"
+        raise ValueError("worker_id is required")
     if worker_id in WORKER_TO_SHARD_MAP:
         return WORKER_TO_SHARD_MAP[worker_id]
     if "standby" in worker_id:
@@ -190,7 +189,7 @@ def get_parent_folder() -> str:
         print("[MINIO] Failed to load parent folder from db:", e)
 
     try:
-        config_path = os.environ.get("RECORDING_CONFIG_FILE", "/app/data/recording_config.json")
+        config_path = os.environ["RECORDING_CONFIG_FILE"]
         if os.path.exists(config_path):
             import json
             with open(config_path) as f:
@@ -203,7 +202,7 @@ def get_parent_folder() -> str:
     except Exception as e:
         print("[MINIO] Failed to load parent folder from config file:", e)
 
-    return "Recordings"
+    raise RuntimeError("Recording parent folder not configured in DB (storage_settings) or RECORDING_CONFIG_FILE")
 
 def build_recording_path(shard_prefix: str, camera_id: str, date_str: str, filename: str) -> str:
     """Consistent format for MinIO object paths."""

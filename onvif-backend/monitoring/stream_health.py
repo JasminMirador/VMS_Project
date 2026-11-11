@@ -264,23 +264,25 @@ async def probe_camera_stream(node: dict) -> dict:
     user     = node.get("username") or node.get("user") or DEFAULT_USER
     password = node.get("password") or node.get("pass") or DEFAULT_PASS
 
+    cam_default_port = int(os.environ["CAMERA_DEFAULT_PORT"])
+    cam_alt_port = int(os.environ["CAMERA_ALT_PORT"])
+    rtsp_port = int(os.environ["RTSP_PORT"])
+
     # 1. TCP port checks (fast)
     rtsp_open, onvif_open, http_open = await asyncio.gather(
-        _tcp_open(ip, 554),
-        _tcp_open(ip, 8080, timeout=1.0),
-        _tcp_open(ip, 80,   timeout=1.0),
+        _tcp_open(ip, rtsp_port),
+        _tcp_open(ip, cam_alt_port, timeout=1.0),
+        _tcp_open(ip, cam_default_port, timeout=1.0),
     )
 
     # 2. RTSP probe (gives status + codec hint)
-    rtsp_data = await _probe_rtsp(ip, 554) if rtsp_open else {
+    rtsp_data = await _probe_rtsp(ip, rtsp_port) if rtsp_open else {
         "connected": False, "status": "dead",
         "bitrate_mbps": None, "fps": None,
         "resolution": None, "codec": None, "dropped_frames": None,
     }
 
     # 3. ONVIF probe (gives resolution/fps/bitrate/codec more reliably)
-    cam_default_port = int(os.environ.get("CAMERA_DEFAULT_PORT"))
-    cam_alt_port = int(os.environ.get("CAMERA_ALT_PORT"))
     onvif_port = cam_alt_port if onvif_open else (cam_default_port if http_open else None)
     onvif_data = {}
     if onvif_port:

@@ -10,9 +10,12 @@ from datetime import datetime, timedelta
 from minio import Minio
 import pymongo
 
-os.environ.setdefault('MONGO_DB_NAME', 'vms_db')
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from dotenv import load_dotenv
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(BASE_DIR)
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
@@ -22,18 +25,15 @@ import logging
 logging.getLogger('urllib3').setLevel(logging.ERROR)
 
 # Configuration
-default_minio = f"{os.environ.get('HOST_IP')}:{os.environ.get('MINIO_PORT')}"
-MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", default_minio).replace("http://", "").replace("https://", "")
-MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "your_access_key")
-MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "your_secret_key")
-MINIO_BUCKET = os.environ.get("MINIO_BUCKET", "vms-rec")
+MINIO_ENDPOINT = os.environ["MINIO_ENDPOINT"].replace("http://", "").replace("https://", "")
+MINIO_ACCESS_KEY = os.environ["MINIO_ACCESS_KEY"]
+MINIO_SECRET_KEY = os.environ["MINIO_SECRET_KEY"]
+MINIO_BUCKET = os.environ["MINIO_BUCKET"]
 
-default_mongo = f"mongodb://{os.environ.get('HOST_IP')}:{os.environ.get('MONGO_PORT')}/"
-MONGO_URI = os.environ.get("MONGO_URI", default_mongo)
-MONGO_DB_NAME = os.environ.get("MONGO_DB_NAME", "vms_db")
-
-RECORDINGS_DIR = os.environ.get("RECORDINGS_DIR", "C:\\recording" if os.name == "nt" else "/recording")
-FFMPEG_BIN = "ffmpeg"
+MONGO_URI = os.environ["MONGO_URI"]
+MONGO_DB_NAME = os.environ["MONGO_DB_NAME"]
+RECORDINGS_DIR = os.environ["RECORDINGS_DIR"]
+FFMPEG_BIN = os.environ["FFMPEG_BIN"]
 
 UPLOAD_QUEUE_SIZE = 500
 MIN_UPLOAD_WORKERS = 4
@@ -56,8 +56,8 @@ minio_client = Minio(
 # Connect to Dedicated VMS Redis Server
 try:
     redis_client = redis.Redis(
-        host=os.environ.get("REDIS_HOST", "127.0.0.1"),
-        port=int(os.environ.get("RECORDER_REDIS_PORT") or os.environ.get("REDIS_PORT")),
+        host=os.environ["REDIS_HOST"],
+        port=int(os.environ["RECORDER_REDIS_PORT"]),
         db=1,
         socket_timeout=15,
         socket_connect_timeout=5,
@@ -243,6 +243,7 @@ def upload_worker_thread(worker_id):
             continue
         file_path = queue_item[1].decode('utf-8')
         
+        upload_ok = False
         try:
             file_size = os.path.getsize(file_path)
             parts = file_path.split("/")

@@ -57,7 +57,7 @@ def get_topology_non_camera_ips() -> set[str]:
         from app.core.database import db, mongo_client
         target_db = db
         if target_db is None and mongo_client is not None:
-            db_name = os.environ.get("MONGO_DB_NAME", "vms_db")
+            db_name = os.environ["MONGO_DB_NAME"]            
             target_db = mongo_client[db_name]
         if target_db is not None:
             for n in target_db["infrastructure_nodes"].find({"type": {"$ne": "camera"}}, {"ip": 1}):
@@ -143,19 +143,19 @@ def get_local_subnet() -> str:
     except Exception as e:
         print(f"[DISCOVERY] socket subnet detection failed: {e}")
 
-    return "192.168.1"
+    return os.environ["HOST_SUBNET"]
 
 
 # -----------------------------------------------------------------------------
 # RTSP stream check
-# Real IP cameras ALWAYS listen on 554.
+# Real IP cameras ALWAYS listen on RTSP_PORT.
 # -----------------------------------------------------------------------------
 
 def _has_rtsp_port(ip: str, timeout_ms: int = 600) -> bool:
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(timeout_ms / 1000.0)
-            result = s.connect_ex((ip, 554))
+            result = s.connect_ex((ip, int(os.environ["RTSP_PORT"])))
             return result == 0
     except Exception:
         return False
@@ -290,8 +290,9 @@ def _extract_hardware_from_scopes(scopes_text: str) -> str:
 
 
 def _extract_port_from_xaddrs(xaddrs_text: str) -> int:
+    default_port = int(os.environ["CAMERA_DEFAULT_PORT"])
     if not xaddrs_text:
-        return 80
+        return default_port
     match = re.search(r'https?://[^:/]+:(\d+)', xaddrs_text)
     if match:
         try:
@@ -300,7 +301,7 @@ def _extract_port_from_xaddrs(xaddrs_text: str) -> int:
             pass
     if "https://" in xaddrs_text:
         return 443
-    return 80
+    return default_port
 
 
 def _classify_device(ip: str, port: int, mac: str = "") -> tuple[str, str, str]:
@@ -313,7 +314,7 @@ def _classify_device(ip: str, port: int, mac: str = "") -> tuple[str, str, str]:
         return "camera", oui_mfg, ""
 
     # RTSP banner identifies the BRAND reliably
-    rtsp_banner = _rtsp_banner_grab(ip, 554)
+    rtsp_banner = _rtsp_banner_grab(ip, int(os.environ["RTSP_PORT"]))
     rtsp_mfg = ""
     if rtsp_banner:
         if 'realm="login to ' in rtsp_banner:
@@ -369,7 +370,7 @@ def _classify_device(ip: str, port: int, mac: str = "") -> tuple[str, str, str]:
 
 def probe_onvif_device(
     ip: str,
-    port: int = 80,
+    port: int = None,
     username: str = "",
     password: str = "",
     mac: str = "",
@@ -382,6 +383,8 @@ def probe_onvif_device(
       Gate 2 -> RTSP stream must be open
       Gate 3 -> ONVIF probe or classify as auth-required camera
     """
+    if port is None:
+        port = int(os.environ["CAMERA_DEFAULT_PORT"])
     local_ips = get_local_ips()
     topology_non_cams = get_topology_non_camera_ips()
     if ip in local_ips or ip in topology_non_cams or ip.startswith(('127.', '255.')):
@@ -674,7 +677,7 @@ def discover_onvif_devices_simple(
     # Direct port scan if host proxy is not available
     if not open_ips:
         subnet = get_local_subnet()
-        ports  = [554, 80]
+        ports  = [int(os.environ["RTSP_PORT"]), int(os.environ["CAMERA_DEFAULT_PORT"])]
         scan_targets = [
             (f"{subnet}.{i}", port)
             for i in range(1, 255)

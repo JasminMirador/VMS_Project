@@ -3,12 +3,16 @@ import glob
 import time
 import subprocess
 import threading
+import redis
 from datetime import datetime, timedelta
 import pymongo
 
-os.environ.setdefault('MONGO_DB_NAME', 'vms_db')
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from dotenv import load_dotenv
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(BASE_DIR)
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
@@ -16,8 +20,10 @@ from recorder.encrypt_service import MASTER_KEY
 
 # Configuration
 MONGO_URI = os.environ["MONGO_URI"]
-MONGO_DB_NAME = os.environ.get("MONGO_DB_NAME", "vms_db")
-MEDIAMTX_HOST = os.environ.get("MEDIAMTX_HOST", "127.0.0.1:8554")
+MONGO_DB_NAME = os.environ["MONGO_DB_NAME"]
+_mmtx_host = os.environ.get("MEDIAMTX_HOST") or os.environ.get("HOST_IP") or "127.0.0.1"
+_mmtx_port = os.environ.get("MEDIAMTX_RTSP_PORT", "8554")
+MEDIAMTX_HOST = f"{_mmtx_host}:{_mmtx_port}" if ":" not in _mmtx_host else _mmtx_host
 BUFFER_DIR = os.environ.get("BUFFER_DIR", "C:\\recording\\instant_buffer" if os.name == "nt" else "/recording/instant_buffer")
 FFMPEG_BIN = "ffmpeg"
 
@@ -26,6 +32,16 @@ mongo_client = pymongo.MongoClient(MONGO_URI)
 db = mongo_client[MONGO_DB_NAME]
 recordings_col = db["recordings"]
 cameras_col = db["cameras"]
+
+# Same dedicated recorder Redis that recorder_service.py uses
+redis_client = redis.Redis(
+    host=os.environ["REDIS_HOST"],
+    port=int(os.environ.get("RECORDER_REDIS_PORT") or os.environ["REDIS_PORT"]),
+    db=1,
+    socket_timeout=15,
+    socket_connect_timeout=5,
+    health_check_interval=30
+)
 
 def run_buffer_ffmpeg(camera_id, stream_key, stop_event):
     """Runs FFmpeg to generate 10-second TS segments from MediaMTX."""
@@ -158,6 +174,13 @@ def append_worker(camera_id, stop_event):
 def main():
     print("[INSTANT-BUFFER] Starting Parallel Instant Playback Buffer...")
     active_threads = {}
+
+    pubsub = redis_client.pubsub()
+    try:
+        pubsub.subscribe("vms_config_updates")
+        print("[INSTANT-BUFFER] Subscribed to Redis config updates!")
+    except Exception as e:
+        print(f"[INSTANT-BUFFER] Redis pubsub error: {e}")
     
     while True:
         try:

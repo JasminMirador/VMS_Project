@@ -183,18 +183,6 @@ const ADMIN_ONLY_NAV = [
       { label: "Topology Map", page: "topology-map", icon: ICONS.topology },
       { label: "Network Health", page: "network-health", icon: ICONS.networkHealth },
       { label: "System Performance", page: "system-performance", icon: ICONS.systemPerformance },
-
-      // {
-      //   label: "Network Health",
-      //   page: "network-health",
-      //   icon: ICONS.networkHealth
-      // },
-
-      // {
-      //   label: "System Performance",
-      //   page: "system-performance",
-      //   icon: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M 3 14 Q 9 14 17 6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" /><polygon points="15,4 21,2 19,8" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round" /><line x1="4.5" y1="15.5" x2="4.5" y2="21" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" /><line x1="9.5" y1="13.5" x2="9.5" y2="21" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" /><line x1="14.5" y1="10.5" x2="14.5" y2="21" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" /><line x1="19.5" y1="8" x2="19.5" y2="21" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" /></svg>`
-      // },
     ],
   },
 ];
@@ -231,6 +219,23 @@ const CLIENT_NAV = [
     section: "Reports",
     page: "reports",
     icon: ICONS.reports,
+  },
+
+  {
+    section: "Designer View",
+    page: "designer-view",
+    icon: ICONS.designerView,
+  },
+
+  // Infrastructure Group
+  {
+    section: "Infrastructure",
+    icon: ICONS.infrastructure,
+    items: [
+      { label: "Topology Map", page: "topology-map", icon: ICONS.topology },
+      { label: "Network Health", page: "network-health", icon: ICONS.networkHealth },
+      { label: "System Performance", page: "system-performance", icon: ICONS.systemPerformance },
+    ],
   },
 ];
 
@@ -297,7 +302,6 @@ const OPERATOR_NAV = [
   {
     section: "Live View",
     page: "live-view",
-    
     icon: ICONS.liveView,
   },
 

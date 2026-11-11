@@ -107,7 +107,7 @@ def capture_and_append_snapshot(document, ip_slug):
             if upload_bytes(minio_path, img_bytes):
                 default_minio = f"{os.environ.get('HOST_IP')}:{os.environ.get('MINIO_PORT')}"
                 minio_endpoint = os.environ.get("MINIO_ENDPOINT", default_minio)
-                minio_bucket = os.environ.get("MINIO_BUCKET", "vms-recordings")
+                minio_bucket = os.environ.get("MINIO_BUCKET")
                 document["imageUrl"] = f"http://{minio_endpoint}/{minio_bucket}/{minio_path}"
                 print(f"[MQTT] Snapshot successfully saved: {document['imageUrl']}")
         else:

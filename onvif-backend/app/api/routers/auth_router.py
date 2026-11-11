@@ -60,7 +60,7 @@ from app.core.logger import log_security_event
 
 
 
-_USER_STREAM = lambda: os.environ.get("REDIS_STREAM_USER_EVENTS", "vms:events:user")
+_USER_STREAM = lambda: os.environ["REDIS_STREAM_USER_EVENTS"]
 
 
 
@@ -321,7 +321,7 @@ def auth_signup(request: Request, req: SignupRequest):
 
         # Send email to Admin
 
-        admin_email = os.environ.get("ALERT_EMAIL_FROM", "zjasmin.pro@gmail.com")
+        admin_email = os.environ["ALERT_EMAIL_FROM"]
 
         subject = "New Signup Request - Action Required"
 
@@ -445,7 +445,7 @@ def auth_signup_password(request: Request, req: PasswordSignupRequest):
 
         try:
 
-            admin_email = os.environ.get("ALERT_EMAIL_FROM", "zjasmin.pro@gmail.com")
+            admin_email = os.environ["ALERT_EMAIL_FROM"]
 
             subject = "New User Registered"
 

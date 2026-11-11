@@ -23,13 +23,13 @@ from datetime import datetime
 
 # ── Config ────────────────────────────────────────────────────────────────
 
-ALERT_FROM    = os.environ.get("ALERT_EMAIL_FROM", "alerts@vms_db.local")
+ALERT_FROM    = os.environ["ALERT_EMAIL_FROM"]
 ALERT_TO_RAW  = os.environ.get("ALERT_EMAIL_TO", "")
 ALERT_TO      = [e.strip() for e in ALERT_TO_RAW.split(",") if e.strip()]
-SMTP_HOST     = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT     = int(os.environ.get("SMTP_PORT"))
-SMTP_USER     = os.environ.get("SMTP_USER", "")
-SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+SMTP_HOST     = os.environ["SMTP_HOST"]
+SMTP_PORT     = int(os.environ["SMTP_PORT"])
+SMTP_USER     = os.environ["SMTP_USER"]
+SMTP_PASSWORD = os.environ["SMTP_PASSWORD"]
 EMAILS_ENABLED = os.environ.get("ALERT_EMAILS_ENABLED", "true").lower() != "false"
 
 
@@ -60,15 +60,7 @@ def _get_vms_identity():
     except Exception:
         hostname = "Unknown Host"
     
-    host_ip = os.environ.get("HOST_IP")
-    if not host_ip:
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            host_ip = s.getsockname()[0]
-            s.close()
-        except Exception:
-            host_ip = "127.0.0.1"
+    host_ip = os.environ["HOST_IP"]
             
     return hostname, host_ip
 

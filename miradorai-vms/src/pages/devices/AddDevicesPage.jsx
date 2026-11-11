@@ -1936,7 +1936,7 @@ export default function AddDevicesPage({ onNavigate }) {
           headers: getAuthHeaders(),
           body: JSON.stringify({ 
             ip, 
-            port: Number(port) || getNumber("CAMERA_DEFAULT_PORT", 80), 
+            port: Number(port) || getNumber("CAMERA_DEFAULT_PORT"), 
             username: user, 
             password: pass, 
             channel: safeChannel, 

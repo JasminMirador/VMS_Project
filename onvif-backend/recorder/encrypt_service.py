@@ -34,19 +34,7 @@ from pymongo import MongoClient
 from . import rtsp_recorder as recorder   # get_recordings_dir() gives the live path
 
 MONGO_URI      = os.environ["MONGO_URI"]
-KEY_FILE       = os.environ.get("VIDEO_KEY_FILE", "/app/data/video.key")  # Must match recording_api.py
-
-# On Windows host, map default container path to the actual devices_data folder in VMS_Project
-if os.name == 'nt' and KEY_FILE == "/app/data/video.key":
-    sibling_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "devices_data", "video.key"))
-    if os.path.exists(sibling_path):
-        KEY_FILE = sibling_path
-    else:
-        hardcoded_path = "c:/Users/miradorwin/Documents/GitHub/VMS_Project/devices_data/video.key"
-        if os.path.exists(hardcoded_path):
-            KEY_FILE = hardcoded_path
-        else:
-            KEY_FILE = sibling_path
+KEY_FILE       = os.environ["VIDEO_KEY_FILE"]  # Must match recording_api.py
 
 POLL_INTERVAL  = 5
 

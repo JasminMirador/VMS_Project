@@ -20,8 +20,10 @@ except ImportError:
 import os
 from pathlib import Path
 
-# Load .env file from parent directory (VMS_Project/.env)
-env_path = Path(__file__).parent.parent / ".env"
+# Load .env file from local directory (onvif-backend/.env)
+env_path = Path(__file__).parent / ".env"
+if not env_path.exists():
+    env_path = Path(__file__).parent.parent / ".env"
 if env_path.exists():
     for line in env_path.read_text().splitlines():
         line = line.strip()

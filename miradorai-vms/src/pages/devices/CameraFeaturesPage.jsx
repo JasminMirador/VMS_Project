@@ -480,7 +480,7 @@ function ImagingSection({ device, caps, onCall, showToast }) {
 
   const apply = async (setting, value) => {
     const res = await onCall("/api/camera/imaging/set", {
-      ip: device.ip, port: device.port || getNumber("CAMERA_DEFAULT_PORT", 80),
+      ip: device.ip, port: device.port || getNumber("CAMERA_DEFAULT_PORT"),
       username: device.username || "", password: device.password || "",
       setting, value,
     });
@@ -646,7 +646,7 @@ function PTZSection({ device, caps, onCall, showToast }) {
 
   const move = async (p, t, z) => {
     const res = await onCall("/api/camera/ptz/move", {
-      ip: device.ip, port: device.port || getNumber("CAMERA_DEFAULT_PORT", 80),
+      ip: device.ip, port: device.port || getNumber("CAMERA_DEFAULT_PORT"),
       username: device.username || "", password: device.password || "",
       pan: p, tilt: t, zoom: z,
     });
@@ -655,7 +655,7 @@ function PTZSection({ device, caps, onCall, showToast }) {
 
   const gotoPreset = async (token) => {
     const res = await onCall("/api/camera/ptz/preset/goto", {
-      ip: device.ip, port: device.port || getNumber("CAMERA_DEFAULT_PORT", 80),
+      ip: device.ip, port: device.port || getNumber("CAMERA_DEFAULT_PORT"),
       username: device.username || "", password: device.password || "",
       preset_token: token,
     });
@@ -669,7 +669,7 @@ function PTZSection({ device, caps, onCall, showToast }) {
       return;
     }
     const res = await onCall("/api/camera/ptz/preset/save", {
-      ip: device.ip, port: device.port || getNumber("CAMERA_DEFAULT_PORT", 80),
+      ip: device.ip, port: device.port || getNumber("CAMERA_DEFAULT_PORT"),
       username: device.username || "", password: device.password || "",
       preset_name: newPresetName.trim(),
     });
@@ -679,7 +679,7 @@ function PTZSection({ device, caps, onCall, showToast }) {
 
   const goHome = async () => {
     const res = await onCall("/api/camera/ptz/home", {
-      ip: device.ip, port: device.port || getNumber("CAMERA_DEFAULT_PORT", 80),
+      ip: device.ip, port: device.port || getNumber("CAMERA_DEFAULT_PORT"),
       username: device.username || "", password: device.password || "",
     });
     showToast(res.success ? "Moved to home" : res.error || "Failed", res.success ? "success" : "error");
@@ -863,7 +863,7 @@ function IOSection({ device, caps, onCall, showToast }) {
 
   const triggerRelay = async (token, state) => {
     const res = await onCall("/api/camera/io/relay", {
-      ip: device.ip, port: device.port || getNumber("CAMERA_DEFAULT_PORT", 80),
+      ip: device.ip, port: device.port || getNumber("CAMERA_DEFAULT_PORT"),
       username: device.username || "", password: device.password || "",
       relay_token: token, state,
     });
@@ -1055,7 +1055,7 @@ function AnalyticsSection({ device, caps, onCall, showToast }) {
     setToggling(true);
     const endpoint = enabled ? "/api/camera/analytics/disable" : "/api/camera/analytics/enable";
     const res = await onCall(endpoint, {
-      ip: device.ip, port: device.port || getNumber("CAMERA_DEFAULT_PORT", 80),
+      ip: device.ip, port: device.port || getNumber("CAMERA_DEFAULT_PORT"),
       username: device.username || "", password: device.password || "",
     });
     if (res.success) {
@@ -1196,7 +1196,7 @@ export default function CameraFeaturesPage({ onNavigate }) {
           headers: { "Content-Type": "application/json" },
           body:    JSON.stringify({
             ip:       device.ip,
-            port:     device.port || getNumber("CAMERA_DEFAULT_PORT", 80),
+            port:     device.port || getNumber("CAMERA_DEFAULT_PORT"),
             username: device.username || "",
             password: device.password || "",
           }),

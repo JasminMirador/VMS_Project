@@ -467,7 +467,7 @@ class HostNetworkDetector:
             else:
                 network_obj = ipaddress.IPv4Network(f"{best_ip}/{best_netmask}", strict=False)
         except Exception:
-            fallback_subnet = os.environ.get("HOST_SUBNET", "192.168.126").strip()
+            fallback_subnet = os.environ.get("HOST_SUBNET").strip()
             network_obj = ipaddress.IPv4Network(f"{fallback_subnet}.0/24", strict=False)
 
         default_gateway = None
@@ -1497,7 +1497,7 @@ class NetworkDiscoveryManager:
                 host_ip = host_net["ip"]
                 targets = [str(ip) for ip in net_obj.hosts() if str(ip) not in camera_ips and str(ip) != host_ip]
             except Exception as e:
-                fallback_subnet = os.environ.get("HOST_SUBNET", "192.168.126").strip()
+                fallback_subnet = os.environ.get("HOST_SUBNET").strip()
                 print(f"[DISCOVERY] Error parsing subnet: {e}, falling back to {fallback_subnet}.0/24")
                 targets = [f"{fallback_subnet}.{i}" for i in range(1, 255) if f"{fallback_subnet}.{i}" not in camera_ips]
 

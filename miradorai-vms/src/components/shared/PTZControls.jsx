@@ -18,7 +18,7 @@ async function apiPTZMove(camera, pan, tilt, zoom) {
       headers: { "Content-Type": "application/json", ...getAuthHeaders() },
       body: JSON.stringify({
         ip:       camera.ip || camera.address || "",
-        port:     camera.port || getNumber("CAMERA_DEFAULT_PORT", 80),
+        port:     camera.port || getNumber("CAMERA_DEFAULT_PORT"),
         username: camera.username || "admin",
         password: camera.password || "",
         pan, tilt, zoom,
@@ -36,7 +36,7 @@ async function apiPTZHome(camera) {
       headers: { "Content-Type": "application/json", ...getAuthHeaders() },
       body: JSON.stringify({
         ip:       camera.ip || camera.address || "",
-        port:     camera.port || getNumber("CAMERA_DEFAULT_PORT", 80),
+        port:     camera.port || getNumber("CAMERA_DEFAULT_PORT"),
         username: camera.username || "admin",
         password: camera.password || "",
       }),
@@ -54,7 +54,7 @@ async function apiGotoPreset(camera, presetToken) {
       headers: { "Content-Type": "application/json", ...getAuthHeaders() },
       body: JSON.stringify({
         ip:           camera.ip || camera.address || "",
-        port:         camera.port || getNumber("CAMERA_DEFAULT_PORT", 80),
+        port:         camera.port || getNumber("CAMERA_DEFAULT_PORT"),
         username:     camera.username || "admin",
         password:     camera.password || "",
         preset_token: presetToken,
@@ -72,7 +72,7 @@ async function apiSavePreset(camera, presetName) {
       headers: { "Content-Type": "application/json", ...getAuthHeaders() },
       body: JSON.stringify({
         ip:          camera.ip || camera.address || "",
-        port:        camera.port || getNumber("CAMERA_DEFAULT_PORT", 80),
+        port:        camera.port || getNumber("CAMERA_DEFAULT_PORT"),
         username:    camera.username || "admin",
         password:    camera.password || "",
         preset_name: presetName,
