@@ -77,6 +77,13 @@ async def _startup_phase_1():
         print(f"[STARTUP] ⚠ Failed to start email report scheduler: {e}")
 
     try:
+        from app.services.storage.storage_monitor import start_storage_monitor
+        start_storage_monitor()
+        print("[STARTUP] Storage Subsystem & RAID Health Monitor background thread started.")
+    except Exception as e:
+        print(f"[STARTUP] Failed to start storage health monitor: {e}")
+        
+    try:
         from discovery_host import start_discovery_host_server
         start_discovery_host_server()
         print(f"[STARTUP] ✅ Discovery Host Scan server started on port {os.environ.get('DISCOVERY_HOST_PORT')}.")
