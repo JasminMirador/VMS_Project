@@ -40,7 +40,7 @@ export default function StorageManagementPage() {
   const [applyMsg, setApplyMsg]         = useState("");
 
   // ── Fetch storage info from backend ──────────────────────────────────────
-  const fetchStorage = () => {
+  const fetchStorage = (targetPath = null) => {
     setLoading(true);
     fetch(apiUrl("/storage/management"))
       .then((r) => r.json())
@@ -53,9 +53,32 @@ export default function StorageManagementPage() {
         }));
         setRows(mapped);
         if (mapped.length > 0) {
-          setSelected(0);
-          setFolder(mapped[0].display);
-          setAllocated(mapped[0].allocated || 352);
+          let targetIndex = 0;
+          if (targetPath) {
+            const searchKey = targetPath.toLowerCase().replace(/\\/g, "/").replace(/\/$/, "");
+            const foundIdx = mapped.findIndex((r) => {
+              const d = (r.display || "").toLowerCase().replace(/\\/g, "/").replace(/\/$/, "");
+              const c = (r.container_path || "").toLowerCase().replace(/\\/g, "/").replace(/\/$/, "");
+              const l = (r.location || "").toLowerCase().replace(/\\/g, "/").replace(/\/$/, "");
+              return d === searchKey || c === searchKey || l === searchKey;
+            });
+            if (foundIdx !== -1) targetIndex = foundIdx;
+          } else {
+            // Prefer the currently active recording folder (status === "Recording")
+            const recIdx = mapped.findIndex((r) => r.status === "Recording");
+            if (recIdx !== -1) {
+              targetIndex = recIdx;
+            } else if (selected !== null && selected < mapped.length) {
+              targetIndex = selected;
+            }
+          }
+          setSelected(targetIndex);
+          setFolder(mapped[targetIndex].display);
+          setAllocated(mapped[targetIndex].allocated || 352);
+        } else {
+          setSelected(null);
+          setFolder("");
+          setAllocated(100);
         }
       })
       .catch(() => {
@@ -140,14 +163,16 @@ export default function StorageManagementPage() {
 
   const handleRemove = async () => {
     if (sel === null) return;
-    if (!window.confirm(`Remove storage location "${sel.display || sel.location}"?`)) return;
+    const displayName = sel.display || sel.location || sel.container_path;
+    if (!window.confirm(`Remove storage location "${displayName}"?`)) return;
     
     try {
-      await fetch(apiUrl(`/storage/locations?container_path=${encodeURIComponent(sel.container_path)}`), {
+      const deletePath = sel.container_path || sel.display || sel.location;
+      await fetch(apiUrl(`/storage/locations?container_path=${encodeURIComponent(deletePath)}`), {
         method: "DELETE"
       });
-      fetchStorage();
       setSelected(null);
+      fetchStorage();
     } catch (err) {
       console.error("Failed to remove storage location:", err);
     }
@@ -168,9 +193,9 @@ export default function StorageManagementPage() {
           allocated: 100
         })
       });
-      fetchStorage();
       setAddModal(false);
       setNewPath("");
+      fetchStorage(display);
     } catch (err) {
       console.error("Failed to add storage location:", err);
     }
@@ -196,17 +221,20 @@ export default function StorageManagementPage() {
 
     setApplyMsg("Applying...");
 
+    const oldContainerPath = sel ? (sel.container_path || sel.display || sel.location) : null;
+
     try {
       const res = await fetch(apiUrl("/storage/apply"), {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({
           // Always send the container path — backend validates & persists it
-          recording_path: containerPath,
-          container_path: containerPath,
-          display_path:   displayInput,
-          folder:         containerPath,
+          recording_path:     containerPath,
+          container_path:     containerPath,
+          display_path:       displayInput,
+          folder:             containerPath,
           allocated,
+          old_container_path: oldContainerPath,
         }),
       });
 
@@ -215,27 +243,8 @@ export default function StorageManagementPage() {
         // Use the display_path the backend echoes back, or derive it ourselves
         const newDisplay = json.display_path || toDisplayPath(json.recording_path || containerPath);
         setApplyMsg(`✅ ${json.message || "Settings updated and saved successfully!"}`);
-
-        // Update the displayed row
-        if (selected !== null) {
-          setRows((prev) =>
-            prev.map((r, i) =>
-              i === selected
-                ? {
-                    ...r,
-                    location:       newDisplay,
-                    container_path: json.recording_path || containerPath,
-                    display:        newDisplay,
-                    allocated:      allocated, // Sync local state allocated value!
-                  }
-                : r
-            )
-          );
-          setFolder(newDisplay);
-          
-          // Re-fetch storage options to refresh free/used calculations!
-          fetchStorage();
-        }
+        setFolder(newDisplay);
+        fetchStorage(newDisplay);
       } else {
         setApplyMsg(`❌ ${json.detail || "Failed to apply settings."}`);
       }
@@ -313,10 +322,11 @@ export default function StorageManagementPage() {
       </div>
 
       <div className="sm-table-actions">
+        <button className="sm-btn sm-btn--primary" onClick={() => { setNewPath(""); setAddModal(true); }}>+ Add Folder</button>
         <button className="sm-btn sm-btn--danger" disabled={selected === null} onClick={handleRemove}>Remove</button>
       </div>
 
-      {sel && (
+      {sel ? (
         <div className="sm-bottom">
 
           {/* Card 1: Overview & Total Capacity */}
@@ -479,6 +489,10 @@ export default function StorageManagementPage() {
             </div>
           </div>
 
+        </div>
+      ) : (
+        <div className="card" style={{ padding: 28, textAlign: "center", color: "var(--text-muted)", marginTop: 16 }}>
+          No storage location selected. Select a location from the table above or click <strong>+ Add Folder</strong> to configure a MinIO parent folder.
         </div>
       )}
 
