@@ -1254,7 +1254,10 @@
   border-radius: 99px;
 }
 .mv-modal__badge--online  { color: #1D9E75; background: #1D9E7520; }
-.mv-modal__badge--offline { color: #888780; background: #88878020; }
+.mv-modal__badge--alert   { color: #f59e0b; background: #f59e0b20; }
+.mv-modal__badge--offline,
+.mv-modal__badge--disabled,
+.mv-modal__badge--unavailable { color: #E24B4A; background: #E24B4A20; }
 
 .mv-modal__field {
   margin-bottom: 18px;
@@ -1657,7 +1660,10 @@
 
 .mv-cam-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 .mv-cam-dot--online  { background: #1D9E75; box-shadow: 0 0 4px #1D9E7588; }
-.mv-cam-dot--offline { background: #888780; }
+.mv-cam-dot--alert   { background: #f59e0b; box-shadow: 0 0 4px #f59e0b88; }
+.mv-cam-dot--offline,
+.mv-cam-dot--disabled,
+.mv-cam-dot--unavailable { background: #E24B4A; box-shadow: 0 0 4px #E24B4A88; }
 
 .mv-cam-info {
   display: flex;

@@ -137,6 +137,12 @@
 .dn-al li:first-child{border-top:0;padding-top:0}
 .dn-al.tight li{grid-template-columns:calc(24 * var(--u)) 1fr auto;padding:calc(8 * var(--u)) 0}
 .dn-al.tight .dn-ai{width:calc(24 * var(--u));height:calc(24 * var(--u));border-radius:calc(7 * var(--u))}
+.dn-al.dn-al-scroll{max-height:calc(295 * var(--u));overflow-y:auto;overscroll-behavior:contain;padding-inline-end:calc(6 * var(--u));scrollbar-width:thin;scrollbar-color:var(--dn-line2) transparent}
+.dn-al.dn-al-scroll::-webkit-scrollbar{width:5px}
+.dn-al.dn-al-scroll::-webkit-scrollbar-track{background:transparent}
+.dn-al.dn-al-scroll::-webkit-scrollbar-thumb{background:var(--dn-line2);border-radius:4px}
+.dn-al.dn-al-scroll::-webkit-scrollbar-thumb:hover{background:var(--dn-muted)}
+.dn-al.dn-al-scroll li{padding-inline:calc(4 * var(--u))}
 .dn-ai{width:calc(30 * var(--u));height:calc(30 * var(--u));border-radius:calc(9 * var(--u));display:grid;place-items:center}
 .dn-ai svg{width:calc(16 * var(--u));height:calc(16 * var(--u));fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .dn-ai.crit{background:rgba(208,59,59,.14);color:var(--dn-crit-t)}.dn-ai.warn{background:rgba(250,178,25,.12);color:var(--dn-warn)}

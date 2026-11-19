@@ -1,12 +1,16 @@
 .ai-analytics-page {
+  position: relative;
   width: 100%;
   height: 100%;
+  flex: 1;
+  min-height: 0;
   background: #0f111a; /* Dark theme background */
   color: #f8fafc;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   font-family: 'Inter', sans-serif;
+  border-radius: var(--radius-md, 10px);
 }
 
 .ai-analytics-iframe {

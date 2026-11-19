@@ -21,6 +21,15 @@
     transform 0.9s ease;
 }
 
+.splash--embedded {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+
 
 /* =========================================================
    EXIT ANIMATION

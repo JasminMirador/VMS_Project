@@ -660,3 +660,27 @@
   margin-left: 2px;
   fill: currentColor;
 }
+
+/* ── Field Input & Select for Watermark ─────────────────────────────────────── */
+.us-field-input {
+  background: var(--bg-surface, #11141b);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  color: var(--text-primary, #f8fafc);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  outline: none;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+[data-theme='light'] .us-field-input {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #111827;
+}
+
+.us-field-input:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px rgba(var(--brand-rgb), 0.2);
+}

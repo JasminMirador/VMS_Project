@@ -221,6 +221,47 @@
   transform: translateY(0);
 }
 
+/* ── Playback Source Toggle ────────────────────────── */
+.mp-source-toggle-wrap {
+  display: flex;
+  background: var(--bg-surface-2, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  gap: 4px;
+  margin: 0 8px 10px;
+}
+
+.mp-source-toggle-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--radius-sm) - 2px);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mp-source-toggle-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.mp-source-toggle-btn.active {
+  color: #fff;
+  background: var(--brand, #06b6d4);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
 /* ── Camera Dropdown (custom) ────────────────── */
 .mp-cam-dropdown-wrap {
   position: relative;
@@ -1969,4 +2010,43 @@
   justify-content: flex-end;
   gap: 12px;
   background: var(--bg-raised);
+}
+
+/* ── Video Watermark Overlay ─────────────────── */
+.mp-watermark-overlay {
+  position: absolute;
+  pointer-events: none;
+  font-family: var(--font-body), sans-serif;
+  font-weight: 600;
+  font-size: clamp(14px, 2.5vw, 32px);
+  color: rgba(255, 255, 255, 0.28);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  user-select: none;
+  z-index: 5;
+  white-space: nowrap;
+}
+
+.mp-watermark-center {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.mp-watermark-bottom-right {
+  bottom: 24px;
+  right: 28px;
+}
+
+.mp-watermark-bottom-center {
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.mp-watermark-top-center {
+  top: 50px;
+  left: 50%;
+  transform: translateX(-50%);
 }

@@ -1,0 +1,179 @@
+
+/* ================================
+   Tag Input (Recipient Chips)
+   ================================ */
+.es-tag-input-container {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  background: transparent;
+}
+
+.es-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 4px;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #fff;
+}
+
+.es-tag-color-0 { background: rgba(56, 189, 248, 0.2); border: 1px solid rgba(56, 189, 248, 0.3); }
+.es-tag-color-1 { background: rgba(232, 121, 249, 0.2); border: 1px solid rgba(232, 121, 249, 0.3); }
+.es-tag-color-2 { background: rgba(250, 204, 21, 0.2); border: 1px solid rgba(250, 204, 21, 0.3); }
+.es-tag-color-3 { background: rgba(74, 222, 128, 0.2); border: 1px solid rgba(74, 222, 128, 0.3); }
+
+.es-tag-avatar {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.es-tag-close {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 50%;
+}
+.es-tag-close:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.es-tag-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: inherit;
+  font-size: 14px;
+  flex: 1;
+  min-width: 150px;
+  padding: 4px 0;
+}
+
+/* ================================
+   Rich Text Editor
+   ================================ */
+.es-rte-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  transition: border-color 0.2s;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.es-rte-container.focused {
+  border-color: var(--teal, #2dd4bf);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.es-rte-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-light, #334155);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 8px 8px 0 0;
+}
+
+.es-rte-toolbar button {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary, #94a3b8);
+  padding: 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.es-rte-toolbar button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.es-rte-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border-light, #334155);
+  margin: 0 4px;
+}
+
+.es-rte-content {
+  flex: 1;
+  padding: 16px;
+  outline: none;
+  min-height: 250px;
+  color: #fff;
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-y: auto;
+}
+
+.es-rte-content:empty:before {
+  content: attr(data-placeholder);
+  color: var(--text-muted, #64748b);
+  pointer-events: none;
+}
+
+/* Light Mode Overrides for New Components */
+[data-theme="light"] .es-tag-input {
+  color: #0f172a;
+}
+[data-theme="light"] .es-tag-color-0 { color: #0284c7; background: #e0f2fe; border-color: #bae6fd; }
+[data-theme="light"] .es-tag-color-1 { color: #c026d3; background: #fae8ff; border-color: #f5d0fe; }
+[data-theme="light"] .es-tag-color-2 { color: #ca8a04; background: #fef9c3; border-color: #fef08a; }
+[data-theme="light"] .es-tag-color-3 { color: #16a34a; background: #dcfce7; border-color: #bbf7d0; }
+[data-theme="light"] .es-tag-avatar { background: rgba(0, 0, 0, 0.1); }
+[data-theme="light"] .es-tag-close { color: rgba(0, 0, 0, 0.4); }
+[data-theme="light"] .es-tag-close:hover { color: #000; background: rgba(0, 0, 0, 0.1); }
+
+[data-theme="light"] .es-rte-container {
+  background: #fff;
+  border-color: var(--border-light);
+}
+[data-theme="light"] .es-rte-container.focused {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.1);
+}
+[data-theme="light"] .es-rte-toolbar {
+  background: rgba(0, 0, 0, 0.02);
+  border-bottom-color: var(--border-light);
+}
+[data-theme="light"] .es-rte-toolbar button {
+  color: #64748b;
+}
+[data-theme="light"] .es-rte-toolbar button:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #0f172a;
+}
+[data-theme="light"] .es-rte-divider {
+  background: var(--border-light);
+}
+[data-theme="light"] .es-rte-content {
+  color: #0f172a;
+}
+
+/* Make Compose Panel Fill Screen */
+.es-compose-panel {
+  max-width: none !important; 
+}

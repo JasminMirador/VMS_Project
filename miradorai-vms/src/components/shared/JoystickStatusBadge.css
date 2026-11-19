@@ -1,0 +1,45 @@
+.topbar__joy-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary, #94a3b8);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.topbar__joy-btn:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.06));
+  color: var(--text-primary, #f8fafc);
+  border-color: var(--border-light, #2a3347);
+}
+
+.topbar__joy-btn--connected {
+  color: var(--brand, #22d3ee);
+}
+
+.topbar__joy-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.topbar__joy-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #64748b;
+  transition: all 0.2s ease;
+}
+
+.topbar__joy-dot--active {
+  background-color: #10b981;
+  box-shadow: 0 0 6px #10b981;
+}

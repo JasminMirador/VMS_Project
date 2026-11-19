@@ -27,7 +27,25 @@
   z-index:    1030;
 }
 .vt-thumb--online  { border-color: #1D9E7588; }
-.vt-thumb--offline { border-color: #44444488; opacity: 0.82; }
+.vt-thumb--offline { border-color: #E24B4A88; opacity: 0.9; }
+
+/* Dynamic hover preview thumbnail */
+.vt-thumb--hover-preview {
+  z-index: 1050;
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.16);
+  animation: vt-thumb-pop 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes vt-thumb-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.93) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
 
 /* Feed area */
 .vt-thumb__feed {
@@ -74,7 +92,8 @@
   flex-shrink:   0;
 }
 .vt-thumb__dot--online  { background: #1D9E75; box-shadow: 0 0 4px #1D9E75; }
-.vt-thumb__dot--offline { background: #555; }
+.vt-thumb__dot--alert   { background: #f59e0b; box-shadow: 0 0 4px #f59e0b; }
+.vt-thumb__dot--offline { background: #E24B4A; box-shadow: 0 0 4px #E24B4A88; }
 
 .vt-thumb__name {
   flex:          1;
@@ -295,7 +314,7 @@
   z-index:    1030;
 }
 .vt-thumb--online  { border-color: #1D9E7588; }
-.vt-thumb--offline { border-color: #44444488; opacity: 0.82; }
+.vt-thumb--offline { border-color: #E24B4A88; opacity: 0.9; }
 
 /* Connector line from thumbnail bottom to camera dot */
 .vt-thumb__connector {
@@ -357,7 +376,8 @@
   flex-shrink:   0;
 }
 .vt-thumb__dot--online  { background: #1D9E75; box-shadow: 0 0 4px #1D9E75; }
-.vt-thumb__dot--offline { background: #555; }
+.vt-thumb__dot--alert   { background: #f59e0b; box-shadow: 0 0 4px #f59e0b; }
+.vt-thumb__dot--offline { background: #E24B4A; box-shadow: 0 0 4px #E24B4A88; }
 
 .vt-thumb__name {
   flex:          1;
@@ -553,7 +573,7 @@
 .vt-info-row span  { color: #666; }
 .vt-info-row strong { color: #d0d6e0; font-weight: 500; }
 .vt-info-online  { color: #1D9E75 !important; }
-.vt-info-offline { color: #666    !important; }
+.vt-info-offline { color: #E24B4A !important; }
 .vt-info-url     { font-family: monospace; font-size: 11px; word-break: break-all; }
 
 /* ── Map Digital Twin Recording Indicators ── */
@@ -586,23 +606,23 @@
 .vt-info-row span  { color: #666; }
 .vt-info-row strong { color: #d0d6e0; font-weight: 500; }
 .vt-info-online  { color: #1D9E75 !important; }
-.vt-info-offline { color: #666    !important; }
+.vt-info-offline { color: #E24B4A !important; }
 .vt-info-url     { font-family: monospace; font-size: 11px; word-break: break-all; }
 
 /* ── Alert Blinking and Badge ── */
 .vt-thumb--alert {
-  border: 2px solid #E24B4A !important;
+  border: 2px solid #f59e0b !important;
   animation: vt-thumb-blink 1.2s ease-in-out infinite !important;
 }
 
 @keyframes vt-thumb-blink {
   0%, 100% {
-    border-color: #E24B4A;
-    box-shadow: 0 0 0 3px rgba(226, 75, 74, 0.25);
+    border-color: #f59e0b;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.35);
   }
   50% {
-    border-color: #A32D2D;
-    box-shadow: 0 0 0 6px rgba(226, 75, 74, 0.10);
+    border-color: #d97706;
+    box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.15);
   }
 }
 
@@ -611,10 +631,10 @@
   top: 6px;
   right: 6px;
   z-index: 1040;
-  background: #E24B4A;
-  color: #fff;
+  background: #f59e0b;
+  color: #0d1117;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 800;
   border-radius: 999px;
   min-width: 16px;
   height: 16px;
@@ -622,7 +642,7 @@
   align-items: center;
   justify-content: center;
   padding: 0 4px;
-  box-shadow: 0 2px 6px rgba(226, 75, 74, 0.5);
+  box-shadow: 0 2px 6px rgba(245, 158, 11, 0.6);
   user-select: none;
 }
 

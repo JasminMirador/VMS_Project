@@ -567,6 +567,12 @@ html[dir="rtl"] .topbar__lang-dropdown {
   box-shadow: 0 0 12px var(--brand-tint);
 }
 
+.topbar__ai-btn--active {
+  background: var(--brand-fill, rgba(34, 211, 238, 0.15));
+  border-color: var(--brand);
+  box-shadow: 0 0 12px var(--brand-tint, rgba(34, 211, 238, 0.25));
+}
+
 .topbar__ai-logo-mark {
   width: 26px;
   height: 26px;
