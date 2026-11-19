@@ -7,14 +7,15 @@ import "./DashboardNewPage.css";
 import { apiUrl } from "../../config/appConfig";
 
 /* ───────────────────────── data helpers ───────────────────────── */
-const API_BASE = import.meta.env.VITE_API_URL;
 const getAuthHeaders = () => {
   const token = localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token");
   return token ? { Authorization: "Bearer " + token } : {};
 };
 const api = async (path) => {
-  const res = await fetch(API_BASE + path, { headers: getAuthHeaders() });
-  if (!res.ok) throw new Error(path + " " + res.status);
+  const cleanPath = path.startsWith("/api") ? path.replace(/^\/api/, "") : (path.startsWith("/") ? path : "/" + path);
+  const url = path.startsWith("http") ? path : apiUrl(cleanPath);
+  const res = await fetch(url, { headers: getAuthHeaders() });
+  if (!res.ok) throw new Error(url + " " + res.status);
   return res.json();
 };
 const safe = (path) => api(path).catch(() => null);
@@ -281,28 +282,6 @@ export default function DashboardNewPage() {
 
   useEffect(() => { const i = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(i); }, []);
 
-  /* ── periodic backend connectivity heartbeat ── */
-  useEffect(() => {
-    let off = false;
-    const checkBackend = async () => {
-      try {
-        const res = await fetch((API_BASE || "") + "/api/health", { headers: getAuthHeaders(), cache: "no-store" });
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        const data = await res.json();
-        if (!off) {
-          setBackendDown(false);
-          setHealthInfo(data);
-        }
-      } catch (e) {
-        if (!off) {
-          setBackendDown(true);
-        }
-      }
-    };
-    const timer = setInterval(checkBackend, 4000);
-    return () => { off = true; clearInterval(timer); };
-  }, []);
-
   const formatBitrateTs = useCallback((ts) => {
     if (!ts) return "";
     if (typeof ts === "string" && /^\d{1,2}:\d{2}$/.test(ts.trim())) return ts;
@@ -315,57 +294,64 @@ export default function DashboardNewPage() {
   useEffect(() => {
     let off = false;
     (async () => {
-      const from30 = new Date(Date.now() - 30 * 86400000).toISOString();
-      const to = new Date().toISOString();
-      const [sum, ev, cams, grps, status, health, metrics, ch, infra, hist, ai, alts] = await Promise.all([
-        safe("/api/dashboard/summary"),
-        safe("/api/dashboard/events?limit=100"),
-        safe("/api/cameras"),
-        safe("/api/groups"),
-        safe("/api/recordings/status"),
-        safe("/api/health"),
-        safe("/api/infrastructure/metrics"),
-        safe("/api/camera-health"),
-        safe(`/api/infrastructure/alerts?limit=5000&from_date=${from30}&to_date=${to}`),
-        safe(`/api/reports/history?from_date=${from30}&to_date=${to}&live_only=false`),
-        safe("/api/integrations"),
-        safe("/api/alerts?limit=50&status=Active")
-      ]);
-      if (off) return;
-      if (!sum && !health && !metrics) {
-        setBackendDown(true);
-      } else {
-        setBackendDown(false);
-      }
-      if (sum) {
-        setSummary((p) => {
-          const cpuHist = sum.cpu_history && sum.cpu_history.length > 0
-            ? sum.cpu_history
-            : [...(p.history?.cpu || []), sum.cpu].slice(-24);
-          return {
+      try {
+        const [sum, cams, grps, status, ch, alts, health, metrics] = await Promise.all([
+          safe("/api/dashboard/summary"),
+          safe("/api/cameras"),
+          safe("/api/groups"),
+          safe("/api/recordings/status"),
+          safe("/api/camera-health"),
+          safe("/api/alerts?limit=50&status=Active"),
+          safe("/api/health"),
+          safe("/api/infrastructure/metrics")
+        ]);
+        if (off) return;
+
+        if (sum) {
+          setSummary((p) => ({
             ...p,
             ...sum,
-            history: { cpu: cpuHist }
-          };
-        });
+            history: {
+              cpu: sum.cpu_history && sum.cpu_history.length > 0
+                ? sum.cpu_history
+                : [...(p.history?.cpu || []), sum.cpu].slice(-24)
+            }
+          }));
+        }
+        if (Array.isArray(cams)) setCameras(cams);
+        if (Array.isArray(grps)) setGroupsList(grps);
+        if (status?.active_recorders) setActiveRecorders(status.active_recorders);
+        if (Array.isArray(ch)) setCameraHealth(ch);
+        if (alts?.alerts || Array.isArray(alts)) setActiveAlerts(alts?.alerts || alts);
+        if (health) setHealthInfo(health);
+        if (metrics) setServerMetrics(metrics);
+        setBackendDown(!sum && !health && !metrics);
+      } catch (err) {
+        console.error("[Dashboard] Primary load error:", err);
+      } finally {
+        if (!off) setLoaded(true);
       }
-      setEvents(Array.isArray(ev) ? ev : []);
-      setCameras(Array.isArray(cams) ? cams : []);
-      setGroupsList(Array.isArray(grps) ? grps : []);
-      if (status) setActiveRecorders(status.active_recorders || []);
-      setHealthInfo(health);
-      setServerMetrics(metrics);
-      setCameraHealth(Array.isArray(ch) ? ch : []);
-      setInfraAlerts(Array.isArray(infra) ? infra : []);
-      setHist30(hist && hist.status === "success" && Array.isArray(hist.data) ? hist.data : []);
-      setActiveAlerts(alts?.alerts || (Array.isArray(alts) ? alts : []));
+     })();
+    return () => { off = true; };
+  }, [tick]);
+
+  /* ── 2. Background Secondary: Events & Integrations (Non-blocking) ── */
+  useEffect(() => {
+    let off = false;
+    (async () => {
+      const [ev, ai] = await Promise.all([
+        safe("/api/dashboard/events?limit=100"),
+        safe("/api/integrations")
+      ]);
+      if (off) return;
+      if (Array.isArray(ev)) setEvents(ev);
       const list = Array.isArray(ai) ? ai : ai?.integrations || [];
       setIsAiActive(list.some((i) => /mirador.?ai|external_ai/i.test(JSON.stringify(i)) && (i.enabled || i.active || i.status === "active")));
-      setLoaded(true);
     })();
     return () => { off = true; };
   }, [tick]);
 
+  /* ── 3. Diagnostics (storage / bitrate / bandwidth) ── */
   useEffect(() => {
     let off = false;
     setDiagnosticsLoaded(false);
@@ -388,6 +374,45 @@ export default function DashboardNewPage() {
     return () => { off = true; };
   }, [bitrateFilter, tick]);
 
+  /* ── 4. Lazy Analytics: 30-day History & Outage Alerts (Deferred) ── */
+  useEffect(() => {
+    let off = false;
+    const timer = setTimeout(async () => {
+      const from30 = new Date(Date.now() - 30 * 86400000).toISOString();
+      const to = new Date().toISOString();
+      const [infra, hist] = await Promise.all([
+        safe(`/api/infrastructure/alerts?limit=200&from_date=${from30}&to_date=${to}`),
+        safe(`/api/reports/history?from_date=${from30}&to_date=${to}&live_only=false`)
+      ]);
+      if (off) return;
+      if (Array.isArray(infra)) setInfraAlerts(infra);
+      if (hist && hist.status === "success" && Array.isArray(hist.data)) setHist30(hist.data);
+    }, tab === "health" ? 50 : 500);
+
+    return () => { off = true; clearTimeout(timer); };
+  }, [tab, tick]);
+
+  /* ── 5. Fallback backend polling (only when WebSocket is down) ── */
+  useEffect(() => {
+    if (isConnected) return;
+    let off = false;
+    const checkBackend = async () => {
+      try {
+        const res = await fetch(apiUrl("/health"), { headers: getAuthHeaders(), cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        if (!off) {
+          setBackendDown(false);
+          setHealthInfo(data);
+        }
+      } catch {
+        if (!off) setBackendDown(true);
+      }
+    };
+    const timer = setInterval(checkBackend, 15000);
+    return () => { off = true; clearInterval(timer); };
+  }, [isConnected]);
+  
   /* ── websocket live telemetry sync ── */
   useEffect(() => {
     if (!systemMetrics) return;
