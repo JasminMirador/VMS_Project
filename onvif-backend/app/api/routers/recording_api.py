@@ -672,13 +672,13 @@ class ExportDeviceRequest(BaseModel):
     watermark_pos: str | None = Field(default="center", max_length=50)
 
 class StorageApplyRequest(BaseModel):
-    display_path:   str | None = None
-    container_path: str | None = None
-    recording_path: str | None = None
-    folder:         str | None = None
-    location:       str | None = None
-    allocated:      int | float | None = None
-    recording_path: str | None = None
+    display_path:       str | None = None
+    container_path:     str | None = None
+    recording_path:     str | None = None
+    folder:             str | None = None
+    location:           str | None = None
+    allocated:          int | float | None = None
+    old_container_path: str | None = None
 
 class StorageLocation(BaseModel):
     display_path:   str
@@ -716,93 +716,162 @@ def _doc_to_dict(doc: dict) -> dict:
 # ==================================================================
 # STORAGE ROUTES
 # ==================================================================
-
+def _container_to_display_path(container_path: str) -> str:
+    """
+    Convert forward slashes to backslashes for native Windows UI display.
+    """
+    return (container_path or "").replace("/", "\\")
 @storage_router.get("/management")
 def get_storage_management():
     """
-    Return real disk usage info for the current recording directory.
-    Always returns the live recording path from the recorder (which includes
-    any persisted override), so the UI shows the correct path after restart.
+    Return real disk usage info for all configured recording directories.
+    Ensures active recording path is always present, deduplicated, and listed first.
     """
+    active_path = _load_recording_path_from_db() or recorder.get_recordings_dir()
     rec_dir = recorder.get_recordings_dir()
 
-    try:
-        usage    = shutil.disk_usage(rec_dir if os.path.exists(rec_dir) else "/")
-        total_gb = round(usage.total / (1024 ** 3), 1)
-        used_gb  = round(usage.used  / (1024 ** 3), 1)
-        free_gb  = round(usage.free  / (1024 ** 3), 1)
-    except Exception:
-        total_gb, used_gb, free_gb = 0, 0, 0
+
 
     # Show the Windows-friendly display path in the UI
-    display_path = _container_to_display_path(rec_dir)
+    active_display = _container_to_display_path(active_path)
 
     # Return all persisted locations
-    all_locs = list(locations_collection.find({"is_deleted": {"$ne": True}}))
+    all_locs = list(locations_collection.find({"is_deleted": {"$ne": True}})) if locations_collection is not None else []    
     if not all_locs:
         # Fallback to current if none persisted
+        try:
+            drive_target = active_path if (active_path and os.path.exists(active_path)) else (os.path.splitdrive(os.getcwd())[0] + "\\")
+            usage    = shutil.disk_usage(drive_target)
+            total_gb = round(usage.total / (1024 ** 3), 1)
+            used_gb  = round(usage.used  / (1024 ** 3), 1)
+            free_gb  = round(usage.free  / (1024 ** 3), 1)
+        except Exception:
+            total_gb, used_gb, free_gb = 0, 0, 0
         return [{
-            "location":      display_path,
-            "container_path": rec_dir,
+            "location":      active_display,
+            "container_path": active_path,
             "type":          "Local Disk",
             "total":         total_gb,
             "used":          used_gb,
             "free":          free_gb,
-            "allocated":     round(total_gb * 0.9),
-            "status":        "Recording" if recorder._recorders else "OK",
+            "allocated":     round(total_gb * 0.9) if total_gb else 100,
+            "status":        "Recording",
             "server":        "MIRADOR",
         }]
 
     results = []
+    seen = set()
+
     for loc in all_locs:
-        c_path = loc["container_path"]
+        c_path = loc.get("container_path", "")
+        if not c_path:
+            continue
+        norm_key = c_path.strip().replace("\\", "/").lower()
+        if norm_key in seen:
+            continue
+        seen.add(norm_key)        
         try:
-            u    = shutil.disk_usage(c_path if os.path.exists(c_path) else "/")
+            drive_target = c_path if os.path.exists(c_path) else (os.path.splitdrive(os.getcwd())[0] + "\\")
+            u    = shutil.disk_usage(drive_target)            
             t_gb = round(u.total / (1024 ** 3), 1)
             u_gb = round(u.used  / (1024 ** 3), 1)
             f_gb = round(u.free  / (1024 ** 3), 1)
-        except:
+        except Exception:
             t_gb, u_gb, f_gb = 0, 0, 0
+        is_active = (
+            c_path == active_path or
+            _sanitize_path(c_path) == _sanitize_path(active_path) or
+            loc.get("display_path") == active_path or
+            loc.get("display_path") == active_display or
+            c_path == rec_dir or
+            _sanitize_path(c_path) == _sanitize_path(rec_dir)
+        )
         
         results.append({
-            "location":       loc["display_path"],
+            "location":       loc.get("display_path") or _container_to_display_path(c_path),
             "container_path": c_path,
             "type":           "Local Disk",
             "total":          t_gb,
             "used":           u_gb,
             "free":           f_gb,
             "allocated":      loc.get("allocated", 100),
-            "status":         "Recording" if c_path == rec_dir else "OK",
+            "status":         "Recording" if is_active else "OK",
             "server":         "MIRADOR",
         })
+    # Sort so the active ("Recording") location appears first
+    results.sort(key=lambda x: 0 if x["status"] == "Recording" else 1)
+
+
     return results
 
 @storage_router.post("/locations")
 def add_storage_location(loc: StorageLocation):
     sanitized = _sanitize_path(loc.container_path)
-    locations_collection.update_one(
-        {"container_path": sanitized},
-        {"$set": {
-            "display_path": loc.display_path,
-            "container_path": sanitized,
-            "allocated": loc.allocated,
-            "updated_at": datetime.utcnow()
-        }},
-        upsert=True
-    )
+    display_path = loc.display_path or _container_to_display_path(sanitized)
+    if locations_collection is not None:
+        doc = locations_collection.find_one({
+            "$or": [
+                {"container_path": sanitized},
+                {"container_path": display_path},
+                {"display_path": display_path},
+                {"display_path": sanitized}
+            ]
+        })
+        if doc:
+            locations_collection.update_one(
+                {"_id": doc["_id"]},
+                {"$set": {
+                    "display_path": display_path,
+                    "container_path": sanitized,
+                    "allocated": loc.allocated or 100,
+                    "is_deleted": False,
+                    "updated_at": datetime.utcnow()
+                }}
+            )
+        else:
+            locations_collection.insert_one({
+                "display_path": display_path,
+                "container_path": sanitized,
+                "allocated": loc.allocated or 100,
+                "is_deleted": False,
+                "updated_at": datetime.utcnow()
+            })
     return {"message": "Location added"}
 
 @storage_router.delete("/locations")
 def remove_storage_location(container_path: str = Query(...)):
-    locations_collection.update_one({"container_path": container_path}, {"$set": {"is_deleted": True}})
+    clean_path = container_path.strip()
+    fwd = clean_path.replace("\\", "/")
+    bwd = clean_path.replace("/", "\\")
+    if locations_collection is not None:
+        locations_collection.update_many(
+            {"$or": [
+                {"container_path": clean_path},
+                {"container_path": fwd},
+                {"container_path": bwd},
+                {"display_path": clean_path},
+                {"display_path": fwd},
+                {"display_path": bwd},
+            ]},
+            {"$set": {"is_deleted": True}}
+        )
+
+        # Check if the removed location was the current recording path
+        current_rec = _load_recording_path_from_db() or recorder.get_recordings_dir()
+        if current_rec in (clean_path, fwd, bwd):
+            remaining = locations_collection.find_one({"is_deleted": {"$ne": True}})
+            if remaining:
+                new_path = remaining.get("container_path")
+                if new_path:
+                    recorder.set_recordings_dir(new_path)
+                    if storage_collection is not None:
+                        storage_collection.update_one(
+                            {"type": "recording_path"},
+                            {"$set": {"recording_path": new_path, "updated_at": datetime.utcnow()}},
+                            upsert=True
+                        )
+                    _save_recording_path(new_path)
     return {"message": "Location removed"}
-
-def _container_to_display_path(container_path: str) -> str:
-
-    """
-    Convert forward slashes to backslashes for native Windows UI display.
-    """
-    return (container_path or "").replace("/", "\\")
 
 
 @storage_router.post("/apply")
@@ -819,32 +888,71 @@ def apply_storage_settings(req: StorageApplyRequest):
     recorder.set_recordings_dir(sanitized)
 
     # ✅ SAVE TO MONGODB (NEW)
-    storage_collection.update_one(
-        {"type": "recording_path"},
-        {
-            "$set": {
-                "recording_path": sanitized,
-                "updated_at": datetime.utcnow()
-            }
-        },
-        upsert=True
-    )
+    if storage_collection is not None:
+        storage_collection.update_one(
+            {"type": "recording_path"},
+            {
+                "$set": {
+                    "recording_path": sanitized,
+                    "updated_at": datetime.utcnow()
+                }
+            },
+            upsert=True
+        )
 
     # ✅ Optional (keep your existing file backup)
     _save_recording_path(sanitized)
 
-    # ✅ Ensure it is in locations_collection
-    display_path = _container_to_display_path(sanitized)
-    locations_collection.update_one(
-        {"container_path": sanitized},
-        {"$set": {
-            "display_path": display_path,
-            "container_path": sanitized,
-            "allocated": req.allocated or 100,
-            "updated_at": datetime.utcnow()
-        }},
-        upsert=True
-    )
+    display_path = req.display_path or _container_to_display_path(sanitized)
+
+    # If the user was editing/replacing a previous location, remove the old one
+    if req.old_container_path:
+        old_clean = req.old_container_path.strip()
+        if _sanitize_path(old_clean) != sanitized and old_clean != display_path:
+            old_fwd = old_clean.replace("\\", "/")
+            old_bwd = old_clean.replace("/", "\\")
+            if locations_collection is not None:
+                locations_collection.update_many(
+                    {"$or": [
+                        {"container_path": old_clean},
+                        {"container_path": old_fwd},
+                        {"container_path": old_bwd},
+                        {"display_path": old_clean},
+                        {"display_path": old_fwd},
+                        {"display_path": old_bwd},
+                    ]},
+                    {"$set": {"is_deleted": True}}
+                )
+
+    # ✅ Ensure new path is upserted and active in locations_collection
+    if locations_collection is not None:
+        doc = locations_collection.find_one({
+            "$or": [
+                {"container_path": sanitized},
+                {"container_path": display_path},
+                {"display_path": display_path},
+                {"display_path": sanitized}
+            ]
+        })
+        if doc:
+            locations_collection.update_one(
+                {"_id": doc["_id"]},
+                {"$set": {
+                    "display_path": display_path,
+                    "container_path": sanitized,
+                    "allocated": req.allocated or 100,
+                    "is_deleted": False,
+                    "updated_at": datetime.utcnow()
+                }}
+            )
+        else:
+            locations_collection.insert_one({
+                "display_path": display_path,
+                "container_path": sanitized,
+                "allocated": req.allocated or 100,
+                "is_deleted": False,
+                "updated_at": datetime.utcnow()
+            })
 
     # ✅ Restart worker pool so new shard paths apply dynamically
     try:
