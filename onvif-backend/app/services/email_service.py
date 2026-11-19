@@ -38,7 +38,7 @@ def send_scheduled_report(schedule: dict):
         
     if report_type == "alerts":
         title = f"Camera Up/Down History ({schedule_type.capitalize()})"
-        headers = ["Timestamp", "Device IP", "Model", "Type", "Event", "Message", "Acknowledged"]
+        headers = ["Timestamp", "Device IP", "Cam Name", "Event", "Message", "Acknowledged"]
         
         # Query infrastructure_alerts
         alerts_col = _db["infrastructure_alerts"]
@@ -51,7 +51,6 @@ def send_scheduled_report(schedule: dict):
                 ts_str,
                 a.get("ip", "—"),
                 a.get("model", "—"),
-                str(a.get("type", "—")).upper(),
                 str(a.get("event", "—")).replace("_", " ").upper(),
                 a.get("message", "—"),
                 "Yes" if a.get("acknowledged") else "No"
@@ -222,15 +221,73 @@ def send_scheduled_report(schedule: dict):
     """
     
     # ── Create Attachment ───────────────────────────────────────────
-    csv_file = io.StringIO()
-    writer = csv.writer(csv_file)
-    writer.writerow(headers)
-    writer.writerows(rows)
+    file_fmt = str(schedule.get("format", "pdf")).lower()
     
-    attachment_content = csv_file.getvalue().encode("utf-8")
-    
-    # Always save as CSV since it's a raw text CSV table
-    filename = f"{report_type}_report_{now.strftime('%Y%m%d')}.csv"
+    if file_fmt in ["xlsx", "excel"]:
+        try:
+            import openpyxl
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Report"
+            ws.append(headers)
+            for r in rows:
+                ws.append([str(v) if v is not None else "" for v in r])
+            xlsx_io = io.BytesIO()
+            wb.save(xlsx_io)
+            attachment_content = xlsx_io.getvalue()
+            filename = f"{report_type}_report_{now.strftime('%Y%m%d')}.xlsx"
+            part = MIMEBase("application", "vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        except Exception as ex_err:
+            print(f"[EMAIL REPORT] Excel generation fallback to CSV: {ex_err}")
+            file_fmt = "csv"
+
+    if file_fmt == "pdf":
+        try:
+            from reportlab.lib.pagesizes import letter, landscape
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib import colors
+            
+            pdf_io = io.BytesIO()
+            doc = SimpleDocTemplate(pdf_io, pagesize=landscape(letter), rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20)
+            elements = []
+            styles = getSampleStyleSheet()
+            title_style = ParagraphStyle('ReportTitle', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=14, leading=18, textColor=colors.HexColor('#0f172a'))
+            elements.append(Paragraph(f"Mirador VMS - {title}", title_style))
+            elements.append(Paragraph(f"Generated: {now.strftime('%Y-%m-%d %H:%M:%S')} UTC | Schedule: {schedule_type.capitalize()}", styles['Normal']))
+            elements.append(Spacer(1, 12))
+            
+            table_data = [[Paragraph(str(h), styles['Normal']) for h in headers]]
+            for r in rows[:200]:
+                table_data.append([Paragraph(str(cell if cell is not None else "—"), styles['Normal']) for cell in r])
+            
+            t = Table(table_data, repeatRows=1)
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0f172a')),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor('#2dd4bf')),
+                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                ('BOTTOMPADDING', (0,0), (-1,0), 6),
+                ('TOPPADDING', (0,0), (-1,0), 6),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
+                ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#f8fafc')]),
+            ]))
+            elements.append(t)
+            doc.build(elements)
+            attachment_content = pdf_io.getvalue()
+            filename = f"{report_type}_report_{now.strftime('%Y%m%d')}.pdf"
+            part = MIMEBase("application", "pdf")
+        except Exception as pdf_err:
+            print(f"[EMAIL REPORT] PDF generation fallback to CSV: {pdf_err}")
+            file_fmt = "csv"
+
+    if file_fmt == "csv":
+        csv_file = io.StringIO()
+        writer = csv.writer(csv_file)
+        writer.writerow(headers)
+        writer.writerows(rows)
+        attachment_content = csv_file.getvalue().encode("utf-8")
+        filename = f"{report_type}_report_{now.strftime('%Y%m%d')}.csv"
+        part = MIMEBase("text", "csv")
     
     # Construct Email
     msg = MIMEMultipart("mixed")
@@ -243,8 +300,7 @@ def send_scheduled_report(schedule: dict):
     # Attach HTML Body
     msg.attach(MIMEText(html_body, "html"))
     
-    # Attach CSV File
-    part = MIMEBase("text", "csv")
+    # Attach Generated File
     part.set_payload(attachment_content)
     encoders.encode_base64(part)
     part.add_header("Content-Disposition", f"attachment; filename={filename}")

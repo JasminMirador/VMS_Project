@@ -146,11 +146,17 @@ class TubePacker:
 
         logger.info(f"Packing {len(tubes)} candidate tubes across {len(sorted_groups)} companion group(s) into synopsis schedule...")
 
+        current_max_placed_start = 0.0
+
         for group in sorted_groups:
             group_min_start = min(float(t.start_time) for t in group)
             member_ids = {t.track_id for t in group}
 
-            candidate_start_s = 0.0
+            # Enforce non-decreasing entry progression:
+            # Chronologically later groups start at or after earlier groups in the synopsis timeline.
+            # Simultaneous playback is preserved (multiple non-colliding groups start at the same time),
+            # but later real-world arrivals can never start before earlier ones.
+            candidate_start_s = current_max_placed_start
             placed = False
             while not placed:
                 collision = False
@@ -186,13 +192,15 @@ class TubePacker:
                             duration_s=member.duration_s
                         ))
                     placed = True
+                    current_max_placed_start = max(current_max_placed_start, candidate_start_s)
                 else:
                     candidate_start_s += step_size_s
 
         logger.info(f"[Packer] Greedy schedule generated. Total tubes: {len(schedule)}")
 
-        # Optional Refinement: Simulated Annealing (group-aware, see below)
+        # Refinement: Simulated Annealing (group-aware, see below)
         refined_schedule = self._optimize_with_simulated_annealing(schedule, tubes, max_iou, group_of)
+        refined_schedule.sort(key=lambda s: (s.synopsis_start_s, float(s.original_start_time)))
         return refined_schedule
 
     def _check_spatial_collision(self, tube1: TrackSkeleton, start1: float, tube2: TrackSkeleton, start2: float, max_iou: float) -> bool:
@@ -234,7 +242,7 @@ class TubePacker:
         Calculates the global cost of a schedule.
         Cost = α × spatial_overlap + β × synopsis_duration + γ × chronological_violation
         """
-        alpha, beta, gamma = 100.0, 1.0, 0.5
+        alpha, beta, gamma = 100.0, 1.0, 50.0
         
         if not schedule: return 0.0
         

@@ -121,6 +121,8 @@ class EmployeeResponse(BaseModel):
     department: Optional[str] = "General"
     status: str = "authorised"  # "authorised" or "suspended"
     photo_url: Optional[str] = None
+    photo_urls: Optional[List[str]] = None
+    photos_count: Optional[int] = 0
     has_face_embedding: bool = False
     created_at: str
     updated_at: Optional[str] = None

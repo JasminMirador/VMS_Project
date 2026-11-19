@@ -1008,7 +1008,8 @@ def instant_buffer_m3u8(ip: str, time_str: str, request: Request):
         alert_dt = datetime.fromisoformat(t_clean)
         
     ip_folder = ip.strip().replace(".", "_")
-    cam_dir = os.path.join(recorder.get_recordings_dir(), "instant_buffer", ip_folder)
+    buf_base = os.environ.get("BUFFER_DIR") or os.path.join(recorder.get_recordings_dir(), "instant_buffer")
+    cam_dir = os.path.join(buf_base, ip_folder)
     
     if not os.path.exists(cam_dir):
         raise HTTPException(status_code=404, detail="Instant buffer not found for this camera")
@@ -1066,7 +1067,8 @@ def instant_buffer_segment(ip: str, time_str: str, filename: str):
     Serves a specific .ts.enc segment from the rolling buffer, decrypting it on the fly.
     """
     ip_folder = ip.strip().replace(".", "_")
-    file_path = os.path.join(recorder.get_recordings_dir(), "instant_buffer", ip_folder, filename)
+    buf_base = os.environ.get("BUFFER_DIR") or os.path.join(recorder.get_recordings_dir(), "instant_buffer")
+    file_path = os.path.join(buf_base, ip_folder, filename)
     
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Segment not found")
@@ -1075,8 +1077,8 @@ def instant_buffer_segment(ip: str, time_str: str, filename: str):
         with open(file_path, "rb") as f:
             enc_data = f.read()
             
-        from app.services.encryption_service import encrypt_service
-        dec_data = encrypt_service._aes_decrypt(enc_data)
+        from recorder import encrypt_service
+        dec_data = encrypt_service.decrypt_bytes_to_io(enc_data).getvalue()
         
         return Response(
             content=dec_data,

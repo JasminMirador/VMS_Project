@@ -110,6 +110,26 @@ def update_node_status(node_id, status, latency=None):
             print(f"[HEALTH] Alert broadcast error: {e}")
 
     elif previous_status != "online" and new_status == "online":
+        if previous_status == "offline" and alerts_col is not None:
+            alert = {
+                "node_id": node["id"],
+                "ip": node.get("ip", ""),
+                "model": node.get("model", ""),
+                "type": node.get("type", ""),
+                "event": "device_online",
+                "message": f"{node.get('model') or node.get('ip')} restored to ONLINE",
+                "timestamp": now,
+                "acknowledged": True
+            }
+            alerts_col.insert_one(alert)
+            try:
+                _broadcast_safe({
+                    "type": "ALERT",
+                    "data": {**alert, "timestamp": alert["timestamp"].isoformat()}
+                })
+            except Exception as e:
+                print(f"[HEALTH] Alert broadcast error: {e}")
+
         uptime_events_col = db["uptime_events"] if db is not None else None
         if uptime_events_col is not None:
             uptime_events_col.insert_one({

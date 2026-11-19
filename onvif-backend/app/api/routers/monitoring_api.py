@@ -73,11 +73,6 @@ class MetricsCollectorThread(threading.Thread):
         self.last_time = None
         self.last_mongo_ops = 0
         self.last_mongo_time = None
-        self._last_heavy_db_time = 0.0
-        self._cached_obj_count = 0
-        self._cached_bucket_size_gb = 0.0
-        self._cached_db_size_mb = 0.0
-        self._cached_collections_count = 0
 
     def run(self):
         print("[METRICS-COLLECTOR] Running background metrics collector...")
@@ -106,7 +101,7 @@ class MetricsCollectorThread(threading.Thread):
             except Exception as e:
                 print(f"[METRICS-COLLECTOR] Error in collection loop: {e}")
             
-            self.stop_event.wait(4.5)
+            self.stop_event.wait(2.2)
 
     def collect_metrics(self):
         global live_metrics
@@ -210,25 +205,18 @@ class MetricsCollectorThread(threading.Thread):
             "total_gb": round(ram.total / (1024**3), 2)
         }
 
-        # --- 4. MinIO Replication Metrics (Cached 60s) ---
-        now_heavy = time.time()
-        if (now_heavy - self._last_heavy_db_time) >= 60.0:
-            try:
-                recordings_col = db["recordings"]
-                self._cached_obj_count = recordings_col.estimated_document_count()
-                pipeline = [{"$group": {"_id": None, "total_size": {"$sum": "$file_size"}}}]
-                res = list(recordings_col.aggregate(pipeline))
-                if res and res[0]["total_size"]:
-                    self._cached_bucket_size_gb = round(res[0]["total_size"] / (1024**3), 2)
-                db_stats = db.command("dbStats")
-                self._cached_db_size_mb = round(db_stats.get("dataSize", 0) / (1024 * 1024), 2)
-                self._cached_collections_count = db_stats.get("collections", 0)
-                self._last_heavy_db_time = now_heavy
-            except Exception:
-                pass
-
-        obj_count = self._cached_obj_count
-        bucket_size_gb = self._cached_bucket_size_gb
+        # --- 4. MinIO Replication Metrics ---
+        obj_count = 0
+        bucket_size_gb = 0.0
+        try:
+            recordings_col = db["recordings"]
+            obj_count = recordings_col.estimated_document_count()
+            pipeline = [{"$group": {"_id": None, "total_size": {"$sum": "$file_size"}}}]
+            res = list(recordings_col.aggregate(pipeline))
+            if res and res[0]["total_size"]:
+                bucket_size_gb = round(res[0]["total_size"] / (1024**3), 2)
+        except Exception:
+            pass
 
         pending_replications = 0
         failed_replications = 0
@@ -293,8 +281,14 @@ class MetricsCollectorThread(threading.Thread):
         except:
             pass
 
-        db_size_mb = self._cached_db_size_mb
-        collections_count = self._cached_collections_count
+        db_size_mb = 0.0
+        collections_count = 0
+        try:
+            db_stats = db.command("dbStats")
+            db_size_mb = round(db_stats.get("dataSize", 0) / (1024 * 1024), 2)
+            collections_count = db_stats.get("collections", 0)
+        except:
+            pass
 
         live_metrics["mongo"] = {
             "status": mongo_status,

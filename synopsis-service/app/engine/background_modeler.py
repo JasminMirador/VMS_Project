@@ -199,6 +199,26 @@ class BackgroundModeler:
                 f"[BG] No background plates could be generated for camera {camera_id}."
             )
 
+        # Ensure all standard time buckets exist for this camera to prevent 404s
+        first_plate = next(iter(plate_paths.values()))
+        import shutil
+        for b_name in ["morning", "afternoon", "evening", "night"]:
+            b_path = settings.BACKGROUND_DIR / f"{camera_id}_{b_name}_bg.png"
+            if not b_path.exists():
+                try:
+                    shutil.copy2(first_plate, b_path)
+                    plate_paths[b_name] = str(b_path)
+                except Exception as e:
+                    logger.warning(f"Failed to copy fallback plate for {b_name}: {e}")
+        
+        # Also save general fallback {camera_id}_bg.png
+        default_b_path = settings.BACKGROUND_DIR / f"{camera_id}_bg.png"
+        if not default_b_path.exists():
+            try:
+                shutil.copy2(first_plate, default_b_path)
+            except Exception:
+                pass
+
         return plate_paths
 
     # ── Plate Selector (used by compositor) ───────────────────────────────────

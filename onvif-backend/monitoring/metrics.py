@@ -5,10 +5,6 @@ from datetime import datetime
 import time
 import asyncio
 
-_last_gpu_query_ts = 0.0
-_cached_gpu_val = 0.0
-
-
 async def get_system_metrics():
     """
     Gathers real-time hardware metrics from the host system.
@@ -43,25 +39,20 @@ async def get_system_metrics():
         minutes, _ = divmod(rem, 60)
         uptime_str = f"{days}d {hours}h {minutes}m"
 
-        # Non-blocking GPU caching (25s TTL, 0.8s timeout)
-        now_ts = time.time()
-        if (now_ts - _last_gpu_query_ts) < 25.0:
-            gpu_usage = _cached_gpu_val
-        else:
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    "nvidia-smi",
-                    "--query-gpu=utilization.gpu",
-                    "--format=csv,noheader,nounits",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=0.8)
-                gpu_usage = float(stdout.decode("utf-8").strip())
-                _cached_gpu_val = gpu_usage
-                _last_gpu_query_ts = now_ts
-            except Exception:
-                gpu_usage = _cached_gpu_val
+        # GPU Usage
+        gpu_usage = 0.0
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "nvidia-smi",
+                "--query-gpu=utilization.gpu",
+                "--format=csv,noheader,nounits",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=3.0)
+            gpu_usage = float(stdout.decode("utf-8").strip())
+        except Exception:
+            gpu_usage = 0.0
 
         total_cores = psutil.cpu_count(logical=True) or 1
         used_cores = round((cpu_usage / 100.0) * total_cores, 1)

@@ -180,6 +180,8 @@ def get_alerts(
             
         if not include_software_motion:
             query["source"] = {"$ne": "software_motion"}
+            query["type"] = {"$not": {"$regex": "motion", "$options": "i"}}
+            query["scenario"] = {"$not": {"$regex": "motion", "$options": "i"}}
             
         if status and status.lower() != "all":
             if status.lower() == "active":

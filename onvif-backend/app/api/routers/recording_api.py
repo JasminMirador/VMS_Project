@@ -28,6 +28,7 @@ import json
 import shutil
 import tempfile
 import zipfile
+import subprocess
 from app.utils.ffmpeg_utils import FFMPEG_BIN
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -52,7 +53,7 @@ KEY_FILE  = os.environ["VIDEO_KEY_FILE"]
 
 # ── Startup sanity check: warn loudly if the key file is missing ──────────────
 # Both this module and encrypt_service.py MUST use the same KEY_FILE path.
-# Controlled by VIDEO_KEY_FILE env var.
+# They both default to /app/data/video.key, controlled by VIDEO_KEY_FILE env var.
 if not os.path.exists(KEY_FILE):
     print(f"[DECRYPT] ⚠⚠  WARNING: video.key NOT FOUND at '{KEY_FILE}'")
     print(f"[DECRYPT]          Set VIDEO_KEY_FILE env var to the correct path,")
@@ -63,6 +64,7 @@ else:
 # Path to a small JSON file that persists the user-chosen recording directory.
 # Stored alongside devices.json so it survives container restarts.
 _CONFIG_FILE = os.environ["RECORDING_CONFIG_FILE"]
+
 
 # The recording base mount point from .env
 _CONTAINER_RECORDINGS_ROOT = os.environ["RECORDINGS_DIR"]
@@ -330,69 +332,224 @@ def remux_ts_to_mp4(ts_data: bytes) -> bytes:
             print(f"[REMUX] Remuxing failed: {e}")
     return ts_data
 
-def convert_video_format(video_data: bytes, output_format: str, trim_start: float = None, trim_end: float = None) -> bytes:
+def compute_overlay_epoch(date_str: str, start_time_str: str, trim_start: float = 0.0) -> int:
+    import re
+    from datetime import datetime, timezone
+
+    year, month, day = 1970, 1, 1
+    if date_str:
+        cleaned_date = date_str.replace("/", "-")
+        parts = [int(p) for p in cleaned_date.split("-") if p.isdigit()]
+        if len(parts) == 3:
+            year, month, day = parts
+
+    hh, mm, ss = 0, 0, 0
+    if start_time_str:
+        match = re.search(r'(\d{2})[-:_](\d{2})[-:_](\d{2})', start_time_str)
+        if match:
+            hh, mm, ss = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        else:
+            match_hm = re.search(r'(\d{2})[-:_](\d{2})', start_time_str)
+            if match_hm:
+                hh, mm = int(match_hm.group(1)), int(match_hm.group(2))
+
+    try:
+        dt = datetime(year, month, day, hh, mm, ss, tzinfo=timezone.utc)
+        base_epoch = int(dt.timestamp() + (trim_start or 0.0))
+    except Exception:
+        base_epoch = int(trim_start or 0.0)
+
+    return base_epoch
+
+
+def escape_drawtext(s: str) -> str:
+    if not s:
+        return ""
+    # In ffmpeg drawtext text='...':
+    # Escape backslashes, colons, percent signs, brackets, and replace single quotes with curly quote
+    s = s.replace("\\", "\\\\")
+    s = s.replace("'", "’")
+    s = s.replace(":", "\\:")
+    s = s.replace("%", "%%")
+    s = s.replace("[", "\\[").replace("]", "\\]")
+    return s
+
+
+def get_default_watermark() -> tuple[str, str]:
+    """Retrieve system watermark and position from MongoDB if configured."""
+    try:
+        if _db is not None:
+            wm_doc = _db["system_settings"].find_one({"type": "video_watermark"})
+            if wm_doc and wm_doc.get("enabled", True):
+                return wm_doc.get("text", "") or "", wm_doc.get("position", "center") or "center"
+    except Exception:
+        pass
+    return "", "center"
+
+
+def build_overlay_filter(
+    camera_name: str,
+    date_str: str,
+    start_time_str: str,
+    trim_start: float = 0.0,
+    watermark: str = None,
+    watermark_pos: str = "center",
+) -> str:
+    # 1. Label on top-left: e.g. "EXIT — 2026-11-13"
+    clean_cam = (camera_name or "").strip()
+    clean_date = (date_str or "").strip()
+    if clean_cam and clean_date:
+        label = f"{clean_cam} — {clean_date}"
+    elif clean_cam:
+        label = clean_cam
+    elif clean_date:
+        label = clean_date
+    else:
+        label = ""
+
+    escaped_label = escape_drawtext(label)
+
+    # 2. Time on top-right: e.g. 12:28:07
+    base_epoch = compute_overlay_epoch(clean_date, start_time_str, trim_start or 0.0)
+    time_expr = f"%{{pts\\:gmtime\\:{base_epoch}\\:%H\\\\\:%M\\\\\:%S}}"
+
+    # 3. Locate system font
+    font_candidates = [
+        r"C:\Windows\Fonts\segoeui.ttf",
+        r"C:\Windows\Fonts\arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans.ttf"
+    ]
+    font_path = next((f for f in font_candidates if os.path.exists(f)), None)
+    if font_path:
+        escaped_font = font_path.replace("\\", "/").replace(":", "\\\\:")
+        font_arg = f"fontfile={escaped_font}:"
+    else:
+        font_arg = ""
+
+    filters = [
+        "drawbox=x=0:y=0:w=iw:h=max(38\\,ih/20):color=black@0.55:t=fill"
+    ]
+    if escaped_label:
+        filters.append(
+            f"drawtext={font_arg}text='{escaped_label}':fontcolor=white:fontsize=max(16\\,h/36):x=20:y=(max(38\\,h/20)-th)/2"
+        )
+    if start_time_str:
+        filters.append(
+            f"drawtext={font_arg}text='{time_expr}':fontcolor=white@0.85:fontsize=max(16\\,h/36):x=w-tw-20:y=(max(38\\,h/20)-th)/2"
+        )
+
+    # 4. Custom watermark overlay
+    clean_wm = (watermark or "").strip()
+    if clean_wm:
+        escaped_wm = escape_drawtext(clean_wm)
+        pos = (watermark_pos or "center").lower().strip()
+        if pos == "bottom-right":
+            filters.append(
+                f"drawtext={font_arg}text='{escaped_wm}':fontcolor=white@0.35:fontsize=max(18\\,h/28):x=w-tw-24:y=h-th-24:shadowcolor=black@0.2:shadowx=1:shadowy=1"
+            )
+        elif pos == "bottom-center":
+            filters.append(
+                f"drawtext={font_arg}text='{escaped_wm}':fontcolor=white@0.35:fontsize=max(18\\,h/28):x=(w-tw)/2:y=h-th-24:shadowcolor=black@0.2:shadowx=1:shadowy=1"
+            )
+        elif pos == "top-center":
+            filters.append(
+                f"drawtext={font_arg}text='{escaped_wm}':fontcolor=white@0.35:fontsize=max(18\\,h/28):x=(w-tw)/2:y=max(48\\,h/18):shadowcolor=black@0.2:shadowx=1:shadowy=1"
+            )
+        else:  # default center
+            filters.append(
+                f"drawtext={font_arg}text='{escaped_wm}':fontcolor=white@0.25:fontsize=max(28\\,h/16):x=(w-tw)/2:y=(h-th)/2:shadowcolor=black@0.15:shadowx=1:shadowy=1"
+            )
+
+    return ",".join(filters)
+
+
+def convert_video_format(
+    video_data: bytes,
+    output_format: str,
+    trim_start: float = None,
+    trim_end: float = None,
+    camera_name: str = None,
+    date_str: str = None,
+    start_time_str: str = None,
+    watermark: str = None,
+    watermark_pos: str = "center",
+) -> bytes:
     """
     Synchronously convert video bytes (MPEG-TS or MP4) to the desired output format ('mp4', 'avi', 'asf') using ffmpeg.
-    Uses copy mode (-c copy) for speed and resource efficiency.
+    If camera_name, date_str, or start_time_str is provided, overlays camera name, date, and live running timecode.
+    If watermark is provided, burns in the custom watermark across the video.
     Supports trimming the output.
     """
     from app.utils.ffmpeg_utils import run_ffmpeg_sync
-    
+
     output_format = (output_format or "mp4").lower()
     if output_format not in ("mp4", "avi", "asf"):
         output_format = "mp4"
-        
+
     # Detect if input is MPEG-TS
     is_ts = len(video_data) > 0 and video_data[0] == 0x47
-    
     is_trimming = trim_start is not None or trim_end is not None
-    
-    if output_format == "mp4" and not is_ts and not is_trimming:
-        # Already MP4 and requested MP4, and no trimming
+    has_overlay = bool(camera_name or date_str or start_time_str or (watermark and watermark.strip()))
+
+    # Fast path: already MP4, no trimming, no overlay requested
+    if output_format == "mp4" and not is_ts and not is_trimming and not has_overlay:
         return video_data
 
-    tmp_path = None
-    if is_trimming:
-        import tempfile
-        import os
-        fd, tmp_path = tempfile.mkstemp(suffix=".ts" if is_ts else ".mp4")
-        with os.fdopen(fd, 'wb') as f:
+    tmp_in_path = None
+    tmp_out_path = None
+
+    try:
+        in_fd, tmp_in_path = tempfile.mkstemp(suffix=".ts" if is_ts else ".mp4")
+        with os.fdopen(in_fd, 'wb') as f:
             f.write(video_data)
-        cmd = [FFMPEG_BIN, "-y", "-loglevel", "quiet"]
+
+        out_fd, tmp_out_path = tempfile.mkstemp(suffix=f".{output_format}")
+        os.close(out_fd)
+
+        cmd = [FFMPEG_BIN, "-y", "-loglevel", "warning"]
         if trim_start is not None:
             cmd.extend(["-ss", str(trim_start)])
-        cmd.extend(["-i", tmp_path])
+        cmd.extend(["-i", tmp_in_path])
         if trim_end is not None:
             duration = float(trim_end) - (float(trim_start) if trim_start else 0.0)
             if duration > 0:
                 cmd.extend(["-t", str(duration)])
-        # Frame-accurate cut with fast re-encoding
-        cmd.extend(["-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac"])
-    else:
-        cmd = [FFMPEG_BIN, "-y", "-loglevel", "quiet", "-i", "pipe:0", "-c", "copy"]
 
-    if output_format == "mp4":
-        cmd.extend(["-f", "mp4", "-movflags", "frag_keyframe+empty_moov+default_base_moof", "pipe:1"])
-    elif output_format == "avi":
-        cmd.extend(["-f", "avi", "pipe:1"])
-    elif output_format == "asf":
-        cmd.extend(["-f", "asf", "pipe:1"])
-
-    try:
-        success, stdout_data, stderr_data = run_ffmpeg_sync(cmd, timeout=60, input_data=None if is_trimming else video_data, capture_stdout=True)
-        if success and len(stdout_data) > 0:
-            return stdout_data
+        if has_overlay:
+            vf = build_overlay_filter(camera_name, date_str, start_time_str, trim_start or 0.0, watermark, watermark_pos)
+            cmd.extend(["-vf", vf, "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac"])
+        elif is_trimming:
+            cmd.extend(["-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac"])
         else:
-            print(f"[CONVERSION] FFmpeg failed or produced empty output for format {output_format}. Stderr: {stderr_data.decode(errors='replace')}")
+            cmd.extend(["-c", "copy"])
+
+        if output_format == "mp4":
+            cmd.extend(["-movflags", "+faststart"])
+
+        cmd.append(tmp_out_path)
+
+        success, stdout_data, stderr_data = run_ffmpeg_sync(cmd, timeout=300, capture_stdout=False)
+        if success and os.path.exists(tmp_out_path) and os.path.getsize(tmp_out_path) > 0:
+            with open(tmp_out_path, "rb") as f:
+                return f.read()
+        else:
+            err_msg = stderr_data.decode(errors='replace') if stderr_data else "unknown error"
+            print(f"[CONVERSION] FFmpeg failed or produced empty output for format {output_format}: {err_msg}")
     except Exception as e:
         print(f"[CONVERSION] Exception during format conversion to {output_format}: {e}")
     finally:
-        if tmp_path and os.path.exists(tmp_path):
+        if tmp_in_path and os.path.exists(tmp_in_path):
             try:
-                os.remove(tmp_path)
-            except:
+                os.unlink(tmp_in_path)
+            except Exception:
                 pass
-        
+        if tmp_out_path and os.path.exists(tmp_out_path):
+            try:
+                os.unlink(tmp_out_path)
+            except Exception:
+                pass
+
     return video_data
 
 
@@ -484,6 +641,13 @@ _CORS_HEADERS = {
 recording_router = APIRouter(prefix="/api/recordings", tags=["recordings"], dependencies=[Depends(verify_token)])
 storage_router   = APIRouter(prefix="/api/storage",    tags=["storage"], dependencies=[Depends(verify_token)])
 
+class WatermarkSettingsRequest(BaseModel):
+    text: str | None = Field(default="", max_length=255)
+    position: str | None = Field(default="center", max_length=50)
+    watermark: str | None = Field(default="", max_length=255)
+    watermark_pos: str | None = Field(default="center", max_length=50)
+    enabled: bool = True
+
 class ExportZipRequest(BaseModel):
     camera_id: str = Field(..., max_length=255)
     start_date: str = Field(..., max_length=255)
@@ -491,6 +655,9 @@ class ExportZipRequest(BaseModel):
     start_time: str = Field("00:00", max_length=255)
     end_time: str = Field("23:59", max_length=255)
     format: str = Field("mp4", max_length=255)
+    camera_name: str | None = Field(default=None, max_length=255)
+    watermark: str | None = Field(default=None, max_length=255)
+    watermark_pos: str | None = Field(default="center", max_length=50)
 
 class ExportDeviceRequest(BaseModel):
     camera_id: str = Field(..., max_length=255)
@@ -500,6 +667,9 @@ class ExportDeviceRequest(BaseModel):
     end_time: str = Field("23:59", max_length=255)
     format: str = Field("mp4", max_length=255)
     destination_path: str = Field("", max_length=1024)
+    camera_name: str | None = Field(default=None, max_length=255)
+    watermark: str | None = Field(default=None, max_length=255)
+    watermark_pos: str | None = Field(default="center", max_length=50)
 
 class StorageApplyRequest(BaseModel):
     display_path:   str | None = None
@@ -862,14 +1032,14 @@ def list_recordings_cameras():
     try:
         query = {}
         if parent:
-            escaped_parent = re.escape(parent)
-            query["file_path"] = {"$regex": f"^minio:{escaped_parent}/"}
+            escaped_parent = re.escape(parent.strip("/"))
+            query["file_path"] = {"$regex": f"^minio:/?{escaped_parent}/"}
         
         db_cams = _collection.distinct("camera_id", query)
         from app.utils.minio_client import minio_client, MINIO_BUCKET
         for cam in db_cams:
              # Dynamic check: verify camera actually exists in MinIO
-            doc = _collection.find_one({"camera_id": cam, "file_path": {"$regex": f"^minio:{escaped_parent}/"}})
+            doc = _collection.find_one({"camera_id": cam, "file_path": {"$regex": f"^minio:/?{escaped_parent}/"}})
             if doc and "file_path" in doc and minio_client:
                 path_parts = doc["file_path"].replace("minio:", "", 1).split("/")
                 if len(path_parts) >= 3:
@@ -880,7 +1050,7 @@ def list_recordings_cameras():
                             results.add(cam)
                         else:
                             # Cleanup stale DB records since folder was manually deleted
-                            _collection.delete_many({"camera_id": cam, "file_path": {"$regex": f"^minio:{escaped_parent}/"}})
+                            _collection.delete_many({"camera_id": cam, "file_path": {"$regex": f"^minio:/?{escaped_parent}/"}})
                     except Exception:
                         results.add(cam)
                 else:
@@ -890,7 +1060,28 @@ def list_recordings_cameras():
     except Exception as e:
         print(f"[API] Error fetching distinct cameras from recordings: {e}")
 
-    # 2. Also support scanning local filesystem path for the active parent folder
+    # 2. Directly scan MinIO under active parent folder
+    try:
+        from app.utils.minio_client import minio_client, MINIO_BUCKET
+        if minio_client:
+            prefix = f"{parent.strip('/')}/" if parent else ""
+            objects = minio_client.list_objects(MINIO_BUCKET, prefix=prefix, recursive=False)
+            for obj in objects:
+                name = obj.object_name[len(prefix):].rstrip("/")
+                if not name or name in ("Non-indexed Files", "lost+found", "Config"):
+                    continue
+                if name.startswith("shard"):
+                    shard_objects = minio_client.list_objects(MINIO_BUCKET, prefix=obj.object_name, recursive=False)
+                    for sobj in shard_objects:
+                        cam_name = sobj.object_name[len(obj.object_name):].rstrip("/")
+                        if cam_name and cam_name not in ("Non-indexed Files", "lost+found", "Config"):
+                            results.add(cam_name)
+                else:
+                    results.add(name)
+    except Exception as e:
+        print(f"[API] Error directly scanning MinIO for camera folders: {e}")
+
+    # 3. Also support scanning local filesystem path for the active parent folder
     try:
         rec_dir = recorder.get_recordings_dir()
         if os.path.exists(rec_dir):
@@ -912,6 +1103,270 @@ def list_recordings_cameras():
         print(f"[API] Error scanning local directory for cameras: {e}")
 
     return sorted(list(results))
+
+
+@recording_router.get("/nvr/cameras")
+def list_nvr_cameras():
+    """Returns cameras that are channels on an NVR."""
+    try:
+        from app.services.camera.nvr_service import is_nvr_camera
+        db_name = os.environ.get("MONGO_DB_NAME", "vms_demo")
+        cameras_col = mongo_client[db_name]["cameras"]
+        all_cams = list(cameras_col.find({"enabled": {"$ne": False}}))
+        nvr_cams = []
+        for c in all_cams:
+            if is_nvr_camera(c):
+                nvr_cams.append({
+                    "id": str(c.get("_id")),
+                    "stream_key": c.get("stream_key"),
+                    "name": c.get("name") or c.get("model") or c.get("stream_key"),
+                    "ip": c.get("ip"),
+                    "model": c.get("model"),
+                    "manufacturer": c.get("manufacturer")
+                })
+        return nvr_cams
+    except Exception as e:
+        print(f"[API] Error listing NVR cameras: {e}")
+        return []
+
+
+@recording_router.get("/nvr/list")
+def list_nvr_recordings(stream_key: str = Query(...), date: str = Query(...)):
+    """Queries NVR directly for recorded files on the specified channel and date."""
+    try:
+        from app.services.camera.nvr_service import query_dahua_recordings, extract_nvr_channel
+        db_name = os.environ.get("MONGO_DB_NAME", "vms_demo")
+        cameras_col = mongo_client[db_name]["cameras"]
+        cam = cameras_col.find_one({"stream_key": stream_key})
+        if not cam:
+            cam = cameras_col.find_one({"$or": [{"ip": stream_key}, {"id": stream_key}]})
+        if not cam:
+            raise HTTPException(status_code=404, detail="Camera not found")
+
+        ip = cam.get("ip")
+        port = int(cam.get("port") or 80)
+        username = cam.get("username", "admin")
+        password = cam.get("password", "")
+        channel = extract_nvr_channel(cam)
+
+        files = query_dahua_recordings(ip, port, username, password, channel, date)
+        for f in files:
+            f["camera_id"] = stream_key
+        return files
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[API] Error listing NVR recordings for {stream_key}: {e}")
+        return []
+
+
+@recording_router.get("/nvr/play")
+def play_nvr_recording(
+    request: Request,
+    stream_key: str = Query(...),
+    date: str = Query(...),
+    start_time: str = Query(...),
+    end_time: str = Query(None),
+    stream_type: str = Query("Main"),
+    _cb: str = Query(None),
+):
+    """Streams video playback directly from NVR using loadfile.cgi or FFmpeg RTSP pipe to MP4."""
+    try:
+        import threading
+        import urllib.parse
+        import requests
+        from requests.auth import HTTPDigestAuth
+        from app.services.camera.nvr_service import build_dahua_playback_rtsp, extract_nvr_channel
+
+        db_name = os.environ.get("MONGO_DB_NAME", "vms_demo")
+        cameras_col = mongo_client[db_name]["cameras"]
+        cam = cameras_col.find_one({"stream_key": stream_key})
+        if not cam:
+            cam = cameras_col.find_one({"$or": [{"ip": stream_key}, {"id": stream_key}]})
+        if not cam:
+            raise HTTPException(status_code=404, detail="Camera not found")
+
+        ip = cam.get("ip")
+        port = int(cam.get("port") or 80)
+        username = cam.get("username", "admin")
+        password = cam.get("password", "")
+        channel = extract_nvr_channel(cam)
+
+        # Normalize start and end times
+        d_clean = date.replace("_", "-").strip()
+        st_clean = start_time.replace("_", ":").replace("-", ":").strip()
+        if len(st_clean.split(":")) == 2:
+            st_clean += ":00"
+        full_st = f"{d_clean} {st_clean}"
+
+        if end_time:
+            et_clean = end_time.replace("_", ":").replace("-", ":").strip()
+            if len(et_clean.split(":")) == 2:
+                et_clean += ":00"
+            full_et = f"{d_clean} {et_clean}"
+        else:
+            try:
+                dt = datetime.strptime(full_st, "%Y-%m-%d %H:%M:%S")
+                et_dt = dt + timedelta(minutes=5)
+                full_et = et_dt.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                full_et = f"{d_clean} 23:59:59"
+
+        # Determine subtype search order: if stream_type hints extra/sub, try 1 then 0; else try 0 then 1
+        st_lower = (stream_type or "Main").lower()
+        subtypes_to_try = [1, 0] if ("extra" in st_lower or "sub" in st_lower) else [0, 1]
+
+        # Method 1: Try Dahua loadfile.cgi directly (fastest, reliably supports both Main & Extra)
+        auth = HTTPDigestAuth(username, password)
+        st_enc = urllib.parse.quote(full_st)
+        et_enc = urllib.parse.quote(full_et)
+        load_resp = None
+
+        for sub_val in subtypes_to_try:
+            try:
+                loadfile_url = (
+                    f"http://{ip}:{port}/cgi-bin/loadfile.cgi?action=startLoad"
+                    f"&channel={channel}&startTime={st_enc}&endTime={et_enc}&subtype={sub_val}"
+                )
+                print(f"[NVR PLAYBACK] Attempting loadfile.cgi: ch={channel} subtype={sub_val} {full_st} -> {full_et}")
+                r = requests.get(loadfile_url, auth=auth, stream=True, timeout=5)
+                cl = int(r.headers.get("CONTENT-LENGTH") or 0)
+                if r.status_code == 200 and cl > 1024:
+                    load_resp = r
+                    print(f"[NVR PLAYBACK] loadfile.cgi succeeded on subtype {sub_val} (size={cl})")
+                    break
+                else:
+                    print(f"[NVR PLAYBACK] loadfile.cgi subtype {sub_val} returned status {r.status_code}, size {cl}")
+            except Exception as load_err:
+                print(f"[NVR PLAYBACK] loadfile.cgi error on subtype {sub_val}: {load_err}")
+
+        if load_resp is not None:
+            proc = subprocess.Popen(
+                [
+                    FFMPEG_BIN,
+                    "-y",
+                    "-f", "dhav",
+                    "-i", "pipe:0",
+                    "-map", "0:v:0",
+                    "-c:v", "copy",
+                    "-map", "0:a?",
+                    "-c:a", "aac",
+                    "-f", "mp4",
+                    "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+                    "pipe:1"
+                ],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                bufsize=10**6
+            )
+
+            stop_event = threading.Event()
+
+            def feed_stdin():
+                try:
+                    for chunk in load_resp.iter_content(chunk_size=65536):
+                        if stop_event.is_set() or proc.poll() is not None:
+                            break
+                        if chunk:
+                            proc.stdin.write(chunk)
+                            proc.stdin.flush()
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        proc.stdin.close()
+                    except Exception:
+                        pass
+
+            feeder_thread = threading.Thread(target=feed_stdin, daemon=True)
+            feeder_thread.start()
+
+            def stream_gen():
+                try:
+                    while True:
+                        data = proc.stdout.read(65536)
+                        if not data:
+                            break
+                        yield data
+                except Exception as se:
+                    print(f"[NVR PLAYBACK] Client disconnect: {se}")
+                finally:
+                    stop_event.set()
+                    try:
+                        load_resp.close()
+                    except Exception:
+                        pass
+                    try:
+                        proc.kill()
+                        proc.wait(timeout=1)
+                    except Exception:
+                        pass
+
+            return StreamingResponse(
+                stream_gen(),
+                media_type="video/mp4",
+                headers={
+                    "Accept-Ranges": "bytes",
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive"
+                }
+            )
+
+        # Method 2: Fallback to Dahua RTSP playback
+        rtsp_url = build_dahua_playback_rtsp(
+            ip, username, password, channel, date, start_time, end_time or ""
+        )
+        print(f"[NVR PLAYBACK] Fallback RTSP: {rtsp_url}")
+
+        cmd = [
+            FFMPEG_BIN,
+            "-rtsp_transport", "tcp",
+            "-i", rtsp_url,
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-f", "mp4",
+            "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+            "pipe:1"
+        ]
+
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=10**6
+        )
+
+        def stream_generator():
+            try:
+                while True:
+                    chunk = proc.stdout.read(65536)
+                    if not chunk:
+                        break
+                    yield chunk
+            except Exception as se:
+                print(f"[NVR PLAYBACK] Client stream disconnect: {se}")
+            finally:
+                try:
+                    proc.kill()
+                    proc.wait(timeout=1)
+                except Exception:
+                    pass
+
+        return StreamingResponse(
+            stream_generator(),
+            media_type="video/mp4",
+            headers={
+                "Accept-Ranges": "bytes",
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive"
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[NVR PLAYBACK] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 
@@ -1221,6 +1676,54 @@ def play_recording(
             print(f"[PLAY] Failed to write error log: {log_err}")
         raise HTTPException(status_code=500, detail=f"Decryption failed: {e}")
 
+@recording_router.get("/watermark-settings")
+def get_watermark_settings_endpoint():
+    text, pos = get_default_watermark()
+    enabled = True
+    try:
+        if _db is not None:
+            doc = _db["system_settings"].find_one({"type": "video_watermark"})
+            if doc:
+                enabled = doc.get("enabled", True)
+    except Exception:
+        pass
+    return {
+        "text": text,
+        "position": pos,
+        "watermark": text,
+        "watermark_pos": pos,
+        "enabled": enabled
+    }
+
+@recording_router.post("/watermark-settings")
+def set_watermark_settings_endpoint(req: WatermarkSettingsRequest):
+    wm_text = (req.watermark or req.text or "").strip()
+    wm_pos = (req.watermark_pos or req.position or "center").strip().lower() or "center"
+    try:
+        if _db is not None:
+            _db["system_settings"].update_one(
+                {"type": "video_watermark"},
+                {"$set": {
+                    "type": "video_watermark",
+                    "text": wm_text,
+                    "position": wm_pos,
+                    "enabled": req.enabled,
+                    "updated_at": datetime.utcnow()
+                }},
+                upsert=True
+            )
+            return {
+                "success": True,
+                "text": wm_text,
+                "position": wm_pos,
+                "watermark": wm_text,
+                "watermark_pos": wm_pos,
+                "enabled": req.enabled
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save watermark settings: {e}")
+    return {"success": True}
+
 @recording_router.get("/download")
 def download_recording(
     camera_id:  str = Query(...),
@@ -1230,6 +1733,9 @@ def download_recording(
     trim_start: float = Query(None),
     trim_end:   float = Query(None),
     filename:   str = Query(None),
+    camera_name: str = Query(None),
+    watermark:  str = Query(None),
+    watermark_pos: str = Query(None),
     background_tasks: BackgroundTasks = None,
 ):
     format = format.lower()
@@ -1244,6 +1750,36 @@ def download_recording(
     if not doc:
         raise HTTPException(status_code=404, detail="Recording not found in database")
 
+    # Resolve camera display name
+    resolved_cam_name = camera_name.strip() if camera_name and camera_name.strip() else None
+    if not resolved_cam_name and _db is not None:
+        try:
+            cam_doc = _db["cameras"].find_one({
+                "$or": [
+                    {"stream_key": camera_id},
+                    {"ip": camera_id.replace("_", ".")},
+                    {"name": camera_id},
+                    {"id": camera_id},
+                ]
+            })
+            if cam_doc and cam_doc.get("name"):
+                resolved_cam_name = cam_doc["name"]
+        except Exception:
+            pass
+    if not resolved_cam_name:
+        resolved_cam_name = camera_id.replace("_", ".")
+
+    # Resolve watermark (fallback to database global setting if not passed)
+    resolved_watermark = watermark.strip() if (watermark is not None and watermark.strip()) else None
+    resolved_wm_pos = watermark_pos.strip().lower() if watermark_pos else None
+    if resolved_watermark is None:
+        db_wm, db_pos = get_default_watermark()
+        resolved_watermark = db_wm
+        if not resolved_wm_pos:
+            resolved_wm_pos = db_pos
+    if not resolved_wm_pos:
+        resolved_wm_pos = "center"
+
     enc_path = _normalize_enc_path(doc.get("file_path", ""))
     is_minio = enc_path.startswith("minio:")
     
@@ -1253,7 +1789,17 @@ def download_recording(
     try:
         stream = _decrypt(enc_path)
         data   = stream.getvalue()
-        data   = convert_video_format(data, format, trim_start=trim_start, trim_end=trim_end)
+        data   = convert_video_format(
+            data,
+            format,
+            trim_start=trim_start,
+            trim_end=trim_end,
+            camera_name=resolved_cam_name,
+            date_str=date,
+            start_time_str=start_time,
+            watermark=resolved_watermark,
+            watermark_pos=resolved_wm_pos,
+        )
     except Exception as e:
         print(f"[DOWNLOAD] ❌ {enc_path}: {e}")
         raise HTTPException(status_code=500, detail=f"Decryption failed: {e}")
@@ -1611,6 +2157,37 @@ def export_zip(request: ExportZipRequest, background_tasks: BackgroundTasks):
             except Exception as e:
                 print(f"[EXPORT-ZIP] Could not add public key: {e}")
 
+            # Resolve camera name
+            req_cam_name = getattr(request, "camera_name", None)
+            resolved_cam_name = req_cam_name.strip() if req_cam_name and req_cam_name.strip() else None
+            if not resolved_cam_name and _db is not None:
+                try:
+                    cam_doc = _db["cameras"].find_one({
+                        "$or": [
+                            {"stream_key": request.camera_id},
+                            {"ip": request.camera_id.replace("_", ".")},
+                            {"name": request.camera_id},
+                            {"id": request.camera_id},
+                        ]
+                    })
+                    if cam_doc and cam_doc.get("name"):
+                        resolved_cam_name = cam_doc["name"]
+                except Exception:
+                    pass
+            if not resolved_cam_name:
+                resolved_cam_name = request.camera_id.replace("_", ".")
+
+            # Resolve watermark
+            req_watermark = getattr(request, "watermark", None)
+            req_wm_pos = getattr(request, "watermark_pos", None)
+            if req_watermark is None:
+                db_wm, db_pos = get_default_watermark()
+                req_watermark = db_wm
+                if not req_wm_pos:
+                    req_wm_pos = db_pos
+            if not req_wm_pos:
+                req_wm_pos = "center"
+
             for doc in all_docs:
                 enc_path = (doc.get("file_path", "") or "").replace("\\", "/")
                 is_minio = enc_path.startswith("minio:")
@@ -1620,7 +2197,15 @@ def export_zip(request: ExportZipRequest, background_tasks: BackgroundTasks):
 
                 try:
                     decrypted_data = _decrypt(enc_path).getvalue()
-                    decrypted_data = convert_video_format(decrypted_data, req_format)
+                    decrypted_data = convert_video_format(
+                        decrypted_data,
+                        req_format,
+                        camera_name=resolved_cam_name,
+                        date_str=doc.get("date"),
+                        start_time_str=doc.get("start_time"),
+                        watermark=req_watermark,
+                        watermark_pos=req_wm_pos,
+                    )
                 except Exception as dec_err:
                     decrypt_errors.append(f"Decrypt failed for {enc_path}: {dec_err}")
                     print(f"[EXPORT-ZIP] ❌ {enc_path}: {dec_err}")
@@ -1742,6 +2327,36 @@ def export_device(request: ExportDeviceRequest, background_tasks: BackgroundTask
     exported_files = []
     export_errors = []
     
+    req_cam_name = getattr(request, "camera_name", None)
+    resolved_cam_name = req_cam_name.strip() if req_cam_name and req_cam_name.strip() else None
+    if not resolved_cam_name and _db is not None:
+        try:
+            cam_doc = _db["cameras"].find_one({
+                "$or": [
+                    {"stream_key": request.camera_id},
+                    {"ip": request.camera_id.replace("_", ".")},
+                    {"name": request.camera_id},
+                    {"id": request.camera_id},
+                ]
+            })
+            if cam_doc and cam_doc.get("name"):
+                resolved_cam_name = cam_doc["name"]
+        except Exception:
+            pass
+    if not resolved_cam_name:
+        resolved_cam_name = request.camera_id.replace("_", ".")
+
+    # Resolve watermark
+    req_watermark = getattr(request, "watermark", None)
+    req_wm_pos = getattr(request, "watermark_pos", None)
+    if req_watermark is None:
+        db_wm, db_pos = get_default_watermark()
+        req_watermark = db_wm
+        if not req_wm_pos:
+            req_wm_pos = db_pos
+    if not req_wm_pos:
+        req_wm_pos = "center"
+
     for doc in all_docs:
         enc_path = (doc.get("file_path", "") or "").replace("\\", "/")
         if not enc_path or not os.path.exists(enc_path):
@@ -1750,7 +2365,15 @@ def export_device(request: ExportDeviceRequest, background_tasks: BackgroundTask
 
         try:
             decrypted_data = _decrypt(enc_path).getvalue()
-            decrypted_data = convert_video_format(decrypted_data, req_format)
+            decrypted_data = convert_video_format(
+                decrypted_data,
+                req_format,
+                camera_name=resolved_cam_name,
+                date_str=doc.get("date"),
+                start_time_str=doc.get("start_time"),
+                watermark=req_watermark,
+                watermark_pos=req_wm_pos,
+            )
         except Exception as dec_err:
             export_errors.append(f"Decrypt failed for {enc_path}: {dec_err}")
             print(f"[EXPORT-DEVICE] ❌ {enc_path}: {dec_err}")

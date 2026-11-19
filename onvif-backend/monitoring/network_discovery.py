@@ -186,6 +186,19 @@ OUI_DATABASE: Dict[str, Tuple[str, str]] = {
     "ac1f6b": ("Supermicro", "server"),
     
     # Workstations & Personal Computers
+    "24fbe3": ("HP Inc.", "workstation"),
+    "6c0b5e": ("HP Inc.", "workstation"),
+    "10b676": ("HP Inc.", "workstation"),
+    "6c02e0": ("HP Inc.", "workstation"),
+    "509a4c": ("Dell Inc.", "workstation"),
+    "24b2b9": ("Liteon Technology", "workstation"),
+    "402343": ("Foxconn PC", "workstation"),
+    "f814dd": ("Cisco Systems", "switch"),
+    "10f920": ("Cisco Systems", "switch"),
+    "389e4c": ("HPE ProLiant", "server"),
+    "685134": ("HPE ProLiant", "server"),
+    "80456b": ("Espressif (ESP32)", "iot"),
+    "00901d": ("Gallagher Security", "iot"),
     "001422": ("Dell", "workstation"),
     "00188b": ("Dell", "workstation"),
     "180373": ("Dell", "workstation"),
@@ -500,6 +513,38 @@ class HostNetworkDetector:
             "default_gateway": default_gateway,
             "broadcast_address": str(network_obj.broadcast_address) if hasattr(network_obj, 'broadcast_address') else None
         }
+
+    @classmethod
+    def get_all_active_subnets(cls) -> List[str]:
+        """Returns CIDR strings for all active, non-virtual IPv4 network interfaces."""
+        subnets = []
+        try:
+            interfaces_info = psutil.net_if_addrs()
+            stats_info = psutil.net_if_stats()
+            for iface_name, addrs in interfaces_info.items():
+                if cls.is_virtual_or_filtered_iface(iface_name, ""):
+                    continue
+                stat = stats_info.get(iface_name)
+                if not stat or not stat.isup:
+                    continue
+                for addr in addrs:
+                    if addr.family == socket.AF_INET:
+                        ip_val = addr.address
+                        if cls.is_virtual_or_filtered_iface(iface_name, ip_val):
+                            continue
+                        if ip_val.startswith(("127.", "169.254.")):
+                            continue
+                        mask = addr.netmask or "255.255.255.0"
+                        try:
+                            net = ipaddress.IPv4Network(f"{ip_val}/{mask}", strict=False)
+                            net_str = str(net)
+                            if net_str not in subnets:
+                                subnets.append(net_str)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+        return subnets
 
 
 # -----------------------------------------------------------------------------
@@ -889,7 +934,7 @@ class DeviceClassifier:
 
         if oui_suggested_type == "workstation" or any(mfg in combined_text for mfg in ["dell", "lenovo", "apple", "hp", "asus", "intel", "realtek", "microsoft"]):
             if not any(cam in combined_text for cam in ["dahua", "hikvision", "bosch", "axis", "uniview"]):
-                workstation_score += 25
+                workstation_score += 50 if oui_suggested_type == "workstation" else 25
                 workstation_evidence.append(f"Workstation vendor ({oui_vendor})")
 
         # --- C. Printer Evaluation ---
@@ -1097,7 +1142,7 @@ class NetworkDiscoveryManager:
             port_futures = {
                 port_pool.submit(DeviceIdentifier.probe_tcp_port, ip, port, 0.3): port
                 for port in DeviceIdentifier.STRATEGIC_PORTS.keys()
-                if port != int(os.environ.get("SNMP_PORT"))
+                if port != int(os.environ.get("SNMP_PORT") or 161)
             }
             for pf in as_completed(port_futures):
                 p = port_futures[pf]
@@ -1327,7 +1372,7 @@ class NetworkDiscoveryManager:
 
             # Classification Locking / Hysteresis
             existing_type = existing.get("type", "unknown")
-            existing_conf = existing.get("confidence", 0)
+            existing_conf = existing.get("confidence") or 0
             new_type = dev.get("type", "unknown")
             new_conf = dev.get("confidence", 0)
 
@@ -1389,6 +1434,124 @@ class NetworkDiscoveryManager:
             updated_doc = {**existing, **update_fields}
             return (updated_doc, False, ip_changed)
 
+    def purge_foreign_subnet_nodes(self, active_subnets: List[str]) -> List[str]:
+        """
+        Detects nodes belonging to foreign/unreachable subnets when the host network changes.
+        Safely archives them into db['infrastructure_nodes_archive'] and removes them from active inventory
+        and edges, preventing obsolete devices from lingering as offline zombies.
+        """
+        if self.nodes_col is None:
+            return []
+
+        networks = []
+        for s in active_subnets:
+            try:
+                net_obj = ipaddress.IPv4Network(s, strict=False)
+                if not net_obj.is_loopback and not net_obj.is_link_local:
+                    networks.append(net_obj)
+            except Exception:
+                pass
+
+        # Safety check: Never purge if no valid physical active subnets exist
+        if not networks:
+            return []
+
+        # Find registered camera IPs that the user explicitly added/saved so we don't accidentally remove them
+        protected_ips = set()
+        if self.db is not None:
+            try:
+                for c in self.db["cameras"].find({}, {"ip": 1}):
+                    if c.get("ip"):
+                        protected_ips.add(c["ip"])
+            except Exception:
+                pass
+
+        # Check existing nodes in database
+        try:
+            existing_nodes = list(self.nodes_col.find({}, {"_id": 0}))
+        except Exception:
+            return []
+
+        foreign_nodes = []
+        foreign_ids = []
+
+        for node in existing_nodes:
+            node_id = node.get("id")
+            if node_id == "node-vms-host":
+                continue
+
+            node_ip = node.get("ip")
+            if not node_ip:
+                continue
+
+            if node_ip in protected_ips:
+                continue
+
+            try:
+                ip_obj = ipaddress.ip_address(node_ip)
+                # Check if this IP is within ANY of the active physical subnets
+                is_in_active_subnet = any(ip_obj in net for net in networks)
+                if not is_in_active_subnet:
+                    foreign_nodes.append(node)
+                    foreign_ids.append(node_id)
+            except Exception:
+                continue
+
+        if not foreign_ids:
+            return []
+
+        # 1. Archive to infrastructure_nodes_archive
+        if self.db is not None:
+            try:
+                archive_col = self.db["infrastructure_nodes_archive"]
+                now_iso = datetime.utcnow().isoformat()
+                from pymongo import UpdateOne
+                archive_ops = [
+                    UpdateOne(
+                        {"id": fn["id"]},
+                        {"$set": {
+                            **fn,
+                            "archived_at": now_iso,
+                            "archived_reason": f"Network changed. Outside active subnets: {[str(n) for n in networks]}"
+                        }},
+                        upsert=True
+                    )
+                    for fn in foreign_nodes
+                ]
+                archive_col.bulk_write(archive_ops, ordered=False)
+            except Exception as e:
+                print(f"[DISCOVERY] [ARCHIVE_NOTE] Note archiving foreign nodes: {e}")
+
+        # 2. Delete foreign nodes from active infrastructure_nodes
+        try:
+            self.nodes_col.delete_many({"id": {"$in": foreign_ids}})
+        except Exception as e:
+            print(f"[DISCOVERY] [PURGE_ERROR] Error deleting foreign nodes: {e}")
+
+        # 3. Clean up edges that connected to the removed foreign nodes
+        if self.db is not None:
+            try:
+                edges_col = self.db["infrastructure_edges"]
+                edges_col.delete_many({"$or": [{"source": {"$in": foreign_ids}}, {"target": {"$in": foreign_ids}}]})
+                self.db["uptime_snapshots"].delete_many({"node_id": {"$in": foreign_ids}})
+            except Exception:
+                pass
+
+        print(f"[DISCOVERY] [AUTO_PURGE] Network change detected. Archived and purged {len(foreign_ids)} foreign nodes: {[fn.get('ip') for fn in foreign_nodes]}")
+
+        # 4. Broadcast update to frontend so canvas and sidebar instantly update
+        try:
+            from monitoring.inference import _broadcast_safe
+            _broadcast_safe({
+                "type": "FOREIGN_NODES_PURGED",
+                "purged_ids": foreign_ids,
+                "active_subnets": [str(n) for n in networks]
+            })
+        except Exception:
+            pass
+
+        return foreign_ids
+
     def scan_network_sync(self, target_subnet: Optional[str] = None, scan_cameras: bool = True) -> List[Dict[str, Any]]:
         if not self.scan_lock.acquire(blocking=False):
             print("[DISCOVERY] [WARN] Scan already in progress, skipping duplicate scan request.")
@@ -1406,6 +1569,12 @@ class NetworkDiscoveryManager:
             subnet_str = target_subnet or host_net["cidr"]
             self.current_subnet = subnet_str
             print(f"[DISCOVERY] [SCAN] Starting network discovery on {subnet_str} (Host: {host_net['ip']}, Interface: {host_net['interface']}, ScanCameras: {scan_cameras})")
+
+            # Auto-purge / archive foreign nodes from old/unreachable subnets
+            all_active = HostNetworkDetector.get_all_active_subnets()
+            if subnet_str not in all_active:
+                all_active.append(subnet_str)
+            self.purge_foreign_subnet_nodes(all_active)
 
             arp_map = ArpReader.get_arp_table()
 
@@ -1606,7 +1775,8 @@ class NetworkDiscoveryManager:
         else:
             query = {}
         docs = list(col.find(query, {"_id": 0}))
-        rank = lambda d: (bool(d.get("position")),
+        rank = lambda d: (d.get("id") == "node-vms-host",
+                          bool(d.get("position")),
                           d.get("confidence", 0),
                           d.get("last_seen") or datetime.min)
 
@@ -1622,21 +1792,26 @@ class NetworkDiscoveryManager:
 
             node_id = d.get("id")
             ip = d.get("ip")
-            mac = d.get("mac")
+            raw_mac = d.get("mac")
+            clean_mac = (
+                str(raw_mac).strip().lower().replace("-", ":")
+                if raw_mac and str(raw_mac).strip() not in ("-", "—", "None", "Unknown", "")
+                else None
+            )
 
             if node_id and node_id in seen_ids:
                 continue
             if ip and ip in seen_ips:
                 continue
-            if mac and mac in seen_macs:
+            if clean_mac and clean_mac in seen_macs:
                 continue
 
             if node_id:
                 seen_ids.add(node_id)
             if ip:
                 seen_ips.add(ip)
-            if mac:
-                seen_macs.add(mac)
+            if clean_mac:
+                seen_macs.add(clean_mac)
 
             unique_nodes.append(d)
 
@@ -1711,6 +1886,19 @@ class NetworkDiscoveryManager:
                                 "state": "up",
                                 "timestamp": now
                             })
+
+                    if prev_status == "offline" and self.alerts_col is not None:
+                        alert = {
+                            "node_id": node_id,
+                            "ip": ip,
+                            "model": node.get("model", ""),
+                            "type": node.get("type", ""),
+                            "event": "device_online",
+                            "message": f"{node.get('model') or ip} restored to ONLINE",
+                            "timestamp": now,
+                            "acknowledged": True
+                        }
+                        self.alerts_col.insert_one(alert)
 
             else:
                 failures += 1

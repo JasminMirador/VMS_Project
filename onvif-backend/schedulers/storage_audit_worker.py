@@ -52,7 +52,7 @@ def _file_exists(file_path: str) -> bool:
             from app.utils.minio_client import object_exists
             return object_exists(minio_key)
         except Exception as e:
-            print(f"[STORAGE-AUDIT] ⚠ MinIO check failed for {minio_key}: {e}")
+            print(f"[STORAGE-AUDIT]  MinIO check failed for {minio_key}: {e}")
             return True  # Assume exists on error — don't delete blindly
 
     # Local filesystem
@@ -67,7 +67,7 @@ def _audit_collection(col_name: str, path_field: str = "file_path") -> int:
     """
     col = _db[col_name]
     if col is None:
-        print(f"[STORAGE-AUDIT] ⚠ Collection '{col_name}' not available — skipping.")
+        print(f"[STORAGE-AUDIT]  Collection '{col_name}' not available — skipping.")
         return 0
 
     cleaned = 0
@@ -112,7 +112,7 @@ def _audit_collection(col_name: str, path_field: str = "file_path") -> int:
                     cleaned += 1
                     print(f"[STORAGE-AUDIT] 🗑 Soft-deleted from '{col_name}': cam={cam} date={date} | {fp}")
                 except Exception as e:
-                    print(f"[STORAGE-AUDIT] ⚠ Failed to soft-delete doc {doc['_id']}: {e}")
+                    print(f"[STORAGE-AUDIT]  Failed to soft-delete doc {doc['_id']}: {e}")
 
         skip += 500
 

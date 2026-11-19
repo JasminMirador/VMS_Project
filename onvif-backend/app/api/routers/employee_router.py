@@ -52,7 +52,7 @@ async def list_employees(
             "photo_url": doc.get("photo_url") or (p_urls[0] if p_urls else None),
             "photo_urls": p_urls,
             "photos_count": len(p_urls),
-            "has_face_embedding": bool(doc.get("face_embeddings") or doc.get("face_embedding")),
+            "has_face_embedding": bool(doc.get("face_embeddings") or doc.get("face_embedding") or len(p_urls) > 0),
             "created_at": doc.get("created_at"),
             "updated_at": doc.get("updated_at")
         })
@@ -79,7 +79,7 @@ async def get_employee(emp_id: str):
         "photo_url": emp.get("photo_url") or (p_urls[0] if p_urls else None),
         "photo_urls": p_urls,
         "photos_count": len(p_urls),
-        "has_face_embedding": bool(emp.get("face_embeddings") or emp.get("face_embedding")),
+        "has_face_embedding": bool(emp.get("face_embeddings") or emp.get("face_embedding") or len(p_urls) > 0),
         "created_at": emp.get("created_at"),
         "updated_at": emp.get("updated_at")
     }
@@ -187,6 +187,7 @@ async def update_employee(
     email: Optional[str] = Form(None),
     department: Optional[str] = Form(None),
     status: Optional[str] = Form(None),
+    existing_photos: Optional[str] = Form(None),
     photo: Optional[UploadFile] = File(None),
     photos: Optional[List[UploadFile]] = File(None)
 ):
@@ -200,10 +201,18 @@ async def update_employee(
         raise HTTPException(status_code=404, detail="Employee not found")
 
     upload_items = []
-    if photos:
-        upload_items.extend([p for p in photos if p and getattr(p, 'filename', None)])
-    if photo and getattr(photo, 'filename', None) and photo not in upload_items:
-        upload_items.insert(0, photo)
+    seen_names = set()
+    for p in (photos or []):
+        if p and getattr(p, "filename", None):
+            fn = getattr(p, "filename")
+            if fn not in seen_names:
+                seen_names.add(fn)
+                upload_items.append(p)
+    if photo and getattr(photo, "filename", None):
+        fn = getattr(photo, "filename")
+        if fn not in seen_names:
+            seen_names.add(fn)
+            upload_items.append(photo)
 
     upload_items = upload_items[:5]
 
@@ -215,6 +224,8 @@ async def update_employee(
             if email: data.add_field("email", email)
             if department: data.add_field("department", department)
             if status: data.add_field("status", status)
+            if existing_photos is not None:
+                data.add_field("existing_photos", existing_photos)
             for item in upload_items:
                 content = await item.read()
                 data.add_field("photos", content, filename=item.filename, content_type=item.content_type or "image/jpeg")
@@ -237,22 +248,38 @@ async def update_employee(
         if s in ("authorised", "suspended"):
             update_fields["status"] = s
 
-    if upload_items:
-        photo_urls = []
+    cur_urls = emp.get("photo_urls") or ([emp.get("photo_url")] if emp.get("photo_url") else [])
+    import json, time
+    kept_urls = None
+    if existing_photos is not None:
+        try:
+            parsed = json.loads(existing_photos) if isinstance(existing_photos, str) else existing_photos
+            if isinstance(parsed, list):
+                kept_urls = [u for u in parsed if isinstance(u, str) and u.strip()]
+        except Exception:
+            pass
+
+    if kept_urls is None:
+        kept_urls = list(cur_urls)
+
+    if upload_items or existing_photos is not None:
+        new_urls = []
+        ts = int(time.time() * 1000)
         for idx, item in enumerate(upload_items):
             try:
                 photo_bytes = await item.read()
-                photo_filename = f"{emp_id}_{idx}.jpg"
+                photo_filename = f"{emp_id}_{ts}_{idx}.jpg"
                 save_path = os.path.join(STATIC_FACES_DIR, photo_filename)
                 with open(save_path, "wb") as f:
                     f.write(photo_bytes)
-                photo_urls.append(f"/api/faces/{photo_filename}")
+                new_urls.append(f"/api/faces/{photo_filename}")
             except Exception:
                 pass
-        if photo_urls:
-            update_fields["photo_urls"] = photo_urls
-            update_fields["photo_url"] = photo_urls[0]
-            update_fields["photos_count"] = len(photo_urls)
+
+        final_urls = (kept_urls + new_urls)[:5]
+        update_fields["photo_urls"] = final_urls
+        update_fields["photo_url"] = final_urls[0] if final_urls else None
+        update_fields["photos_count"] = len(final_urls)
 
     col.update_one({"emp_id": emp_id}, {"$set": update_fields})
     updated = col.find_one({"emp_id": emp_id})
@@ -267,7 +294,7 @@ async def update_employee(
         "photo_url": updated.get("photo_url") or (p_urls[0] if p_urls else None),
         "photo_urls": p_urls,
         "photos_count": len(p_urls),
-        "has_face_embedding": bool(updated.get("face_embeddings") or updated.get("face_embedding")),
+        "has_face_embedding": bool(updated.get("face_embeddings") or updated.get("face_embedding") or len(p_urls) > 0),
         "created_at": updated.get("created_at"),
         "updated_at": updated.get("updated_at")
     }

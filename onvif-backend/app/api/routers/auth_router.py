@@ -412,8 +412,17 @@ def auth_signup_password(request: Request, req: PasswordSignupRequest):
 
 
         # Register user directly — no admin approval needed
-
         role = req.role if req.role in ("admin", "client", "operator") else "admin"
+        if _db is not None:
+            _db["active_sessions"].update_many(
+                {"email": email},
+                {"$set": {
+                    "status": "out",
+                    "is_invalidated": True,
+                    "invalidated_reason": "user_recreated",
+                    "updated_at": datetime.utcnow().isoformat()
+                }}
+            )
 
         users_col.insert_one({
 
@@ -924,6 +933,16 @@ def signup_finalize(request: Request, req: SignupFinalizeRequest):
     
 
     try:
+        if _db is not None:
+            _db["active_sessions"].update_many(
+                {"email": req.email},
+                {"$set": {
+                    "status": "out",
+                    "is_invalidated": True,
+                    "invalidated_reason": "user_recreated",
+                    "updated_at": datetime.utcnow().isoformat()
+                }}
+            )
 
         users_col.insert_one(user_doc)
 
@@ -1207,77 +1226,99 @@ async def auth_login(request: Request, req: LoginRequest, background_tasks: Back
     
 
     session_id = str(uuid.uuid4())
-
     user_id_str = str(user["_id"])
-
     token = create_token(user_id_str, user["role"], session_id)
-
     has_active_session = False
-
     if _db is not None:
-
         now_utc = datetime.utcnow()
-
         now_ist = now_utc + timedelta(hours=5, minutes=30)
+        # Active session timeout threshold (5 minutes without any activity/heartbeat)
+        cutoff_time = (now_utc - timedelta(minutes=5)).isoformat()
 
-        
+        # Find any non-invalidated sessions for this user (by user_id or email)
+        all_user_sessions = list(_db["active_sessions"].find({
+            "$or": [{"user_id": user_id_str}, {"email": user["email"]}],
+            "is_invalidated": {"$ne": True}
+        }))
 
-        # Invalidate any existing sessions for this user
+        active_concurrent_sessions = []
+        for s in all_user_sessions:
+            last_activity = s.get("last_active") or s.get("updated_at") or s.get("created_at") or ""
+            # If session had no activity in 5 minutes, mark it timed out
+            if not last_activity or last_activity < cutoff_time:
+                _db["active_sessions"].update_one(
+                    {"_id": s["_id"]},
+                    {"$set": {
+                        "is_invalidated": True,
+                        "invalidated_reason": "session_timeout",
+                        "status": "out",
+                        "updated_at": now_utc.isoformat(),
+                        "updated_at_ist": now_ist.isoformat()
+                    }}
+                )
+            else:
+                active_concurrent_sessions.append(s)
 
-        existing_sessions = list(_db["active_sessions"].find({"user_id": user_id_str, "is_invalidated": {"$ne": True}}))
+        # Allow up to MAX_CONCURRENT_SESSIONS (default 2) active sessions per user
+        max_concurrent_sessions = int(os.environ.get("MAX_CONCURRENT_SESSIONS", 2))
 
-        if existing_sessions:
+        # Sort existing active sessions chronologically by activity/created_at ascending (oldest first)
+        active_concurrent_sessions.sort(
+            key=lambda x: str(x.get("last_active") or x.get("updated_at") or x.get("created_at") or "")
+        )
 
+        # Invalidate oldest session(s) if adding this session exceeds max_concurrent_sessions
+        num_to_revoke = max(0, len(active_concurrent_sessions) + 1 - max_concurrent_sessions)
+        sessions_to_revoke = active_concurrent_sessions[:num_to_revoke] if num_to_revoke > 0 else []
+
+        if sessions_to_revoke:
             has_active_session = True
-
-            log_security_event("INFO", "CONCURRENT_LOGIN", f"Invalidating {len(existing_sessions)} existing sessions for user: {user['email']}", client_ip)
-
+            revoked_ids = [s["_id"] for s in sessions_to_revoke]
+            revoked_session_ids = [s.get("session_id") for s in sessions_to_revoke if s.get("session_id")]
+            log_security_event(
+                "INFO",
+                "CONCURRENT_LOGIN",
+                f"Invalidating {len(sessions_to_revoke)} oldest active session(s) (limit {max_concurrent_sessions}) for user: {user['email']}",
+                client_ip,
+            )
             _db["active_sessions"].update_many(
-
-                {"user_id": user_id_str},
-
-                {"$set": {"is_invalidated": True, "invalidated_reason": "concurrent_login", "status": "out"}}
-
+                {"_id": {"$in": revoked_ids}},
+                {"$set": {
+                    "is_invalidated": True,
+                    "invalidated_reason": "concurrent_login",
+                    "status": "out",
+                    "updated_at": now_utc.isoformat(),
+                    "updated_at_ist": now_ist.isoformat()
+                }}
             )
+            # Broadcast the auth_revoked event specifically for the revoked session IDs
+            try:
+                from app.core.ws_manager import ws_manager
+                await ws_manager.broadcast(
+                    topic="alerts",
+                    event="auth_revoked",
+                    data={
+                        "user_email": user["email"],
+                        "revoked_session_ids": revoked_session_ids,
+                        "reason": "concurrent_login"
+                    }
+                )
+            except Exception as e:
+                print(f"[AUTH] ⚠️ auth_revoked broadcast failed: {e}")
 
-            # Broadcast the auth_revoked event via WebSocket
-
-            from app.core.ws_manager import ws_manager
-
-            await ws_manager.broadcast(
-
-                topic="alerts",
-
-                event="auth_revoked",
-
-                data={"user_email": user["email"], "session_id": session_id}
-
-            )
-
-            
-
+        active_count_after = (len(active_concurrent_sessions) - len(sessions_to_revoke)) + 1
         _db["active_sessions"].insert_one({
-
             "user_id": user_id_str,
-
             "session_id": session_id, 
-
             "token": token,
-
             "status": "in",
-
             "email": user["email"],
-
             "created_at": now_utc.isoformat(),
-
             "created_at_ist": now_ist.isoformat(),
-
             "updated_at": now_utc.isoformat(),
-
             "updated_at_ist": now_ist.isoformat(),
-
-            "notes": "Initial login" if not has_active_session else f"Concurrent login of same username ({user['email']})"
-
+            "last_active": now_utc.isoformat(),
+            "notes": "Initial login" if active_count_after == 1 else f"Active session {active_count_after}/{max_concurrent_sessions} for {user['email']}"
         })
 
     
@@ -1401,10 +1442,25 @@ async def revoke_orphan_sessions(user=Depends(require_admin)):
 @router.get("/me")
 async def auth_me(payload: dict = Depends(verify_token)):
     from bson.objectid import ObjectId
+    from app.core.database import db as _db
     uid = payload.get("sub")
+    session_id = payload.get("sid")
     user = users_col.find_one({"_id": ObjectId(uid)}) if uid and len(uid) == 24 else users_col.find_one({"email": uid})
     if not user or user.get("is_deleted") or user.get("is_blocked"):
         raise HTTPException(status_code=401, detail="Account no longer active")
+
+    if _db is not None and session_id:
+        now_utc = datetime.utcnow()
+        now_ist = now_utc + timedelta(hours=5, minutes=30)
+        _db["active_sessions"].update_one(
+            {"session_id": session_id},
+            {"$set": {
+                "updated_at": now_utc.isoformat(),
+                "updated_at_ist": now_ist.isoformat(),
+                "last_active": now_utc.isoformat()
+            }}
+        )
+
     return {"success": True, "email": user["email"], "role": user["role"]}
 
 
@@ -1852,6 +1908,16 @@ async def create_user(request: Request, req: AdminCreateUserRequest, background_
     }
 
     try:
+        if _db is not None:
+            _db["active_sessions"].update_many(
+                {"email": req.email},
+                {"$set": {
+                    "status": "out",
+                    "is_invalidated": True,
+                    "invalidated_reason": "user_recreated",
+                    "updated_at": datetime.utcnow().isoformat()
+                }}
+            )
 
         users_col.insert_one(user_doc)
 
@@ -2613,5 +2679,4 @@ async def reset_password(req: ResetPasswordRequest):
 
     
 
-    return {"success": True, "message": "Password reset successfully. You can now log in."} 
-
+    return {"success": True, "message": "Password reset successfully. You can now log in."}

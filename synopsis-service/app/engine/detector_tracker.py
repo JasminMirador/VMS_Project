@@ -196,9 +196,14 @@ class DetectorTracker:
             # Pre-calculate absolute timestamp to check if frame is within user's selected time range
             abs_dt = None
             orig_ts_str = f"{rel_timestamp_s:.3f}"
+            abs_time_s = rel_timestamp_s
             if video_start_dt:
                 abs_dt = video_start_dt + timedelta(seconds=rel_timestamp_s)
                 orig_ts_str = abs_dt.strftime("%Y-%m-%d %H:%M:%S")
+                if range_start_dt:
+                    abs_time_s = max(0.0, (abs_dt - range_start_dt).total_seconds())
+                else:
+                    abs_time_s = abs_dt.timestamp()
                 
                 # Trim frames that fall strictly outside the user's requested search range
                 if range_start_dt and abs_dt < range_start_dt:
@@ -227,6 +232,8 @@ class DetectorTracker:
                 continue
 
             # ── YOLOv8 + ByteTrack ───────────────────────────────────────────
+            use_dev = getattr(settings, "DEVICE", "cpu")
+            use_half = bool(getattr(settings, "USE_FP16", False)) and ("cuda" in str(use_dev).lower())
             try:
                 results = self.model.track(
                     frame,
@@ -235,14 +242,36 @@ class DetectorTracker:
                     classes=[0],               # Class 0 = person only
                     conf=0.35,                 # Slightly lower conf to not miss blurry people
                     imgsz=320,                 # Smaller inference size → ~4x faster on GPU
-                    half=True,                 # FP16 inference on GPU → ~2x faster
+                    half=use_half,             # FP16 inference on GPU
                     verbose=False,
-                    device=settings.DEVICE
+                    device=use_dev
                 )
             except Exception as e:
-                logger.warning(f"Frame {frame_idx} tracking error: {e}")
-                frame_idx += 1
-                continue
+                err_str = str(e).lower()
+                if "cuda" in err_str or "device" in err_str:
+                    logger.warning(f"CUDA tracking failed ({e}) — automatically switching to CPU.")
+                    settings.DEVICE = "cpu"
+                    settings.USE_FP16 = False
+                    try:
+                        results = self.model.track(
+                            frame,
+                            persist=True,
+                            tracker="bytetrack.yaml",
+                            classes=[0],
+                            conf=0.35,
+                            imgsz=320,
+                            half=False,
+                            verbose=False,
+                            device="cpu"
+                        )
+                    except Exception as retry_err:
+                        logger.warning(f"Frame {frame_idx} tracking retry on CPU failed: {retry_err}")
+                        frame_idx += 1
+                        continue
+                else:
+                    logger.warning(f"Frame {frame_idx} tracking error: {e}")
+                    frame_idx += 1
+                    continue
 
             if results and results[0].boxes is not None:
                 boxes = results[0].boxes
@@ -266,7 +295,7 @@ class DetectorTracker:
 
                         frame_meta = FrameMeta(
                             frame_idx=frame_idx,
-                            timestamp_s=round(rel_timestamp_s, 4),
+                            timestamp_s=round(abs_time_s, 4),
                             original_timestamp=orig_ts_str,
                             bbox=[x1, y1, w, h],        # Full body
                             face_bbox=face_bbox          # Real face region
@@ -276,8 +305,8 @@ class DetectorTracker:
                             tracks_map[t_key] = {
                                 "track_id": t_key,
                                 "camera_id": camera_id,
-                                "start_time": f"{rel_timestamp_s:.3f}",
-                                "end_time": f"{rel_timestamp_s:.3f}",
+                                "start_time": f"{abs_time_s:.3f}",
+                                "end_time": f"{abs_time_s:.3f}",
                                 "best_face_bbox": None,
                                 "best_original_timestamp": None,
                                 "best_face_area": 0,
@@ -322,7 +351,7 @@ class DetectorTracker:
                                 except Exception as _te:
                                     logger.debug(f"[FaceDetect] Could not save thumbnail: {_te}")
 
-                        tracks_map[t_key]["end_time"] = f"{rel_timestamp_s:.3f}"
+                        tracks_map[t_key]["end_time"] = f"{abs_time_s:.3f}"
                         tracks_map[t_key]["frames"].append(frame_meta)
 
             frame_idx += 1

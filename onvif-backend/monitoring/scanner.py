@@ -79,8 +79,8 @@ class NetworkScanner:
         manufacturer = ""
         model = ""
 
-        switch_ip = os.environ["SWITCH_IP"]
-        if ip == switch_ip:
+        switch_ip = os.environ.get("SWITCH_IP")
+        if switch_ip and ip == switch_ip:
             device_type = "switch"
             manufacturer = "Cisco Systems, Inc."
             model = "Cisco Switch"

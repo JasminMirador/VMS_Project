@@ -1,7 +1,12 @@
 import os
 import json
 import re
-from dotenv import set_key, load_dotenv
+# from dotenv import set_key, load_dotenv
+try:
+    from dotenv import set_key, load_dotenv
+except ImportError:
+    def set_key(path, key, value): pass
+    def load_dotenv(path): pass
 
 class StorageConfig:
     def __init__(self):

@@ -23,9 +23,12 @@ class Settings(BaseSettings):
     MONGO_URI: str = os.environ["MONGO_URI"]
     DB_NAME: str = os.environ["MONGO_DB_NAME"]
     
-    # Hardware & Model Configuration
-    DEVICE: str = os.getenv("CUDA_DEVICE", "cuda:0" if torch.cuda.is_available() else "cpu")
-    USE_FP16: bool = True
+    # Hardware & Model Configuration: auto fallback to cpu if CUDA unavailable
+    DEVICE: str = (
+        "cpu" if not torch.cuda.is_available() 
+        else os.getenv("CUDA_DEVICE", "cuda:0")
+    )
+    USE_FP16: bool = torch.cuda.is_available()
     YOLO_MODEL_PATH: str = os.getenv("YOLO_MODEL_PATH", "yolov8n.pt")
     YOLO_SEG_MODEL_PATH: str = os.getenv("YOLO_SEG_MODEL_PATH", "yolov8n-seg.pt")
     
@@ -41,9 +44,6 @@ class Settings(BaseSettings):
     MAX_IOU_OVERLAP: float = 0.15
     DEFAULT_COMPRESSION_RATIO: float = 60.0
     # How many source frames to advance between detections during tracking.
-    # 1 = process every frame (smoothest, most natural-looking motion, slowest).
-    # 2 = process every other frame (2x faster, but people visibly "hop" between
-    #     positions since only half their real poses were captured).
     DETECTION_FRAME_SKIP: int = int(os.getenv("DETECTION_FRAME_SKIP", "1"))
     
     class Config:

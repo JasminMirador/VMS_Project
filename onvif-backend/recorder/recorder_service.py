@@ -10,21 +10,19 @@ from datetime import datetime, timedelta
 from minio import Minio
 import pymongo
 
+os.environ.setdefault('MONGO_DB_NAME', 'vms_demo')
 import sys
 from dotenv import load_dotenv
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
 load_dotenv(os.path.join(BASE_DIR, ".env"))
-
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 from recorder.encrypt_service import MASTER_KEY
 
 import logging
 logging.getLogger('urllib3').setLevel(logging.ERROR)
-
-# Configuration
 MINIO_ENDPOINT = os.environ["MINIO_ENDPOINT"].replace("http://", "").replace("https://", "")
 MINIO_ACCESS_KEY = os.environ["MINIO_ACCESS_KEY"]
 MINIO_SECRET_KEY = os.environ["MINIO_SECRET_KEY"]
@@ -54,7 +52,9 @@ minio_client = Minio(
 )
 
 # Connect to Dedicated VMS Redis Server
+redis_client = None
 try:
+    redis_port = int(os.environ.get("RECORDER_REDIS_PORT") or os.environ.get("REDIS_PORT") or 6379)
     redis_client = redis.Redis(
         host=os.environ["REDIS_HOST"],
         port=int(os.environ["RECORDER_REDIS_PORT"]),
@@ -63,6 +63,8 @@ try:
         socket_connect_timeout=5,
         health_check_interval=30
     )
+    redis_client.ping()
+    print(f"[REDIS] Connected to Redis on {os.environ.get('REDIS_HOST', '127.0.0.1')}:{redis_port}")
 except Exception as e:
     print(f"[ERROR] Could not connect to Redis: {e}")
 
@@ -242,8 +244,10 @@ def upload_worker_thread(worker_id):
         if not queue_item:
             continue
         file_path = queue_item[1].decode('utf-8')
-        
+
         upload_ok = False
+
+        
         try:
             file_size = os.path.getsize(file_path)
             parts = file_path.split("/")
@@ -351,12 +355,14 @@ def main():
     scanner_started = False
     worker_pool_started = False
     
-    pubsub = redis_client.pubsub()
-    try:
-        pubsub.subscribe("vms_config_updates")
-        print("[MAIN] Subscribed to Redis config updates!")
-    except Exception as e:
-        print(f"[MAIN] Redis pubsub error: {e}")
+    pubsub = None
+    if redis_client:
+        try:
+            pubsub = redis_client.pubsub()
+            pubsub.subscribe("vms_config_updates")
+            print("[MAIN] Subscribed to Redis config updates!")
+        except Exception as e:
+            print(f"[MAIN] Redis pubsub error: {e}")
     
     while True:
         try:
@@ -419,9 +425,12 @@ def main():
         except Exception as status_e:
             pass
         try:
-            msg = pubsub.get_message(timeout=10.0)
-            if msg and msg['type'] == 'message':
-                print('[MAIN] Instant config update received via Redis!')
+            if pubsub:
+                msg = pubsub.get_message(timeout=10.0)
+                if msg and msg['type'] == 'message':
+                    print('[MAIN] Instant config update received via Redis!')
+            else:
+                time.sleep(10)
         except Exception:
             time.sleep(10)
 

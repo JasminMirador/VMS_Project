@@ -43,29 +43,30 @@ _NON_CAMERA_VENDORS = {
 }
 
 def get_topology_non_camera_ips() -> set[str]:
-    """Excludes all non-camera devices discovered on the Topology/infrastructure page."""
-    non_camera_ips = set()
+    """Excludes non-video infrastructure devices (switches, routers, workstations, printers) from discovery."""
+    EXCLUDED_INFRA_TYPES = {"switch", "router", "gateway", "access_point", "printer", "workstation"}
+    excluded_ips = set()
     try:
         from monitoring.network_discovery import discovery_manager
         nodes = discovery_manager.get_live_nodes()
         for n in nodes:
-            if n.get("type") != "camera" and n.get("ip"):
-                non_camera_ips.add(n["ip"])
+            if n.get("type") in EXCLUDED_INFRA_TYPES and n.get("ip"):
+                excluded_ips.add(n["ip"])
     except Exception:
         pass
     try:
         from app.core.database import db, mongo_client
         target_db = db
         if target_db is None and mongo_client is not None:
-            db_name = os.environ["MONGO_DB_NAME"]            
+            db_name = os.environ.get("MONGO_DB_NAME", "vms_database")            
             target_db = mongo_client[db_name]
         if target_db is not None:
-            for n in target_db["infrastructure_nodes"].find({"type": {"$ne": "camera"}}, {"ip": 1}):
+            for n in target_db["infrastructure_nodes"].find({"type": {"$in": list(EXCLUDED_INFRA_TYPES)}}, {"ip": 1}):
                 if n.get("ip"):
-                    non_camera_ips.add(n["ip"])
+                    excluded_ips.add(n["ip"])
     except Exception:
         pass
-    return non_camera_ips
+    return excluded_ips
 
 
 
@@ -309,16 +310,15 @@ def _classify_device(ip: str, port: int, mac: str = "") -> tuple[str, str, str]:
         mac = _get_mac(ip)
 
     oui_mfg = _oui_lookup(mac)
-    if oui_mfg:
-        print(f"[CLASSIFY] {ip} -> {oui_mfg} (OUI)")
-        return "camera", oui_mfg, ""
 
     # RTSP banner identifies the BRAND reliably
-    rtsp_banner = _rtsp_banner_grab(ip, int(os.environ["RTSP_PORT"]))
+    rtsp_banner = _rtsp_banner_grab(ip, int(os.environ.get("RTSP_PORT", 554)))
     rtsp_mfg = ""
+    is_dahua_realm = False
     if rtsp_banner:
         if 'realm="login to ' in rtsp_banner:
             rtsp_mfg = "Dahua"
+            is_dahua_realm = True
         elif 'please log in with a valid username' in rtsp_banner or 'videojet' in rtsp_banner:
             rtsp_mfg = "Bosch"
         else:
@@ -329,7 +329,12 @@ def _classify_device(ip: str, port: int, mac: str = "") -> tuple[str, str, str]:
                     break
 
     # HTTP banner extraction
-    banner = _http_banner_grab(ip, port)
+    http_port = port if port not in (554, 8554, int(os.environ.get("RTSP_PORT", 554))) else int(os.environ.get("CAMERA_DEFAULT_PORT", 80))
+    banner = _http_banner_grab(ip, http_port)
+    if not banner and http_port != 80:
+        banner = _http_banner_grab(ip, 80)
+    is_nvr = False
+    model_hint = ""
     if banner:
         # Check for non-camera services like VRM Cockpit or Microsoft-HTTPAPI
         if "vrmcockpit" in banner or "video recording manager" in banner:
@@ -337,29 +342,44 @@ def _classify_device(ip: str, port: int, mac: str = "") -> tuple[str, str, str]:
         if "microsoft-httpapi" in banner:
             return "workstation", "Microsoft", "Windows PC"
 
-        if "vcs-videojet" in banner or "boschvideosecurity" in banner:
-            return "camera", "Bosch", ""
-        if "dahua" in banner:
-            return "camera", "Dahua", ""
-        if "hikvision" in banner:
-            return "camera", "Hikvision", ""
+        banner_lower = banner.lower()
+        if any(kw in banner_lower for kw in ["nvr", "dvr", "xvr", "embedded net dvr"]):
+            is_nvr = True
 
         title_match = re.search(r'<title[^>]*>(.*?)</title>', banner, re.IGNORECASE | re.DOTALL)
-        model_hint = ""
         if title_match:
             t = re.sub(r"\s+", " ", title_match.group(1)).strip()
             t_lower = t.lower()
+            if "web service" in t_lower:
+                is_nvr = True
             software_markers = ["webserver", "web server", "httpd", "server", "boa/", "goahead", "404", "502", "302"]
             looks_like_software_banner = any(m in t_lower for m in software_markers)
-            if (t and t_lower not in ("login", "index", "home", "") and not looks_like_software_banner):
+            if (t and t_lower not in ("login", "index", "home", "", "web service") and not looks_like_software_banner):
                 model_hint = t[:40]
 
-        mfg = rtsp_mfg or "Unknown"
-        if rtsp_mfg or (port == int(os.environ.get('RTSP_PORT'))):
-            return "camera", mfg, model_hint
+        if "vcs-videojet" in banner or "boschvideosecurity" in banner:
+            rtsp_mfg = rtsp_mfg or "Bosch"
+        if "dahua" in banner_lower:
+            rtsp_mfg = "Dahua"
+        if "hikvision" in banner_lower:
+            rtsp_mfg = "Hikvision"
 
-    if rtsp_mfg:
-        return "camera", rtsp_mfg, ""
+    # Quick Dahua/Uniview port check (37777 is Dahua private DVR/NVR port)
+    if not is_nvr and _check_port(ip, 37777, 200):
+        if "web service" in (banner or "").lower():
+            is_nvr = True
+
+    mfg = rtsp_mfg or oui_mfg or "Unknown"
+    dtype = "recorder" if is_nvr else "camera"
+    if not model_hint and is_nvr:
+        model_hint = f"{mfg} NVR" if mfg != "Unknown" else "NVR"
+
+    if mfg != "Unknown":
+        print(f"[CLASSIFY] {ip} -> {mfg} ({dtype})")
+        return dtype, mfg, model_hint
+
+    if rtsp_mfg or (port == int(os.environ.get('RTSP_PORT', 554))):
+        return dtype, mfg, model_hint
 
     return "unknown", "Unknown", ""
 
@@ -429,15 +449,18 @@ def probe_onvif_device(
             if manufacturer.lower() in _NON_CAMERA_VENDORS:
                 return None
 
-            model = result.get('model') or known_model
+            model_lower = (model or "").lower()
+            is_ipc = any(k in model_lower for k in ["ipc-", "dh-ipc-", "camera", "flexidome", "bullet", "dome", "eyeball"])
+            is_nvr_device = not is_ipc and any(k in model_lower for k in ["nvr", "dvr", "xvr", "recorder", "vrm"])
             if not model or model == 'Unknown':
-                model = f"{manufacturer} Camera" if manufacturer != "Unknown" else "Camera"
+                model = (f"{manufacturer} NVR" if is_nvr_device else f"{manufacturer} Camera") if manufacturer != "Unknown" else "Camera"
 
             res_mac = result.get('mac')
             if not res_mac or res_mac == 'Unknown':
                 res_mac = mac
 
-            print(f"[DISCOVERY] [OK] CONFIRMED camera {ip}: {manufacturer} {model} | {len(valid_profiles)} stream(s)")
+            device_type = "nvr" if is_nvr_device else "camera"
+            print(f"[DISCOVERY] [OK] CONFIRMED {device_type} {ip}: {manufacturer} {model} | {len(valid_profiles)} stream(s)")
 
             return {
                 'id':            f"device-{ip}",
@@ -451,7 +474,7 @@ def probe_onvif_device(
                 'firmware':      result.get('firmware', ''),
                 'rtsp_url':      rtsp_url,
                 'stream_uri':    rtsp_url,
-                'device_type':   'camera',
+                'device_type':   device_type,
                 'discovered_at': datetime.utcnow().isoformat(),
             }
 
@@ -463,12 +486,12 @@ def probe_onvif_device(
             manufacturer = _normalize_vendor_name(known_mfg)
             model_hint = known_model
 
+            dtype, mfg, hint = _classify_device(ip, port, mac)
             if not manufacturer or manufacturer == "Unknown":
-                dtype, mfg, hint = _classify_device(ip, port, mac)
-                if dtype not in ("recorder", "workstation", "unknown"):
+                if dtype not in ("workstation", "unknown") or dtype == "recorder":
                     manufacturer = _normalize_vendor_name(mfg)
-                    if not model_hint:
-                        model_hint = hint
+                if not model_hint:
+                    model_hint = hint
 
             # If manufacturer is in non-camera vendors, reject immediately
             if manufacturer and manufacturer.lower() in _NON_CAMERA_VENDORS:
@@ -479,12 +502,16 @@ def probe_onvif_device(
                 print(f"[DISCOVERY] [X] {ip} -- rejected unverified device (auth failed, no camera banner)")
                 return None
 
+            model_hint_lower = (model_hint or "").lower()
+            is_ipc = any(k in model_hint_lower for k in ["ipc-", "dh-ipc-", "camera", "flexidome", "bullet", "dome", "eyeball"])
+            is_nvr_device = not is_ipc and ((dtype == "recorder") or any(k in model_hint_lower for k in ["nvr", "dvr", "xvr", "recorder", "vrm"]))
             if model_hint and model_hint.strip() and model_hint.strip().lower() != manufacturer.lower():
                 model = model_hint.strip()
             else:
-                model = f"{manufacturer} Camera"
+                model = f"{manufacturer} NVR" if is_nvr_device else f"{manufacturer} Camera"
 
-            print(f"[DISCOVERY] [OK] Confirmed camera (auth required) {ip}: {manufacturer} {model}")
+            device_type = "nvr" if is_nvr_device else "camera"
+            print(f"[DISCOVERY] [OK] Confirmed {device_type} (auth required) {ip}: {manufacturer} {model}")
 
             return {
                 'id':            f"device-{ip}",
@@ -495,7 +522,7 @@ def probe_onvif_device(
                 'manufacturer':  manufacturer,
                 'model':         model,
                 'authenticated': False,
-                'device_type':   'camera',
+                'device_type':   device_type,
                 'note':          'ONVIF probe requires credentials',
                 'discovered_at': datetime.utcnow().isoformat(),
             }
@@ -504,6 +531,8 @@ def probe_onvif_device(
         print(f"[DISCOVERY] [WARN] {ip} -- RTSP open, ONVIF exception: {e}")
         manufacturer = _normalize_vendor_name(known_mfg) or _oui_lookup(mac) or "Generic ONVIF"
         model = known_model or f"{manufacturer} Camera"
+        is_nvr_device = any(k in (model or "").lower() for k in ["nvr", "dvr", "recorder", "vrm"])
+        device_type = "nvr" if is_nvr_device else "camera"
 
         return {
             'id':            f"device-{ip}",
@@ -514,7 +543,7 @@ def probe_onvif_device(
             'manufacturer':  manufacturer,
             'model':         model,
             'authenticated': False,
-            'device_type':   'camera',
+            'device_type':   device_type,
             'discovered_at': datetime.utcnow().isoformat(),
         }
 
@@ -541,7 +570,7 @@ def discover_onvif_devices(timeout: int = 3) -> list:
             '<a:ReplyTo><a:Address>http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</a:Address></a:ReplyTo>'
             '<a:To s:mustUnderstand="1">dn:///</a:To>'
             '</s:Header>'
-            '<s:Body><d:Probe><d:Types>tdn:NetworkVideoTransmitter</d:Types></d:Probe></s:Body>'
+            '<s:Body><d:Probe/></s:Body>'
             '</s:Envelope>'
         ).encode('utf-8')
 
@@ -588,18 +617,17 @@ def discover_onvif_devices(timeout: int = 3) -> list:
                 all_scopes = ' '.join(scopes_raw)
                 all_xaddrs = ' '.join(xaddrs_raw)
 
-                # Reject NVR/display/recorder scopes
+                # Allow NVR, display, and camera scopes
                 scopes_lower = all_scopes.lower()
-                is_non_camera = any(kw in scopes_lower for kw in [
+                is_nvr_scope = any(kw in scopes_lower for kw in [
                     'networkvideodisplay', 'networkvideorecorder',
                     'network_video_recorder', 'network_video_display', 'videodisplay'
                 ])
-                if is_non_camera:
-                    print(f"[DISCOVERY] [X] {ip} -- WS scope is NVR/display, skipping")
-                    continue
 
                 mfg = _extract_name_from_scopes(all_scopes)
                 model = _extract_hardware_from_scopes(all_scopes)
+                if not model and is_nvr_scope:
+                    model = f"{mfg} NVR" if mfg else "NVR"
                 port = _extract_port_from_xaddrs(all_xaddrs)
 
                 if ip not in raw_cams:
@@ -666,7 +694,7 @@ def discover_onvif_devices_simple(
         import urllib.request, json as _json
         disc_port = os.environ.get("DISCOVERY_HOST_PORT")
         url = os.environ.get("DISCOVERY_HOST_URL") or f"http://{os.environ.get('HOST_IP')}:{disc_port}"
-        with urllib.request.urlopen(url, timeout=2) as r:
+        with urllib.request.urlopen(url, timeout=10) as r:
             ips = _json.loads(r.read()).get("ips", [])
         if ips:
             open_ips = {ip: int(os.environ.get("RTSP_PORT")) for ip in ips if ip not in local_ips}
@@ -704,7 +732,7 @@ def discover_onvif_devices_simple(
             return None
         mac = _get_mac(ip)
         dtype, mfg, model_hint = _classify_device(ip, port, mac)
-        if dtype in ("recorder", "workstation") or (mfg and mfg.lower() in _NON_CAMERA_VENDORS):
+        if dtype == "workstation" or (mfg and mfg.lower() in _NON_CAMERA_VENDORS):
             return None
         return probe_onvif_device(ip, port, username, password, mac, mfg, model_hint)
 

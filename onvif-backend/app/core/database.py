@@ -87,7 +87,13 @@ def create_database_indexes(db_instance):
 
         # 10. Signup Requests Index
         db_instance["signup_requests"].create_index("email", unique=True)
-        # 11. Performance Test Lab Collections
+
+        # 11. Camera Sequences Index
+        seq_col = db_instance["sequences"]
+        seq_col.create_index("id", unique=True)
+        seq_col.create_index("is_deleted")
+
+        # 12. Performance Test Lab Collections
         perf_runs = db_instance["performance_test_runs"]
         perf_runs.create_index("run_id", unique=True)
         perf_runs.create_index([("created_at", DESCENDING)])
@@ -132,6 +138,7 @@ try:
     health_logs_col = db["health_logs"]
     process_lifecycle_col = db["process_lifecycle_logs"]
     signup_requests_col = db["signup_requests"]
+    sequences_col = db["sequences"]
 
     # Performance Test Collections
     perf_runs_col = db["performance_test_runs"]
@@ -160,6 +167,7 @@ except Exception as e:
     health_logs_col = None
     process_lifecycle_col = None
     signup_requests_col = None 
+    sequences_col = None
     perf_runs_col = None
     perf_stages_col = None
     perf_samples_col = None

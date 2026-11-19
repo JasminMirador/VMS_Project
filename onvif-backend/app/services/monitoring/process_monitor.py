@@ -287,12 +287,9 @@ def get_vms_process_metrics():
     total_vms_cpu = 0.0
     total_vms_ram_mb = 0.0
 
-    VMS_TARGETS = ("ffmpeg", "python", "mongod", "minio", "mosquitto", "mediamtx", "node")
-    for proc in psutil.process_iter(['pid', 'name']):       
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'memory_info', 'num_threads', 'num_handles', 'create_time']):       
         try:
-            if not any(t in (proc.info['name'] or '').lower() for t in VMS_TARGETS):
-                continue
-            pinfo = proc.as_dict(attrs=['pid', 'name', 'cmdline', 'memory_info', 'num_threads', 'num_handles', 'create_time'])            
+            pinfo = proc.info            
             name = (pinfo['name'] or "").lower()
             pid = pinfo['pid']
             cmdline = pinfo['cmdline'] or []

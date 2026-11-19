@@ -4,7 +4,7 @@ import cv2
 from pathlib import Path
 from datetime import datetime
 import asyncio
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union, Any
 
 from app.config import settings
 from app.db.mongo import get_database
@@ -86,10 +86,16 @@ async def process_synopsis_job(job_id: str, camera_id: str, video_paths: List[st
 
         video_paths_with_times = []
         for orig_vp, vp in zip(video_paths, local_mp4_paths):
+            start_hour = datetime.now().hour
             try:
                 parts = orig_vp.replace("\\", "/").split("/")
-                time_part = parts[-1].replace(".mp4", "").replace(".ts", "").replace(".enc", "")
-                start_hour = int(time_part.split("-")[0])
+                fname_base = parts[-1].replace(".mp4", "").replace(".ts", "").replace(".enc", "")
+                if "_" in fname_base:
+                    # e.g. 2026-10-16_07-11-00
+                    time_part = fname_base.split("_")[1]
+                    start_hour = int(time_part.split("-")[0])
+                else:
+                    start_hour = int(fname_base.split("-")[0])
             except Exception:
                 start_hour = datetime.now().hour
             video_paths_with_times.append({"path": vp, "start_hour": start_hour})
@@ -117,26 +123,32 @@ async def process_synopsis_job(job_id: str, camera_id: str, video_paths: List[st
             except:
                 pass
 
-        for orig_vp, vp in zip(video_paths, local_mp4_paths):
-            # Extract exact start datetime from original MinIO filename (e.g. 14-23-55)
-            # using the parent folder (e.g. 2026-09-11)
-            video_start_dt = None
+        def parse_clip_datetime(orig_path):
             try:
-                parts = orig_vp.replace("\\", "/").split("/")
+                parts = orig_path.replace("\\", "/").split("/")
                 if len(parts) >= 2:
                     fname_base = parts[-1].replace(".mp4", "").replace(".ts", "").replace(".enc", "")
                     date_str = parts[-2]
                     try:
-                        # New format: YYYY-MM-DD_HH-MM-SS
-                        video_start_dt = datetime.strptime(fname_base, "%Y-%m-%d_%H-%M-%S")
+                        return datetime.strptime(fname_base, "%Y-%m-%d_%H-%M-%S")
                     except ValueError:
                         try:
-                            # Old format: HH-MM-SS combined with date folder
-                            video_start_dt = datetime.strptime(f"{date_str}_{fname_base}", "%Y-%m-%d_%H-%M-%S")
+                            return datetime.strptime(f"{date_str}_{fname_base}", "%Y-%m-%d_%H-%M-%S")
                         except ValueError:
                             pass
             except Exception:
                 pass
+            return datetime.min
+
+        paired_paths = list(zip(video_paths, local_mp4_paths))
+        paired_paths.sort(key=lambda pair: parse_clip_datetime(pair[0]))
+
+        for orig_vp, vp in paired_paths:
+            # Extract exact start datetime from original MinIO filename (e.g. 14-23-55)
+            # using the parent folder (e.g. 2026-09-11)
+            video_start_dt = parse_clip_datetime(orig_vp)
+            if video_start_dt == datetime.min:
+                video_start_dt = None
                 
             clip_start_time = datetime.now()
             current_clip_info = {
@@ -426,7 +438,16 @@ async def process_synopsis_job(job_id: str, camera_id: str, video_paths: List[st
             except Exception as cleanup_err:
                 logger.warning(f"Failed to remove temp file [{tmp_f}]: {cleanup_err}")
 
-async def process_face_job(job_id: str, camera_map: Dict[str, str], video_paths: List[str], range_start: str, range_end: str):
+async def process_face_job(
+    job_id: str, 
+    camera_map: Dict[str, str], 
+    video_paths: List[str], 
+    range_start: str, 
+    range_end: str,
+    probe_vector: Optional[Union[List[float], List[List[float]]]] = None,
+    similarity_threshold: float = 0.65,
+    probe_photo_urls: Optional[List[str]] = None
+):
     db = get_database()
     jobs_col = db["face_jobs"]
     temp_decrypted_files: List[str] = []
@@ -483,24 +504,13 @@ async def process_face_job(job_id: str, camera_map: Dict[str, str], video_paths:
         face_thumbs_dir = str(settings.FACE_THUMBS_DIR)
         
         total_clips = len(video_paths)
-        for idx, (orig_vp, vp) in enumerate(zip(video_paths, local_mp4_paths)):
-            video_start_dt = None
-            try:
-                parts = orig_vp.replace("\\", "/").split("/")
-                if len(parts) >= 2:
-                    fname_base = parts[-1].replace(".mp4", "").replace(".ts", "").replace(".enc", "")
-                    date_str = parts[-2]
-                    try:
-                        # New format: YYYY-MM-DD_HH-MM-SS
-                        video_start_dt = datetime.strptime(fname_base, "%Y-%m-%d_%H-%M-%S")
-                    except ValueError:
-                        try:
-                            # Old format: HH-MM-SS combined with date folder
-                            video_start_dt = datetime.strptime(f"{date_str}_{fname_base}", "%Y-%m-%d_%H-%M-%S")
-                        except ValueError:
-                            pass
-            except Exception:
-                pass
+        paired_paths = list(zip(video_paths, local_mp4_paths))
+        paired_paths.sort(key=lambda pair: parse_clip_datetime(pair[0]))
+
+        for idx, (orig_vp, vp) in enumerate(paired_paths):
+            video_start_dt = parse_clip_datetime(orig_vp)
+            if video_start_dt == datetime.min:
+                video_start_dt = None
                 
             # Resolve correct camera_id for this clip
             current_cam_id = list(camera_map.values())[0] if camera_map else "unknown"
@@ -605,13 +615,32 @@ async def process_face_job(job_id: str, camera_map: Dict[str, str], video_paths:
             # Use thumbnail_path that was saved to disk during detection (no re-seeking needed)
             if tube.thumbnail_path:
                 ts = tube.best_original_timestamp or tube.frames[0].original_timestamp
+                thumb_base = tube.thumbnail_path.replace("\\", "/").split("/")[-1]
+                best_ts_s = float(tube.start_time)
+                for f in tube.frames:
+                    if f.original_timestamp == ts:
+                        f_ts = getattr(f, 'timestamp_s', None)
+                        best_ts_s = float(f_ts) if f_ts is not None else float(tube.start_time)
+                        break
+                traj = []
+                for f in tube.frames:
+                    f_ts = getattr(f, 'timestamp_s', None)
+                    f_val = float(f_ts) if f_ts is not None else best_ts_s
+                    t_clip = round(3.0 + (f_val - best_ts_s), 2)
+                    if 0.0 <= t_clip <= 10.0:
+                        traj.append({
+                            "t": t_clip,
+                            "bbox": f.bbox,
+                            "face_bbox": f.face_bbox
+                        })
                 faces.append({
                     "track_id": tube.track_id,
                     "camera_id": tube.camera_id,
                     "timestamp": ts,
                     "bbox": tube.frames[0].bbox,
                     "face_bbox": tube.best_face_bbox or tube.frames[0].face_bbox,
-                    "thumbnail_path": tube.thumbnail_path,
+                    "thumbnail_path": f"/face-static/{thumb_base}",
+                    "trajectory": traj
                 })
 
         # ── Deduplicate same person appearing across multiple clips ──────────────
@@ -625,7 +654,7 @@ async def process_face_job(job_id: str, camera_map: Dict[str, str], video_paths:
             """Compute a normalised HSV histogram for a face thumbnail."""
             try:
                 # path is like /face-static/filename.jpg, we need the local disk path
-                basename = path.split("/")[-1]
+                basename = path.replace("\\", "/").split("/")[-1]
                 disk_path = _os.path.join(face_thumbs_dir, basename)
                 
                 img = _cv2.imread(disk_path)
@@ -679,6 +708,53 @@ async def process_face_job(job_id: str, camera_map: Dict[str, str], video_paths:
 
         clip_details[-1]["status"] = "completed"
         clip_details[-1]["time_taken_s"] = round((datetime.now() - dedup_start).total_seconds(), 2)
+
+        # ── Multi-Probe Photo Face Recognition & Matching ──────────────────────────────
+        if probe_vector is not None and len(probe_vector) > 0:
+            import numpy as _np
+            # Handle either a single vector [128] or a list of vectors [[128], [128], ...]
+            if isinstance(probe_vector[0], (int, float)):
+                probe_feats = [_np.array(probe_vector, dtype=_np.float32)]
+            else:
+                probe_feats = [_np.array(pv, dtype=_np.float32) for pv in probe_vector]
+
+            try:
+                from app.engine.face_recognizer import FaceEmbeddingEngine
+                rec_engine = FaceEmbeddingEngine()
+                matched_faces = []
+                for f in faces:
+                    basename = f["thumbnail_path"].replace("\\", "/").split("/")[-1]
+                    disk_path = _os.path.join(face_thumbs_dir, basename)
+                    if not _os.path.exists(disk_path):
+                        continue
+                    crop_img = _cv2.imread(disk_path)
+                    if crop_img is None:
+                        continue
+                    crop_feat = rec_engine.extract_crop_embedding(crop_img)
+                    if crop_feat is not None:
+                        best_sim, best_idx = rec_engine.match_against_multi_probes(crop_feat, probe_feats)
+                        logger.info(f"[ProbeSearch] Candidate {basename} confidence: {best_sim*100:.1f}% (best probe index: {best_idx}, threshold: {similarity_threshold*100:.1f}%)")
+                        if best_sim >= similarity_threshold:
+                            f["match_score"] = round(best_sim * 100.0, 1)
+                            f["matched_probe_index"] = best_idx
+                            if probe_photo_urls and best_idx < len(probe_photo_urls):
+                                f["matched_probe_url"] = probe_photo_urls[best_idx]
+                            matched_faces.append(f)
+                
+                # Sort matched sightings by match_score descending
+                matched_faces.sort(key=lambda x: x.get("match_score", 0), reverse=True)
+                faces = matched_faces
+                logger.info(f"[ProbeSearch] Found {len(faces)} faces matching {len(probe_feats)} probe(s) >= {similarity_threshold*100:.1f}%.")
+            except Exception as pe:
+                logger.error(f"[ProbeSearch] Failed during probe matching: {pe}", exc_info=True)
+        # ─────────────────────────────────────────────────────────────────────────
+
+        # ── Cross-reference against Enrolled Employee Database ───────────────────
+        try:
+            from app.engine.face_recognizer import identify_faces_against_employees
+            faces = await identify_faces_against_employees(faces, db, face_thumbs_dir)
+        except Exception as emp_err:
+            logger.error(f'Error identifying faces against employees: {emp_err}', exc_info=True)
 
         await jobs_col.update_one(
             {"job_id": job_id}, 

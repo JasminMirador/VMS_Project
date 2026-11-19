@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Request, HTTPException, Path
 from .health import nodes_col, db, alerts_col
 from .scheduler import scheduler
-from .network_discovery import discovery_manager
+from .network_discovery import discovery_manager, HostNetworkDetector
 from .metrics import get_system_metrics
-from datetime import datetime
+from datetime import datetime, timezone
 
 router = APIRouter(prefix="/api/infrastructure", tags=["infrastructure"])
 
@@ -25,6 +25,16 @@ async def get_topology():
     if nodes_col is None:
         return {"nodes": [], "edges": []}
 
+    # Proactively purge foreign nodes if host network has changed
+    try:
+        curr_net = HostNetworkDetector.get_active_host_network()
+        all_active = HostNetworkDetector.get_all_active_subnets()
+        if curr_net.get("cidr") and curr_net["cidr"] not in all_active:
+            all_active.append(curr_net["cidr"])
+        discovery_manager.purge_foreign_subnet_nodes(all_active)
+    except Exception as e:
+        print(f"[TOPOLOGY] Proactive foreign purge note: {e}")
+
     # All inventory nodes, deduplicated by IP/MAC/ID
     nodes = discovery_manager.get_live_nodes(max_age_s=None)
     live_ids = {n["id"] for n in nodes}
@@ -36,7 +46,62 @@ async def get_topology():
         if e.get("source") in live_ids and e.get("target") in live_ids
     ]
 
+    uptime_col = db["uptime_snapshots"] if db is not None else None
+    snaps_by_node = {}
+    snaps_by_ip = {}
+    if uptime_col is not None:
+        for s in uptime_col.find({}, {"_id": 0}):
+            if s.get("node_id"):
+                snaps_by_node[s["node_id"]] = s
+            if s.get("ip"):
+                snaps_by_ip[s["ip"]] = s
+
+    now_utc = datetime.now(timezone.utc)
+
+    def compute_uptime_string(online_dt, now_ref):
+        if not online_dt:
+            return "—"
+        if isinstance(online_dt, str):
+            try:
+                online_dt = datetime.fromisoformat(online_dt.replace("Z", "+00:00"))
+            except Exception:
+                return "—"
+        if online_dt.tzinfo is None:
+            online_dt = online_dt.replace(tzinfo=timezone.utc)
+        delta = now_ref - online_dt
+        total_sec = max(0, int(delta.total_seconds()))
+        days, rem = divmod(total_sec, 86400)
+        hours, rem = divmod(rem, 3600)
+        minutes, _ = divmod(rem, 60)
+        if days > 0:
+            return f"{days}d {hours}h {minutes}m"
+        elif hours > 0:
+            return f"{hours}h {minutes}m"
+        elif minutes > 0:
+            return f"{minutes}m"
+        else:
+            return "< 1m"
+
     for n in nodes:
+        snap = snaps_by_node.get(n.get("id")) or snaps_by_ip.get(n.get("ip")) or {}
+
+        # Status correction: dead stream with no latency or 100% packet loss means offline
+        is_dead = (n.get("stream_status") == "dead" and n.get("latency") is None) or (n.get("packet_loss") == 100 and n.get("latency") is None)
+        if is_dead:
+            n["status"] = "offline"
+
+        if not n.get("reboot_count") and snap.get("reboot_count") is not None:
+            n["reboot_count"] = snap["reboot_count"]
+        if not n.get("last_reboot") and snap.get("last_reboot_detected"):
+            n["last_reboot"] = snap["last_reboot_detected"]
+
+        if not n.get("uptime"):
+            if n.get("status") == "offline":
+                n["uptime"] = "0m"
+            else:
+                online_dt = snap.get("online_since") or n.get("last_seen") or n.get("first_seen")
+                n["uptime"] = compute_uptime_string(online_dt, now_utc)
+
         for k, v in list(n.items()):
             if isinstance(v, datetime):
                 n[k] = v.isoformat()
@@ -85,7 +150,7 @@ async def get_metrics():
 
 
 @router.get("/alerts")
-async def get_alerts(
+def get_alerts(
     limit: int = 50,
     unacknowledged_only: bool = False,
     from_date: str = None,
@@ -598,5 +663,62 @@ async def save_topology_layout(request: Request):
                 edges_col.insert_many(valid_edges)
 
     return {"success": True, "nodes_updated": len(positions), "edges_saved": len(edges or [])}
+
+
+@router.post("/purge-stale")
+async def purge_stale_nodes(request: Request):
+    """
+    Manually triggers purging and archiving of foreign nodes outside the active subnet,
+    or all offline nodes if purge_all_offline is requested.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    purge_all_offline = body.get("purge_all_offline", False)
+
+    curr_net = HostNetworkDetector.get_active_host_network()
+    all_active = HostNetworkDetector.get_all_active_subnets()
+    if curr_net.get("cidr") and curr_net["cidr"] not in all_active:
+        all_active.append(curr_net["cidr"])
+
+    purged_ids = discovery_manager.purge_foreign_subnet_nodes(all_active)
+
+    if purge_all_offline and nodes_col is not None:
+        offline_nodes = list(nodes_col.find({"status": "offline", "id": {"$ne": "node-vms-host"}}, {"_id": 0}))
+        if offline_nodes:
+            offline_ids = [n["id"] for n in offline_nodes]
+            if db is not None:
+                archive_col = db["infrastructure_nodes_archive"]
+                now_iso = datetime.utcnow().isoformat()
+                from pymongo import UpdateOne
+                ops = [
+                    UpdateOne(
+                        {"id": n["id"]},
+                        {"$set": {**n, "archived_at": now_iso, "archived_reason": "Manual offline purge"}},
+                        upsert=True
+                    )
+                    for n in offline_nodes
+                ]
+                try:
+                    archive_col.bulk_write(ops, ordered=False)
+                except Exception:
+                    pass
+                edges_col = db["infrastructure_edges"]
+                if edges_col is not None:
+                    edges_col.delete_many({"$or": [{"source": {"$in": offline_ids}}, {"target": {"$in": offline_ids}}]})
+                db["uptime_snapshots"].delete_many({"node_id": {"$in": offline_ids}})
+            nodes_col.delete_many({"id": {"$in": offline_ids}})
+            for oid in offline_ids:
+                if oid not in purged_ids:
+                    purged_ids.append(oid)
+
+    return {
+        "success": True,
+        "purged_count": len(purged_ids),
+        "purged_ids": purged_ids,
+        "active_subnets": all_active
+    }
 
 

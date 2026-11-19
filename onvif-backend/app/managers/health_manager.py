@@ -299,6 +299,10 @@ async def analytics_poll_loop(ip: str, port: int, username: str, password: str, 
                     for ev in result["events"]:
                         event_type = ev.get("event_type", "Object Detection")
                         
+                        # Filter out motion events completely from alerts/notifications per user setting
+                        if "motion" in str(event_type).lower() or "motion" in str(ev.get("scenario_name", "")).lower():
+                            continue
+
                         if not license_manager.is_analytics_enabled(event_type):
                             print(f"[ANALYTICS] Skipped event type: {event_type} on {ip} (not licensed)")
                             continue

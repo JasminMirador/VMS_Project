@@ -68,7 +68,7 @@ features_router = APIRouter(prefix="/api/camera", tags=["camera-features"], depe
 @router.get("/cameras", dependencies=[Depends(verify_token)])
 async def get_all_cameras():
     # Existing regular-camera inventory.
-    cameras = await asyncio.to_thread(load_devices)
+    cameras = list(load_devices())
     existing_stream_keys = {
         c.get("stream_key") for c in cameras if c.get("stream_key")
     }
@@ -936,9 +936,60 @@ async def onvif_probe(req: ProbeRequest):
 
         existing    = next((d for d in devices if d.get("stream_key") == stream_name), None)
 
-        if not existing or not stream_exists(stream_name):
-            is_currently_active = existing.get("enabled", False) if existing else False
-            if not is_currently_active:
+        detected_codec = await detect_codec_async(rtsp, stream_name)
+        if detected_codec in ["hevc", "h265"]:
+            live_codec = "H.265"
+
+        if not stream_exists(stream_name):
+            print(f"[ONVIF] Registering stream in MediaMTX: {stream_name}")
+            ome_response = register_stream(stream_name, rtsp, codec=live_codec, sub_stream_rtsp=sub_stream_rtsp)
+            print("MEDIAMTX RESPONSE:", ome_response)
+            sub_key = ome_response.get("sub_stream_key")
+            live_stream = ome_response.get("transcoded_stream")
+        else:
+            print(f"[ONVIF] Stream {stream_name} already live in MediaMTX, reusing.")
+            ome_response = {"status": "ok", "message": "Already registered"}
+            live_stream = existing.get("live_stream") if existing else None
+            sub_key = (existing.get("sub_stream_key") if existing else None) or (f"{stream_name}_sub" if sub_stream_rtsp else None)
+
+        if not existing:
+            new_device = {
+                "stream_key":       stream_name,
+                "rtsp_url":         rtsp,
+                "recording_rtsp":   rtsp,
+                "live_stream":      live_stream,
+                "sub_stream_rtsp":  sub_stream_rtsp,
+                "sub_stream_key":   sub_key,
+                "ip":               req.ip,
+                "port":             req.port,
+                "username":         req.username,
+                "password":         req.password,
+                "active_rec_profile": "MAIN_STREAM",
+                "recording_profile":  "MAIN_STREAM",
+                "enabled":          True,
+                "live_codec":       live_codec,
+                "codec":            detected_codec,
+            }
+            devices.append(new_device)
+            save_devices(devices)
+        else:
+            existing["rtsp_url"]        = rtsp
+            existing["recording_rtsp"]  = existing.get("recording_rtsp", rtsp)
+            if live_stream:
+                existing["live_stream"] = live_stream
+            if sub_stream_rtsp:
+                existing["sub_stream_rtsp"] = sub_stream_rtsp
+                existing["sub_stream_key"]  = sub_key
+            existing["port"]            = req.port
+            existing["username"]        = req.username
+            existing["password"]        = req.password
+            existing["live_codec"]      = live_codec
+            existing["codec"]           = detected_codec
+            save_devices(devices)
+
+        if req.save_to_db:
+            is_active_in_db = cameras_col.find_one({"stream_key": stream_name, "enabled": True, "is_deleted": {"$ne": True}}) is not None if cameras_col is not None else False
+            if not is_active_in_db:
                 max_cameras = license_manager.get_max_cameras()
                 active_count = cameras_col.count_documents({"enabled": True, "is_deleted": {"$ne": True}}) if cameras_col is not None else len([d for d in devices if d.get("enabled") is True])
                 if active_count >= max_cameras:
@@ -952,106 +1003,49 @@ async def onvif_probe(req: ProbeRequest):
                         }
                     )
 
-            if req.save_to_db:
-                print(f"[ONVIF] Registering stream in OME: {stream_name}")
-                detected_codec = await detect_codec_async(rtsp, stream_name)
-                if detected_codec in ["hevc", "h265"]:
-                    live_codec = "H.265"
-                
-                ome_response = register_stream(stream_name, rtsp, codec=live_codec, sub_stream_rtsp=sub_stream_rtsp)
-                print("MEDIAMTX RESPONSE:", ome_response)
-                print(f"[ONVIF] OME response: {ome_response}")
+            save_camera_to_db({
+                "ip":               req.ip,
+                "stream_key":       stream_name,
+                "rtsp_url":         rtsp,
+                "recording_rtsp":   rtsp,
+                "sub_stream_rtsp":  sub_stream_rtsp,
+                "sub_stream_key":   sub_key,
+                "manufacturer":     result.get("manufacturer", ""),
+                "model":            result.get("model", ""),
+                "mac":              result.get("mac", ""),
+                "port":             req.port,
+                "username":         req.username,
+                "password":         req.password,
+                "added_at":         datetime.utcnow(),
+                "status":           "streaming",
+                "enabled":          True,
+                "live_stream":      live_stream or ome_response.get("transcoded_stream"),
+                "stream_count":     result.get("stream_count", 0),
+                "stream_profiles":  result.get("all_profiles", result.get("profiles", [])),
+                "active_rec_profile": "MAIN_STREAM",
+                "recording_profile":  "MAIN_STREAM",
+                "api_profile":      result.get("api_profile"),
+                "group_id":         req.group_id,
+                "device_name":      req.device_name,
+                "live_codec":       live_codec,
+                "codec":            detected_codec,
+            })
+            print(f"[ONVIF] 🎥 Recording will be started by the assigned worker process for {stream_name}")
 
-                sub_key = ome_response.get("sub_stream_key")
-     
-                live_stream = ome_response.get("transcoded_stream")
-                if not existing:
-                    new_device = {
-                        "stream_key":       stream_name,
-                        "rtsp_url":         rtsp,
-                        "recording_rtsp":   rtsp,
-                        "live_stream":      live_stream,
-                        "sub_stream_rtsp":  sub_stream_rtsp,
-                        "sub_stream_key":   sub_key,
-                        "ip":               req.ip,
-                        "port":             req.port,
-                        "username":         req.username,
-                        "password":         req.password,
-                        "active_rec_profile": "MAIN_STREAM",
-                        "recording_profile":  "MAIN_STREAM",
-                        "enabled":          True,
-                        "live_codec":       live_codec,
-                        "codec":            detected_codec,
-                    }
-                    devices.append(new_device)
-                    save_devices(devices)
-                else:
-                    existing["rtsp_url"]        = rtsp
-                    existing["recording_rtsp"]  = existing.get("recording_rtsp", rtsp)
-                    if live_stream:
-                        existing["live_stream"] = live_stream
-                    if sub_stream_rtsp:
-                        existing["sub_stream_rtsp"] = sub_stream_rtsp
-                        existing["sub_stream_key"]  = sub_key
-                    existing["port"]            = req.port
-                    existing["username"]        = req.username
-                    existing["password"]        = req.password
-                    existing["live_codec"]      = live_codec
-                    existing["codec"]           = detected_codec
-                    save_devices(devices)
-     
-                save_camera_to_db({
-                    "ip":               req.ip,
-                    "stream_key":       stream_name,
-                    "rtsp_url":         rtsp,
-                    "recording_rtsp":   rtsp,
-                    "sub_stream_rtsp":  sub_stream_rtsp,
-                    "sub_stream_key":   sub_key,
-                    "manufacturer":     result.get("manufacturer", ""),
-                    "model":            result.get("model", ""),
-                    "mac":              result.get("mac", ""),
-                    "port":             req.port,
-                    "username":         req.username,
-                    "password":         req.password,
-                    "added_at":         datetime.utcnow(),
-                    "status":           "streaming",
-                    "enabled":          True,
-                    "live_stream":      ome_response.get("transcoded_stream"),
-                    "stream_count":     result.get("stream_count", 0),
-                    "stream_profiles":  result.get("all_profiles", result.get("profiles", [])),
-                    "active_rec_profile": "MAIN_STREAM",
-                    "recording_profile":  "MAIN_STREAM",
-                    "api_profile":      result.get("api_profile"),
-                    "group_id":         req.group_id,
-                    "device_name":      req.device_name,
-                    "live_codec":       live_codec,
-                    "codec":            detected_codec,
-                })
-                print(f"[ONVIF] 🎥 Recording will be started by the assigned worker process for {stream_name}")
-     
-                # ── Redis Stream: camera.added ────────────────────────────────────────────
-                asyncio.create_task(_redis_publish(
-                    _CAM_STREAM(), "camera.added",
-                    {
-                        "ip_address":   req.ip,
-                        "enabled":      True,
-                        "device_name":  req.device_name or f"Camera @ {req.ip}",
-                        "password":     req.password,
-                        "username":     req.username,
-                        "rtsp_url":     rtsp,
-                    },
-                ))
-            else:
-                print(f"[ONVIF] Probing only. Not saving to DB or registering stream.")
-                ome_response = {"status": "skipped", "message": "Probing only"}
-                live_stream = None
-                sub_key = None
-
+            # ── Redis Stream: camera.added ────────────────────────────────────────────
+            asyncio.create_task(_redis_publish(
+                _CAM_STREAM(), "camera.added",
+                {
+                    "ip_address":   req.ip,
+                    "enabled":      True,
+                    "device_name":  req.device_name or f"Camera @ {req.ip}",
+                    "password":     req.password,
+                    "username":     req.username,
+                    "rtsp_url":     rtsp,
+                },
+            ))
         else:
-            print(f"[ONVIF] Stream {stream_name} already live in MediaMTX, skipping.")
-            ome_response = {"status": "ok", "message": "Already registered"}
-            live_stream = existing.get("live_stream") if existing else None
-            sub_key = existing.get("sub_stream_key") if existing else None
+            print(f"[ONVIF] Probing only. Not saving to DB.")
  
         result["stream_key"]      = stream_name
         result["ome_response"]    = ome_response

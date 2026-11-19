@@ -40,7 +40,10 @@ async def run_discovery_pipeline():
     _discovery_in_progress = True
     print("[DISCOVERY] Starting network scan...")
     try:
-        from app.services.camera.discovery_service import discover_all
+        import importlib
+        import app.services.camera.discovery_service as discovery_service
+        importlib.reload(discovery_service)
+        discover_all = discovery_service.discover_all
         found = await asyncio.to_thread(discover_all, 3, 800)
         print(f"[DISCOVERY] Found {len(found)} camera(s)")
 

@@ -62,6 +62,9 @@ from app.api.routers.edge_sync_router import router as edge_sync_router
 from app.api.routers.edge_config_router import router as edge_config_router
 from app.api.routers.network_health_router import router as network_health_router
 
+from app.api.routers.performance_test_router import router as performance_test_router
+from app.api.routers.employee_router import router as employee_router
+
 import threading
 import queue
 
@@ -371,6 +374,7 @@ app.mount("/api/snapshots", StaticFiles(directory=snapshots_dir), name="snapshot
 
 # Register all routers
 from app.api.routers.groups_router import router as groups_router
+from app.api.routers.sequences_router import router as sequences_router
 from app.api.routers.integrations_router import router as integrations_router
 app.include_router(events_ws_router)
 app.include_router(auth_router)
@@ -382,6 +386,7 @@ app.include_router(system_router)
 app.include_router(storage_router_ext)
 app.include_router(dashboard_diagnostics_router)
 app.include_router(groups_router)
+app.include_router(sequences_router)
 app.include_router(integrations_router)
 
 app.include_router(segment_router)
@@ -406,3 +411,6 @@ app.include_router(storage_management_router)
 app.include_router(edge_sync_router)
 app.include_router(edge_config_router)
 app.include_router(network_health_router)
+
+app.include_router(performance_test_router)
+app.include_router(employee_router)

@@ -31,13 +31,13 @@ def get_initial_state(node_id: str, event_type: str, from_date: datetime):
         if node:
             if event_type == "camera":
                 status = node.get("stream_status")
-                return "up" if status in ["healthy", "degraded", "auth_required"] else "down"
+                return "up" if status in ["healthy", "degraded", "auth_required", "streaming"] else "down"
             elif event_type == "recording":
                 return "up" if node.get("recording") else "down"
     return "down"
 
 @router.get("/history")
-async def get_camera_history(
+def get_camera_history(
     from_date: str = Query(..., description="Start date in ISO format"),
     # to_date: str = Query(..., description="End date in ISO format")
     to_date: str = Query(..., description="End date in ISO format"),
@@ -66,7 +66,7 @@ async def get_camera_history(
         raise HTTPException(status_code=400, detail="Invalid date format. Use ISO format.")
 
     query = {}
-    all_cameras_raw = list(cameras_col.find(query, {"_id": 0, "ip": 1, "name": 1, "model": 1}))
+    all_cameras_raw = list(cameras_col.find(query, {"_id": 0, "ip": 1, "name": 1, "model": 1, "stream_status": 1, "status": 1}))
     # Deduplicate cameras by IP to prevent double-counting in reports
     seen_ips = set()
     all_cameras = []
@@ -76,14 +76,20 @@ async def get_camera_history(
             seen_ips.add(ip)
             all_cameras.append(cam)
 
-    all_nodes = {n["id"]: n for n in nodes_col.find({})} if nodes_col is not None else {}
+    nodes_list = list(nodes_col.find({})) if nodes_col is not None else []
+    all_nodes = {n["id"]: n for n in nodes_list if "id" in n}
+    all_nodes_by_ip = {n["ip"]: n for n in nodes_list if "ip" in n and n.get("type") == "camera"}
+    cam_by_ip = {c["ip"]: c for c in all_cameras if c.get("ip")}
 
-    if live_only:
+    is_live_only = live_only is True or (isinstance(live_only, str) and live_only.lower() in ["true", "1"])
+    if is_live_only:
         live_cams = []
         for cam in all_cameras:
-            node_id = f"node-{cam.get('ip', '').replace('.', '-')}"
-            node = all_nodes.get(node_id)
-            if node and node.get("stream_status") in ["healthy", "auth_required"]:
+            ip = cam.get("ip", "")
+            node_id = f"node-{ip.replace('.', '-')}"
+            node = all_nodes_by_ip.get(ip) or all_nodes.get(node_id)
+            status = (node.get("stream_status") if node else None) or cam.get("stream_status")
+            if status in ["healthy", "degraded", "auth_required", "streaming"]:
                 live_cams.append(cam)
         all_cameras = live_cams
 
@@ -127,18 +133,26 @@ async def get_camera_history(
     # 3. Bulk uptime snapshots fallback
     uptime_snapshots_by_node = {}
     if uptime_snapshots_col is not None:
-        uptime_snapshots_by_node = {s["node_id"]: s for s in uptime_snapshots_col.find({})}
+        for s in uptime_snapshots_col.find({}):
+            if s.get("node_id"):
+                uptime_snapshots_by_node[s["node_id"]] = s
+            if s.get("ip"):
+                uptime_snapshots_by_node[s["ip"]] = s
 
     # 4. Bulk events in range (with dedup for duplicate events from multiple monitors)
     events_by_node_raw = {}
+    events_by_ip = {}
     if uptime_events_col is not None:
         events_list = list(uptime_events_col.find({
             "timestamp": {"$gte": start_dt, "$lte": end_dt}
         }).sort("timestamp", 1))
         for ev in events_list:
             nid = ev.get("node_id")
+            eip = ev.get("ip")
             if nid:
                 events_by_node_raw.setdefault(nid, []).append(ev)
+            if eip:
+                events_by_ip.setdefault(eip, []).append(ev)
     
     # Deduplicate: remove consecutive events with same event_type + state
     # (caused by health.py and stream_health.py both logging the same transition)
@@ -154,18 +168,22 @@ async def get_camera_history(
             deduped.append(ev)
         events_by_node[nid] = deduped
 
-    def get_bulk_initial_state(node_id: str, event_type: str):
+    def get_bulk_initial_state(node_id: str, ip: str, event_type: str):
         state = initial_states.get((node_id, event_type))
         if state:
             return state
-        node = all_nodes.get(node_id)
+        node = all_nodes_by_ip.get(ip) or all_nodes.get(node_id)
         if node:
             if event_type == "camera":
                 status = node.get("stream_status")
-                return "up" if status in ["healthy", "degraded", "auth_required"] else "down"
+                return "up" if status in ["healthy", "degraded", "auth_required", "streaming"] else "down"
             elif event_type == "recording":
                 return "up" if node.get("recording") else "down"
-        return "up"
+        cam = cam_by_ip.get(ip)
+        if cam and event_type == "camera":
+            status = cam.get("stream_status")
+            return "up" if status in ["healthy", "degraded", "auth_required", "streaming"] else "down"
+        return "down"
     
     report_data = []
 
@@ -175,6 +193,8 @@ async def get_camera_history(
             continue
             
         node_id = f"node-{ip.replace('.', '-')}"
+        node = all_nodes_by_ip.get(ip) or all_nodes.get(node_id)
+        actual_node_id = node.get("id") if node else node_id
         cam_name = cam.get("name", ip)
         cam_id = ip.replace('.', '_')
         
@@ -191,13 +211,13 @@ async def get_camera_history(
         rec_down = max(0.0, total_window_hours - rec_up)
         
         # 2. Camera UP/DOWN calculation based on bulk events
-        cam_events = events_by_node.get(node_id, [])
+        cam_events = events_by_node.get(actual_node_id, []) or events_by_node.get(node_id, []) or events_by_ip.get(ip, [])
         cam_history_events = [e for e in cam_events if e.get("event_type") == "camera"]
         
         if cam_history_events:
             def calc_hours(events_list, e_type):
                 current_time = start_dt
-                current_state = get_bulk_initial_state(node_id, e_type)
+                current_state = get_bulk_initial_state(actual_node_id, ip, e_type)
                 total_up = 0.0
                 total_down = 0.0
                 
@@ -226,23 +246,34 @@ async def get_camera_history(
             
             cam_up, cam_down = calc_hours(cam_history_events, "camera")
         else:
-            cam_down = 0.0
-            if uptime_snapshots_col is not None:
-                snapshot = uptime_snapshots_by_node.get(node_id)
-                if snapshot:
-                    downtime_secs = snapshot.get("total_downtime_seconds", 0)
-                    if snapshot.get("downtime_start"):
-                        ds = snapshot["downtime_start"]
-                        if ds.tzinfo is None:
-                            ds = ds.replace(tzinfo=timezone.utc)
-                        if ds < end_dt:
-                            downtime_secs += (end_dt - ds).total_seconds()
-                    
-                    cam_down = downtime_secs / 3600.0
-                    if cam_down > total_window_hours:
-                        cam_down = total_window_hours
-            
-            cam_up = max(0.0, total_window_hours - cam_down)
+            # When no transition events occurred in the selected window,
+            # verify whether the stream was actually alive or down:
+            curr_state = get_bulk_initial_state(actual_node_id, ip, "camera")
+            if curr_state == "down":
+                cam_up = 0.0
+                cam_down = total_window_hours
+            else:
+                cam_down = 0.0
+                if uptime_snapshots_col is not None:
+                    snapshot = (
+                        uptime_snapshots_by_node.get(actual_node_id)
+                        or uptime_snapshots_by_node.get(node_id)
+                        or uptime_snapshots_by_node.get(ip)
+                    )
+                    if snapshot:
+                        downtime_secs = snapshot.get("total_downtime_seconds", 0)
+                        if snapshot.get("downtime_start"):
+                            ds = snapshot["downtime_start"]
+                            if ds.tzinfo is None:
+                                ds = ds.replace(tzinfo=timezone.utc)
+                            if ds < end_dt:
+                                downtime_secs += (end_dt - ds).total_seconds()
+                        
+                        cam_down = downtime_secs / 3600.0
+                        if cam_down > total_window_hours:
+                            cam_down = total_window_hours
+                
+                cam_up = max(0.0, total_window_hours - cam_down)
 
         # Enforce physical consistency: Camera UP time cannot be less than Recording UP time
         if cam_up < rec_up:
@@ -268,3 +299,67 @@ async def get_camera_history(
         })
 
     return {"status": "success", "data": report_data}
+
+
+# ── Schedule Management Endpoints ──────────────────────────────────────────
+
+from pydantic import BaseModel
+from typing import List, Optional
+from bson import ObjectId
+
+class ScheduleCreate(BaseModel):
+    report_type: str
+    schedule_type: str = "daily"  # daily, weekly, monthly, immediate
+    recipients: List[str]
+    format: str = "pdf"           # pdf, xlsx, csv
+    send_time: str = "09:00"
+    enabled: bool = True
+
+@router.get("/schedules")
+def get_report_schedules():
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not connected")
+    col = db["report_schedules"]
+    schedules = []
+    for doc in col.find({}):
+        doc_id = str(doc["_id"])
+        doc["id"] = doc_id
+        doc["_id"] = doc_id
+        schedules.append(doc)
+    return {"success": True, "schedules": schedules}
+
+@router.post("/schedules")
+def create_report_schedule(data: ScheduleCreate):
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not connected")
+    clean_recipients = [r.strip() for r in data.recipients if r.strip()]
+    if not clean_recipients:
+        raise HTTPException(status_code=400, detail="At least one recipient email address is required")
+    
+    col = db["report_schedules"]
+    doc = {
+        "report_type": data.report_type,
+        "schedule_type": data.schedule_type,
+        "recipients": clean_recipients,
+        "format": data.format.lower(),
+        "send_time": data.send_time,
+        "enabled": data.enabled,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "last_run": None
+    }
+    res = col.insert_one(doc)
+    return {"success": True, "id": str(res.inserted_id), "message": "Schedule created successfully"}
+
+@router.delete("/schedules/{schedule_id}")
+def delete_report_schedule(schedule_id: str):
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not connected")
+    col = db["report_schedules"]
+    query = {"$or": [{"id": schedule_id}]}
+    try:
+        query["$or"].append({"_id": ObjectId(schedule_id)})
+    except Exception:
+        pass
+    res = col.delete_one(query)
+    return {"success": True, "deleted": res.deleted_count > 0}
+

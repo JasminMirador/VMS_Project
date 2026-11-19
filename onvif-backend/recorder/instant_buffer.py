@@ -24,8 +24,21 @@ MONGO_DB_NAME = os.environ["MONGO_DB_NAME"]
 _mmtx_host = os.environ.get("MEDIAMTX_HOST") or os.environ.get("HOST_IP") or "127.0.0.1"
 _mmtx_port = os.environ.get("MEDIAMTX_RTSP_PORT", "8554")
 MEDIAMTX_HOST = f"{_mmtx_host}:{_mmtx_port}" if ":" not in _mmtx_host else _mmtx_host
-BUFFER_DIR = os.environ.get("BUFFER_DIR", "C:\\recording\\instant_buffer" if os.name == "nt" else "/recording/instant_buffer")
-FFMPEG_BIN = "ffmpeg"
+_rec_dir = os.environ.get("RECORDINGS_DIR") or ("D:\\rectestingfinal4" if os.name == "nt" else "/recording")
+BUFFER_DIR = os.environ.get("BUFFER_DIR") or os.path.join(_rec_dir, "instant_buffer")
+
+FFMPEG_BIN = os.environ.get("FFMPEG_BIN") or "ffmpeg"
+if not os.path.isabs(FFMPEG_BIN) or not os.path.exists(FFMPEG_BIN):
+    for candidate in [
+        os.environ.get("FFMPEG_BIN", ""),
+        r"C:\Users\mirador\Downloads\ffmpeg.exe",
+        os.path.join(BASE_DIR, "bin", "ffmpeg.exe"),
+        os.path.join(os.path.dirname(BASE_DIR), "bin", "ffmpeg.exe"),
+        "ffmpeg"
+    ]:
+        if candidate and os.path.exists(candidate):
+            FFMPEG_BIN = candidate
+            break
 
 # Initialize MongoDB
 mongo_client = pymongo.MongoClient(MONGO_URI)

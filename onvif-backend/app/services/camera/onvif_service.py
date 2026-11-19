@@ -547,8 +547,8 @@ def _fetch_network_info(device_service) -> dict:
         "dns":          [],
         "ntp":          [],
         "hostname":     None,
-        "http_port":    int(os.environ.get("CAMERA_DEFAULT_PORT")),
-        "rtsp_port":    int(os.environ.get("RTSP_PORT")),
+        "http_port":    int(os.environ.get("CAMERA_DEFAULT_PORT") or 80),
+        "rtsp_port":    int(os.environ.get("RTSP_PORT") or 554),
         "https_port":   None,
     }
 
@@ -1555,7 +1555,7 @@ def trigger_relay(ip: str, port: int, username: str, password: str,
 
 def get_camera_system_time(ip, port=None, username="", password=""):
     if port is None:
-        port = int(os.environ.get("CAMERA_DEFAULT_PORT"))
+        port = int(os.environ.get("CAMERA_DEFAULT_PORT") or 80)
     try:
         cam = _make_cam(ip, port, username, password)
         device_service = cam.create_devicemgmt_service()
