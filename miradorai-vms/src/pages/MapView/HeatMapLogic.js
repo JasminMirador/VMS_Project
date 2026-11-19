@@ -99,12 +99,25 @@ export function drawHeatmapToContext(
   let sampleMinX = offset.x,        sampleMinY = offset.y;
   let sampleMaxX = offset.x + imgW, sampleMaxY = offset.y + imgH;
 
-  const targetZones      = activeZone ? [activeZone] : [];
-  const isClippedToZones = Boolean(activeZone && activeZone.polygon?.length >= 3);
+  // Barrier/wall zones are occluders, not areas to paint.
+  const isObstacleZone = z =>
+    z.isBoomBarrier ||
+    z.isBarrier ||
+    /barrier|wall|partition|obstacle|fence/i.test(z.name || z.type || "");
 
-  if (activeZone) {
-    const sxs = activeZone.polygon.map(p => offset.x + p.x * scale);
-    const sys  = activeZone.polygon.map(p => offset.y + p.y * scale);
+  const drawnZones = allZones.filter(
+    z => z.polygon?.length >= 3 && !isObstacleZone(z)
+  );
+
+  // A selected zone wins; otherwise paint inside every drawn zone.
+  const targetZones = (activeZone && activeZone.polygon?.length >= 3)
+    ? [activeZone]
+    : drawnZones;
+  const isClippedToZones = targetZones.length > 0;
+
+  if (isClippedToZones) {
+    const sxs = targetZones.flatMap(z => z.polygon.map(p => offset.x + p.x * scale));
+    const sys = targetZones.flatMap(z => z.polygon.map(p => offset.y + p.y * scale));
     sampleMinX = Math.max(sampleMinX, Math.min(...sxs) - 2);
     sampleMinY = Math.max(sampleMinY, Math.min(...sys) - 2);
     sampleMaxX = Math.min(sampleMaxX, Math.max(...sxs) + 2);
@@ -234,7 +247,6 @@ export function drawHeatmapToContext(
         }
       }
 
-      if (insideOfflineCam && onlineCoverage === 0) continue;
 
       const level = onlineCoverage > 0 ? 1 : 0;
       foundLevels.add(level);
@@ -243,7 +255,7 @@ export function drawHeatmapToContext(
       if (onlineCoverage === 0) {
         // Blind spot: a faint, translucent wash — the floor plan stays
         // fully legible underneath instead of being blotted out.
-        r=51;  g=65;  b=85;  a=42;
+        r=220; g=38;  b=38;  a=120;
       } else {
         // Coverage: soft glow that's vivid near the camera and gently
         // fades toward the edge of its range — teal at the rim, emerald
@@ -270,7 +282,7 @@ export function drawHeatmapToContext(
   const offCtx = offCanvas.getContext("2d");
   offCtx.putImageData(gridImageData, 0, 0);
 
-  const blurPx = Math.max(2, step * 0.6);
+  const blurPx = Math.max(1, step * 0.4);
   ctx.save();
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
@@ -308,7 +320,7 @@ export function drawHeatmapLegendToCanvas(
   { foundLevels, compact = false, scaleFactor = 1, x = null, y = null } = {}
 ) {
   const entries = [];
-  if (!foundLevels || foundLevels.has(0)) entries.push({ color: "rgba(100,116,139,0.35)",  label: "Uncovered (Blind Spot)" });
+  if (!foundLevels || foundLevels.has(0)) entries.push({ color: "rgba(220,38,38,0.6)",  label: "Uncovered (Blind Spot)" });
   if (!foundLevels || foundLevels.has(1)) entries.push({ color: "rgba(16,185,129,0.85)", label: "Camera Coverage" });
   /* Commented out yellow and red legends as requested:
   if (!foundLevels || foundLevels.has(2)) entries.push({ color: "rgba(234,179,8,0.90)", label: "2-Camera Overlap" });
@@ -344,6 +356,9 @@ export function drawHeatmapLegendToCanvas(
     if (ctx.roundRect) ctx.roundRect(bx + padX, ey, swatchW, swatchH, compact ? 2 : 4);
     else ctx.rect(bx + padX, ey, swatchW, swatchH);
     ctx.fill();
+    ctx.strokeStyle = "rgba(148,163,184,0.6)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
     ctx.fillStyle    = compact ? "rgba(255,255,255,0.92)" : "#0f172a";
     ctx.font         = `600 ${fontSize}px Inter, system-ui, sans-serif`;
     ctx.textBaseline = "middle";

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import "./DesignerView.css";
-import { fovDrawParams } from "./CameraModelDB";
+import { fovDrawParams, CAMERA_DB } from "./CameraModelDB";
 import { drawHeatmapToContext, drawHeatmapLegendToCanvas, drawDesignLegendToCanvas } from "./HeatMapLogic";
 import HeatmapLayer from "./HeatmapLayer";
 import * as CctvCalc from "./CctvCalculators";
@@ -13,6 +13,7 @@ import jsPDF from "jspdf";
 import Gltf3DViewer from "./Gltf3DViewer";
 import { renderGltfToImage } from "./GltfFloorRenderer";
 import { renderHtmlToImage } from "./HtmlFloorRenderer";
+import { renderPptToImage, renderPptToImages } from "./PptFloorRenderer";
 import { saveFloorsDB, loadFloorsDB } from "./mapIndexedDB";
 import CalibrationOverlay from "./CalibrationOverlay";
 import CalibrationPanel from "./CalibrationPanel";
@@ -678,6 +679,16 @@ export function findHoveredCadComponent(px, py, activeSlide, zones = [], activeP
 
   return null;
 }
+
+// "Ground Floor / Block A" -> "Ground_Floor_Block_A"
+function toFileName(name, fallback = "floor_layout") {
+  const clean = String(name || "")
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "")
+    .replace(/\s+/g, "_");
+  return clean || fallback;
+}
+
 // ── Loads an image and returns it as a base64 PNG data URL (for embedding in PDFs) ──
 function loadImageAsDataUrl(src, cb) {
   const img = new Image();
@@ -729,14 +740,101 @@ function PremiumPopup({ show, type, title, message, onConfirm, onCancel }) {
     </div>
   );
 }
+// ── Camera Stats Helpers for Export & Overlays ────────────────────────
+function inferBrandFromModel(model) {
+  if (!model) return "";
+  const m = String(model).trim().toUpperCase();
+  if (/^(NBE|NDE|NDS|NBN|FND|MIC|AUTODOME|FLEXIDOME|DINION)/i.test(m)) return "Bosch";
+  if (/^(DS-|iDS-)/i.test(m)) return "Hikvision";
+  if (/^(IPC-H|SD\d|DH-)/i.test(m)) return "Dahua";
+  if (/^(XNV|XND|XNO|QNV|QND|QNO|TNV|PNO|PND|PNV)/i.test(m)) return "Hanwha";
+  if (/^(AXIS|M\d{4}|P\d{4}|Q\d{4})/i.test(m)) return "Axis";
+  if (/^(IPC\d|NVR)/i.test(m)) return "Uniview";
+  return "";
+}
+
+function inferTypeFromModel(model) {
+  if (!model) return "";
+  const m = String(model).trim().toUpperCase();
+  if (m.includes("BULLET") || /^(NBE|NBN|XNO|QNO|PNO)/i.test(m)) return "bullet";
+  if (m.includes("DOME") || /^(NDE|FND|XND|QND|PND|DS-2CD21)/i.test(m)) return "dome";
+  if (m.includes("FISHEYE") || m.includes("360") || /^(NDS|XNF)/i.test(m)) return "fisheye";
+  if (m.includes("PTZ") || /^(MIC|SD\d|AUTODOME)/i.test(m)) return "ptz";
+  if (m.includes("TURRET") || /^(DS-2CD23)/i.test(m)) return "turret";
+  return "";
+}
+
+function formatCameraStatsLabel(cam, cameraDB = []) {
+  const dbList = Array.isArray(cameraDB) && cameraDB.length > 0 ? cameraDB : (CAMERA_DB || []);
+  const dbCam = dbList.find(c => (cam?.id && c.id === cam.id) || (c.model && cam?.model && String(c.model).toLowerCase() === String(cam.model).toLowerCase())) || null;
+
+  let brand = (cam?.brand || cam?.manufacturer || dbCam?.brand || dbCam?.manufacturer || "").trim();
+  const rawModel = (cam?.model || dbCam?.model || "").trim();
+  let rawType = (cam?.type || dbCam?.type || "").trim();
+
+  // If brand is still missing, attempt smart inference from model
+  if (!brand && rawModel) {
+    brand = inferBrandFromModel(rawModel);
+  }
+
+  // If type is still missing, attempt smart inference from model
+  if (!rawType && rawModel) {
+    rawType = inferTypeFromModel(rawModel);
+  }
+
+  let formattedType = "";
+  if (rawType) {
+    if (rawType.toLowerCase() === "ptz") {
+      formattedType = "PTZ";
+    } else {
+      formattedType = rawType.charAt(0).toUpperCase() + rawType.slice(1).toLowerCase();
+    }
+  }
+
+  let modelStr = rawModel;
+  if (!modelStr) {
+    modelStr = formattedType ? `${formattedType} Camera` : "Camera";
+  }
+
+  // Prepend brand if not already part of model string
+  let brandAndModel = modelStr;
+  if (brand && !modelStr.toLowerCase().startsWith(brand.toLowerCase())) {
+    brandAndModel = `${brand} ${modelStr}`;
+  }
+
+  // Append type in parentheses if known and not already contained as a word in brandAndModel
+  let label = brandAndModel;
+  if (formattedType) {
+    const typeRegex = new RegExp(`\\b${formattedType}\\b`, "i");
+    if (!typeRegex.test(brandAndModel)) {
+      label = `${brandAndModel} (${formattedType})`;
+    }
+  }
+
+  return label;
+}
+
 // ── Export Preview Modal — draggable overlays ─────────────────────────
-function ExportPreviewModal({ baseDataUrl, exportMode, showDori, isDownloading, onDownload, onCancel, selectedCompany }) {
+function ExportPreviewModal({ baseDataUrl, exportMode, showDori, isDownloading, onDownload, onCancel, selectedCompany, placed = [], cameraDB = [] }) {
   const DORI_ITEMS = [
     { color: "#ef4444", label: "Identification (250+ px/m)" },
     { color: "#f59e0b", label: "Recognition (125+ px/m)" },
     { color: "#10b981", label: "Observation (62+ px/m)" },
     { color: "#3b82f6", label: "Detection (25+ px/m)" },
   ];
+  const cameraStats = useMemo(() => {
+    const list = Array.isArray(placed) ? placed : [];
+    const counts = {};
+    list.forEach(p => {
+      const cam = p.camera || {};
+      const label = formatCameraStatsLabel(cam, cameraDB);
+      counts[label] = (counts[label] || 0) + 1;
+    });
+    return {
+      total: list.length,
+      entries: Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])),
+    };
+  }, [placed, cameraDB]);
 
   // Each overlay: { show, x, y, scale }  — null x/y → use CSS default
   const [logo,  setLogo]  = useState({ show: true, x: null, y: null, scale: 1 });
@@ -804,7 +902,7 @@ function ExportPreviewModal({ baseDataUrl, exportMode, showDori, isDownloading, 
 
   let titleText = "Designer View";
   if (exportMode === "heatmap") titleText = "Coverage Heatmap";
-  else if (exportMode === "dori") titleText = "Clarity Zones";
+  else if (exportMode === "dori") titleText = "Clarity Zones (DORI)";
 
   return (
     <div style={{
@@ -829,6 +927,22 @@ function ExportPreviewModal({ baseDataUrl, exportMode, showDori, isDownloading, 
         }}>Cancel</button>
       </div>
 
+      {/* Company header preview (appears ABOVE the layout in the export) */}
+      <div style={{
+        width: "100%", maxWidth: 960, background: "#fff", borderRadius: "10px 10px 0 0",
+        display: "flex", alignItems: "center", gap: 16, padding: "10px 20px",
+        borderBottom: "2px solid #e2e8f0", boxSizing: "border-box",
+      }}>
+        <img src={selectedCompany === "sentinel" ? sentinelLogoImg : logoImg} alt="Logo"
+          style={{ height: 40, objectFit: "contain" }} />
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 16, color: "#111827" }}>
+            {selectedCompany === "sentinel" ? "SENTINEL TECHNOLOGIES PRIVATE LIMITED" : "Mirador AI Technologies"}
+          </div>
+          <div style={{ fontSize: 11, color: "#64748b" }}>{titleText.toUpperCase()}</div>
+        </div>
+      </div>
+
       {/* Preview area */}
       <div ref={previewRef} data-export-preview style={{
         position: "relative", maxWidth: 960, width: "100%",
@@ -841,7 +955,7 @@ function ExportPreviewModal({ baseDataUrl, exportMode, showDori, isDownloading, 
         )}
 
         {/* ── Title Overlay ── */}
-        {titleOverlay.show && (
+        {false && titleOverlay.show && (
           <div data-zoomable-overlay="true" style={{
             ...overlayBase,
             top:   titleOverlay.y !== null ? titleOverlay.y : 12,
@@ -870,7 +984,7 @@ function ExportPreviewModal({ baseDataUrl, exportMode, showDori, isDownloading, 
         )}
 
         {/* ── Logo Badge overlay ── */}
-        {logo.show && (
+        {false && logo.show && (
           <div data-zoomable-overlay="true" style={{
             ...overlayBase,
             top:   logo.y  !== null ? logo.y  : 12,
@@ -935,10 +1049,17 @@ function ExportPreviewModal({ baseDataUrl, exportMode, showDori, isDownloading, 
               <div style={{ fontSize: 11, fontWeight: 800, color: "#0f172a", marginBottom: 4 }}>
                 Camera Statistics
               </div>
-              <div style={{ fontSize: 11, color: "#1d4ed8", fontWeight: 600, marginBottom: 2 }}>
-                Total Cameras: —
+              <div style={{ fontSize: 11, color: "#1d4ed8", fontWeight: 600, marginBottom: 4 }}>
+                Total Cameras: {cameraStats.total}
               </div>
-              <div style={{ fontSize: 10, color: "#374151" }}>Per-type breakdown</div>
+              {cameraStats.entries.map(([name, count]) => (
+                <div key={name} style={{ fontSize: 10, color: "#374151", marginBottom: 2 }}>
+                  {name}: {count}
+                </div>
+              ))}
+              {cameraStats.total === 0 && (
+                <div style={{ fontSize: 10, color: "#64748b" }}>No cameras placed</div>
+              )}
             </div>
           </div>
         )}
@@ -1468,7 +1589,7 @@ function FovVisualizer({ camera }) {
 // ── Camera drawing ────────────────────────────────────────────────────────────
 // FIX 1: clipZone now auto-detects the camera's own zone when no active zone is set.
 // This ensures FOV is always clipped to its zone even after refresh.
-function drawPlacedCamera(ctx, p, ppm, hovering, selected, zonesRef, activeZoneIdRef, highlightedId, showLabel = true, showPpm = false, hideBeam = false, iconScale = 1.20, renderLayer = "all", canvasScale = 1, showMetricsVisibility = false, showHeatmap = false, wallsRef = null) {
+function drawPlacedCamera(ctx, p, ppm, hovering, selected, zonesRef, activeZoneIdRef, highlightedId, showLabel = true, showPpm = false, hideBeam = false, iconScale = 1.20, renderLayer = "all", canvasScale = 1, showMetricsVisibility = false, showHeatmap = false, wallsRef = null, beamIntensity = 0.6, beamColor = "#0ea5e9") {
   const isLight = typeof document !== "undefined" && document.documentElement.getAttribute("data-theme") === "light";
   const { x, y, direction, camera } = p;
   const col = TYPE_COLORS[camera.type] || "#3b82f6";
@@ -1655,7 +1776,10 @@ function drawPlacedCamera(ctx, p, ppm, hovering, selected, zonesRef, activeZoneI
             ctx.lineTo(originX, originY);
           }
           ctx.closePath();
-          ctx.fillStyle = def.color + (i === 0 ? "55" : i === 1 ? "48" : i === 2 ? "40" : "32");
+          const doriIntensityMult = Math.min(1.8, Math.max(0.2, (beamIntensity || 0.6) / 0.6));
+          const baseAlphaHex = [0x55, 0x48, 0x40, 0x32];
+          const curAlpha = Math.round(Math.min(255, Math.max(16, baseAlphaHex[i] * doriIntensityMult))).toString(16).padStart(2, "0");
+          ctx.fillStyle = def.color + curAlpha;
           ctx.fill();
           ctx.restore();
 
@@ -1707,17 +1831,40 @@ function drawPlacedCamera(ctx, p, ppm, hovering, selected, zonesRef, activeZoneI
       ctx.closePath();
       if (!showPpm) {
         const g = ctx.createRadialGradient(originX, originY, 0, originX, originY, radius);
+        const intensityMult = Math.min(2.0, Math.max(0.15, (beamIntensity || 0.6) / 0.6));
         if (showHeatmap) {
-          // Intense emerald green coverage highlight on heatmap
-          g.addColorStop(0, "rgba(16, 185, 129, 0.65)");
-          g.addColorStop(0.35, "rgba(16, 185, 129, 0.48)");
-          g.addColorStop(0.75, "rgba(16, 185, 129, 0.30)");
-          g.addColorStop(1, "rgba(16, 185, 129, 0.10)");
+          // Subtle teal green coverage highlight on heatmap with intensity scaling
+          const a0 = Math.min(0.48, 0.32 * intensityMult);
+          const a1 = Math.min(0.36, 0.20 * intensityMult);
+          const a2 = Math.min(0.22, 0.10 * intensityMult);
+          const a3 = Math.min(0.10, 0.02 * intensityMult);
+          g.addColorStop(0, `rgba(16, 185, 155, ${a0.toFixed(3)})`);
+          g.addColorStop(0.35, `rgba(16, 185, 155, ${a1.toFixed(3)})`);
+          g.addColorStop(0.75, `rgba(16, 185, 155, ${a2.toFixed(3)})`);
+          g.addColorStop(1, `rgba(16, 185, 155, ${a3.toFixed(3)})`);
         } else {
-          g.addColorStop(0, selected ? "rgba(14, 165, 233, 0.75)" : "rgba(14, 165, 233, 0.60)");
-          g.addColorStop(0.45, selected ? "rgba(14, 165, 233, 0.52)" : "rgba(14, 165, 233, 0.38)");
-          g.addColorStop(0.8, selected ? "rgba(14, 165, 233, 0.30)" : "rgba(14, 165, 233, 0.18)");
-          g.addColorStop(1, selected ? "rgba(14, 165, 233, 0.10)" : "rgba(14, 165, 233, 0.04)");
+          let cr = 14, cg = 165, cb = 233;
+          if (beamColor && typeof beamColor === "string") {
+            const hexClean = beamColor.replace("#", "");
+            if (hexClean.length === 6) {
+              cr = parseInt(hexClean.substring(0, 2), 16) || 14;
+              cg = parseInt(hexClean.substring(2, 4), 16) || 165;
+              cb = parseInt(hexClean.substring(4, 6), 16) || 233;
+            } else if (hexClean.length === 3) {
+              cr = parseInt(hexClean[0] + hexClean[0], 16) || 14;
+              cg = parseInt(hexClean[1] + hexClean[1], 16) || 165;
+              cb = parseInt(hexClean[2] + hexClean[2], 16) || 233;
+            }
+          }
+          const selBoost = selected ? 1.25 : 1.0;
+          const a0 = Math.min(0.95, 0.60 * intensityMult * selBoost);
+          const a1 = Math.min(0.85, 0.38 * intensityMult * selBoost);
+          const a2 = Math.min(0.70, 0.18 * intensityMult * selBoost);
+          const a3 = Math.min(0.50, 0.04 * intensityMult * selBoost);
+          g.addColorStop(0, `rgba(${cr}, ${cg}, ${cb}, ${a0.toFixed(3)})`);
+          g.addColorStop(0.45, `rgba(${cr}, ${cg}, ${cb}, ${a1.toFixed(3)})`);
+          g.addColorStop(0.8, `rgba(${cr}, ${cg}, ${cb}, ${a2.toFixed(3)})`);
+          g.addColorStop(1, `rgba(${cr}, ${cg}, ${cb}, ${a3.toFixed(3)})`);
         }
         ctx.fillStyle = g;
         ctx.fill();
@@ -2541,7 +2688,10 @@ export default function DesignerView({ onBack }) {
   const lastAutoPlacementReportRef = useRef(null);
 
   const [saveStatus, setSaveStatus] = useState("saved"); // "saving" | "saved" | "failed"
-  const [cadImportProgress, setCadImportProgress] = useState(null);
+  // ── Multi-Floor Simultaneous Non-Blocking Import State ────────────────
+  const [floorImports, setFloorImports] = useState({});
+  const floorImportsRef = useRef({});
+  useEffect(() => { floorImportsRef.current = floorImports; }, [floorImports]);
 
   const [iconScale, setIconScale] = useState(() => {
     const saved = localStorage.getItem("miradorai_iconScale");
@@ -2892,6 +3042,21 @@ export default function DesignerView({ onBack }) {
   const [exportPreviewCanvas,  setExportPreviewCanvas]  = useState(null);
   const [showStats, setShowStats] = useState(false);
   const [showPpm, setShowPpm] = useState(false);
+  const showPpmRef = useRef(false);
+  useEffect(() => { showPpmRef.current = showPpm; }, [showPpm]);
+
+  const [beamIntensity, setBeamIntensity] = useState(0.6);
+  const beamIntensityRef = useRef(0.6);
+  useEffect(() => {
+    beamIntensityRef.current = beamIntensity;
+  }, [beamIntensity]);
+
+  const [beamColor, setBeamColor] = useState("#0ea5e9");
+  const beamColorRef = useRef("#0ea5e9");
+  useEffect(() => {
+    beamColorRef.current = beamColor;
+  }, [beamColor]);
+
   const [showMetricsVisibility, setShowMetricsVisibility] = useState(false);
   const showMetricsVisibilityRef = useRef(false);
   useEffect(() => { showMetricsVisibilityRef.current = showMetricsVisibility; }, [showMetricsVisibility]);
@@ -2903,6 +3068,7 @@ export default function DesignerView({ onBack }) {
     showWallMetricsRef.current = showWallMetrics;
     localStorage.setItem("miradorai_showWallMetrics", String(showWallMetrics));
   }, [showWallMetrics]);
+  const fitImageRef = useRef(null);
   const [showConfigDrawer, setShowConfigDrawer] = useState(false);
   const [inspectorExpanded, setInspectorExpanded] = useState(true);
   const [inspectorTab, setInspectorTab] = useState("cameras"); // "cameras" | "zones"
@@ -2959,8 +3125,10 @@ export default function DesignerView({ onBack }) {
   const apiSaveLayout = useCallback(async ({ placed, zones, ppm, floorPlan = null, slides = null, activeSlideId = null }) => {
     setSaveStatus("saving");
     try {
-      const finalSlides = slides || slidesRef.current;
       const finalActiveId = activeSlideId || activeSlideIdRef.current;
+      const finalSlides = (slides || slidesRef.current).map(s =>
+        s.id === finalActiveId ? { ...s, placed, zones, ppm } : s
+      );
       const activeSlideObj = (finalSlides || []).find(s => s.id === finalActiveId) || (finalSlides || [])[0];
       const effectiveFloorPlan = floorPlan || activeSlideObj?.floorPlan || null;
 
@@ -2975,7 +3143,10 @@ export default function DesignerView({ onBack }) {
       };
       
       if (finalSlides && finalSlides.length > 0) {
-        bodyObj.slides = finalSlides.map(({ modelDataUrl, floorPlan, thumbnailUrl, ...rest }) => rest);
+        bodyObj.slides = finalSlides.map(({ modelDataUrl, floorPlan, thumbnailUrl, pages, ...rest }) => ({
+          ...rest,
+          ...(pages ? { pages: pages.map(({ floorPlan: _fp, ...p }) => p) } : {}),
+        }));
       }
       
       if (finalActiveId) {
@@ -3009,7 +3180,9 @@ export default function DesignerView({ onBack }) {
           ...slidesRef.current[curIdx],
           placed: placedList,
           zones: zonesList,
-          ppm: currentPpm
+          ppm: currentPpm,
+          beamIntensity: beamIntensityRef.current,
+          beamColor: beamColorRef.current,
         };
       }
       const activeSlide = slidesRef.current[curIdx];
@@ -3366,7 +3539,9 @@ export default function DesignerView({ onBack }) {
         scaleRef.current,
         showMetricsVisibilityRef.current,
         showHeatmap,
-        currentWalls
+        currentWalls,
+        beamIntensityRef.current,
+        beamColorRef.current
       );
     });
 
@@ -3397,20 +3572,10 @@ export default function DesignerView({ onBack }) {
         };
         drawPlacedCamera(
           ctx, dummyPlaced, activePpm,
-          false,
-          false,
-          zonesRef,
-          activeZoneIdRef,
-          null,
-          false,
-          false,
-          false,
-          iconScaleRef.current,
-          "beam",
-          scaleRef.current,
-          false,
-          showHeatmap,
-          currentWalls
+          false, false, zonesRef, activeZoneIdRef, null,
+          false, false, false, iconScaleRef.current,
+          "beam", scaleRef.current, false, showHeatmap, currentWalls,
+          beamIntensityRef.current, beamColorRef.current
         );
       });
     }
@@ -3432,7 +3597,9 @@ export default function DesignerView({ onBack }) {
         scaleRef.current,
         showMetricsVisibilityRef.current,
         showHeatmap,
-        currentWalls
+        currentWalls,
+        beamIntensityRef.current,
+        beamColorRef.current
       );
     });
 
@@ -3478,7 +3645,9 @@ export default function DesignerView({ onBack }) {
           scaleRef.current,
           false,
           showHeatmap,
-          currentWalls
+          currentWalls,
+          beamIntensityRef.current,
+          beamColorRef.current
         );
 
         // Preview badge overlay with number [1], [2]...
@@ -3657,7 +3826,7 @@ export default function DesignerView({ onBack }) {
     });
 
     ctx.restore();
-  }, [ppm, hoveredIdx, selectedIdx, showPpm, showMetricsVisibility, showHeatmap, showWallMetrics, showCameraNames, autoPlacementPreview]);
+  }, [ppm, hoveredIdx, selectedIdx, showPpm, showMetricsVisibility, showHeatmap, showWallMetrics, showCameraNames, autoPlacementPreview, beamIntensity, beamColor]);
 
   useEffect(() => {
     showCameraNamesRef.current = showCameraNames;
@@ -3665,12 +3834,16 @@ export default function DesignerView({ onBack }) {
   }, [showCameraNames, draw]);
 
   // ── Instant Live Sync: listen for remote designer updates from other clients (e.g. localhost <-> IP) ──
+  const lastWsEventRef = useRef(null);
   useEffect(() => {
     const designerEnvelope = eventsByTopic.designer;
     if (designerEnvelope && designerEnvelope.data) {
+      if (lastWsEventRef.current === designerEnvelope) return; // already handled this event
+      lastWsEventRef.current = designerEnvelope;
       const data = designerEnvelope.data;
       if (data.client_id && data.client_id === clientIdRef) return; // skip own local save
       if (data.map_id && data.map_id !== MAP_ID) return;
+      if (saveTimerRef.current || draggingIdxRef.current !== null) return; // local edits pending, don't overwrite
 
       console.log("[DesignerView] 🔄 Real-time designer update received via WebSocket!");
       apiLoadLayout().then(backendData => {
@@ -3692,6 +3865,14 @@ export default function DesignerView({ onBack }) {
             setZones(curSlide.zones || []);
             setPpm(curSlide.ppm || PIXELS_PER_METRE);
             ppmRef.current = curSlide.ppm || PIXELS_PER_METRE;
+            if (curSlide.beamIntensity !== undefined) {
+              setBeamIntensity(curSlide.beamIntensity);
+              beamIntensityRef.current = curSlide.beamIntensity;
+            }
+            if (curSlide.beamColor) {
+              setBeamColor(curSlide.beamColor);
+              beamColorRef.current = curSlide.beamColor;
+            }
             draw();
           }
         }
@@ -3753,7 +3934,8 @@ export default function DesignerView({ onBack }) {
     }, null, 2));
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `mirador_designer_layout_${Date.now()}.json`);
+    const floorName = toFileName(slidesRef.current.find(s => s.id === activeSlideIdRef.current)?.name);
+    downloadAnchor.setAttribute("download", `${floorName}.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
@@ -3778,29 +3960,158 @@ export default function DesignerView({ onBack }) {
        
         recordState();
        
-        if (data.ppm) {
-          setPpm(data.ppm);
-          ppmRef.current = data.ppm;
+        const activeSlide = slidesRef.current.find(s => s.id === activeSlideIdRef.current);
+        const isCurrentBlank = activeSlide &&
+          !activeSlide.floorPlan &&
+          !activeSlide.modelDataUrl &&
+          (!activeSlide.walls || activeSlide.walls.length === 0) &&
+          (!activeSlide.placed || activeSlide.placed.length === 0) &&
+          (!activeSlide.zones || activeSlide.zones.length === 0) &&
+          !floorImgRef.current &&
+          placedRef.current.length === 0;
+
+        const importedFloorPlan = data.floor_plan || data.floorPlan || null;
+        const importedPlaced = Array.isArray(data.placed) ? data.placed : [];
+        const importedZones = Array.isArray(data.zones) ? data.zones : [];
+        const importedPpm = data.ppm || PIXELS_PER_METRE;
+        const importedBeamIntensity = data.beamIntensity !== undefined ? data.beamIntensity : (data.beam_intensity !== undefined ? data.beam_intensity : 0.6);
+        const importedBeamColor = data.beamColor || data.beam_color || "#0ea5e9";
+        const baseName = file.name.replace(/\.json$/i, "") || "Imported Layout";
+
+        if (isCurrentBlank && activeSlide) {
+          // User clicked "New" (or opened a blank floor) — import directly into this new floor!
+          activeSlide.name = baseName;
+          activeSlide.placed = importedPlaced;
+          activeSlide.zones = importedZones;
+          activeSlide.ppm = importedPpm;
+          activeSlide.floorPlan = importedFloorPlan;
+          activeSlide.beamIntensity = importedBeamIntensity;
+          activeSlide.beamColor = importedBeamColor;
+          const updatedSlides = [...slidesRef.current];
+          slidesRef.current = updatedSlides;
+          setSlides(updatedSlides);
+
+          setBeamIntensity(importedBeamIntensity);
+          beamIntensityRef.current = importedBeamIntensity;
+          setBeamColor(importedBeamColor);
+          beamColorRef.current = importedBeamColor;
+          setSlides(updatedSlides);
+
+          setPpm(importedPpm);
+          ppmRef.current = importedPpm;
+          placedRef.current = importedPlaced;
+          setPlaced(importedPlaced);
+          zonesRef.current = importedZones;
+          setZones(importedZones);
+
+          if (importedFloorPlan) {
+            const img = new Image();
+            img.onload = () => {
+              floorImgRef.current = img;
+              setHasFloor(true);
+              setTimeout(() => {
+                if (typeof fitImageRef.current === "function") fitImageRef.current();
+                else if (typeof draw === "function") draw();
+              }, 50);
+              draw();
+            };
+            img.src = importedFloorPlan;
+          } else {
+            draw();
+          }
+
+          apiSaveZones(importedZones);
+          apiSaveLayout({
+            placed: importedPlaced,
+            zones: importedZones,
+            ppm: importedPpm,
+            floorPlan: importedFloorPlan,
+            slides: updatedSlides,
+            activeSlideId: activeSlide.id,
+          });
+          alert(`Layout imported into "${baseName}" successfully!`);
+        } else {
+          // Current floor has existing content — import in a NEW file / new floor draft!
+          const newSlideId = "slide_" + Date.now();
+          const initialVer = {
+            id: "v_" + Date.now(),
+            name: "v1",
+            timestamp: Date.now(),
+            floorPlan: importedFloorPlan,
+            placed: JSON.parse(JSON.stringify(importedPlaced)),
+            zones: JSON.parse(JSON.stringify(importedZones)),
+            ppm: importedPpm,
+          };
+          const newSlide = {
+            id: newSlideId,
+            name: baseName,
+            floorPlan: importedFloorPlan,
+            modelDataUrl: null,
+            imageWidth: 2400,
+            imageHeight: 1800,
+            partsReport: null,
+            placed: importedPlaced,
+            zones: importedZones,
+            draftZones: [],
+            ppm: importedPpm,
+            calibration: null,
+            walls: [],
+            beamIntensity: importedBeamIntensity,
+            beamColor: importedBeamColor,
+            versions: [initialVer],
+          };
+          const updatedSlides = [...slidesRef.current, newSlide];
+          slidesRef.current = updatedSlides;
+          setSlides(updatedSlides);
+          setActiveSlideId(newSlideId);
+          activeSlideIdRef.current = newSlideId;
+
+          setBeamIntensity(importedBeamIntensity);
+          beamIntensityRef.current = importedBeamIntensity;
+          setBeamColor(importedBeamColor);
+          beamColorRef.current = importedBeamColor;
+
+          setPpm(importedPpm);
+          ppmRef.current = importedPpm;
+          placedRef.current = importedPlaced;
+          setPlaced(importedPlaced);
+          zonesRef.current = importedZones;
+          setZones(importedZones);
+          draftZonesRef.current = [];
+          setDraftZones([]);
+          setSelectedIdx(null);
+          setActiveZoneId(null);
+          activeZoneIdRef.current = null;
+
+          if (importedFloorPlan) {
+            const img = new Image();
+            img.onload = () => {
+              floorImgRef.current = img;
+              setHasFloor(true);
+              setTimeout(() => {
+                if (typeof fitImageRef.current === "function") fitImageRef.current();
+                else if (typeof draw === "function") draw();
+              }, 50);
+              draw();
+            };
+            img.src = importedFloorPlan;
+          } else {
+            floorImgRef.current = null;
+            setHasFloor(false);
+            draw();
+          }
+
+          apiSaveZones(importedZones);
+          apiSaveLayout({
+            placed: importedPlaced,
+            zones: importedZones,
+            ppm: importedPpm,
+            floorPlan: importedFloorPlan,
+            slides: updatedSlides,
+            activeSlideId: newSlideId,
+          });
+          alert(`Layout imported as new floor "${baseName}"!`);
         }
-        if (Array.isArray(data.placed)) {
-          placedRef.current = data.placed;
-          setPlaced(data.placed);
-        }
-        if (Array.isArray(data.zones)) {
-          zonesRef.current = data.zones;
-          setZones(data.zones);
-          apiSaveZones(data.zones);
-        }
-       
-        draw();
-       
-        apiSaveLayout({
-          placed: data.placed || [],
-          zones: data.zones || [],
-          ppm: data.ppm || ppmRef.current
-        });
-       
-        alert("Layout imported successfully!");
       } catch (err) {
         console.error("JSON parsing error: ", err);
         alert("Failed to parse JSON file. Please ensure it is a valid layout export.");
@@ -4110,13 +4421,21 @@ export default function DesignerView({ onBack }) {
           setShowHeatmap(Boolean(activeSlide.showHeatmap));
           setShowPpm(Boolean(activeSlide.showPpm));
 
+          const initBeamIntensity = activeSlide.beamIntensity !== undefined ? activeSlide.beamIntensity : 0.6;
+          setBeamIntensity(initBeamIntensity);
+          beamIntensityRef.current = initBeamIntensity;
+
+          const initBeamColor = activeSlide.beamColor || "#0ea5e9";
+          setBeamColor(initBeamColor);
+          beamColorRef.current = initBeamColor;
+
           const floorPlanSrc = resolveSlideFloorPlan(activeSlide, backendData?.floor_plan);
           if (floorPlanSrc) {
             const img = new Image();
             img.onload = () => {
               floorImgRef.current = img;
               setHasFloor(true);
-              setTimeout(fitImage, 50);
+              setTimeout(() => { fitImageRef.current?.(); }, 50);
             };
             img.src = floorPlanSrc;
           } else if (activeSlide.modelDataUrl) {
@@ -4137,7 +4456,9 @@ export default function DesignerView({ onBack }) {
           placed: (backendData && backendData.placed) || [],
           zones: (backendData && backendData.zones) || [],
           draftZones: [],
-          ppm: (backendData && backendData.ppm) || PIXELS_PER_METRE
+          ppm: (backendData && backendData.ppm) || PIXELS_PER_METRE,
+          beamIntensity: (backendData && backendData.beam_intensity !== undefined) ? backendData.beam_intensity : 0.6,
+          beamColor: (backendData && backendData.beam_color) || "#0ea5e9"
         };
 
         setSlides([defaultSlide]);
@@ -4163,7 +4484,7 @@ export default function DesignerView({ onBack }) {
             img.onload = () => {
               floorImgRef.current = img;
               setHasFloor(true);
-              setTimeout(fitImage, 50);
+              setTimeout(() => { fitImageRef.current?.(); }, 50);
             };
             img.src = backendData.floor_plan;
           }
@@ -4328,6 +4649,7 @@ export default function DesignerView({ onBack }) {
     };
     setZoomPct(Math.round(s * 100)); draw();
   }, [inspectorExpanded, selectedIdx, draw]);
+  fitImageRef.current = fitImage;
 
   useEffect(() => {
     fitImage();
@@ -4357,6 +4679,8 @@ export default function DesignerView({ onBack }) {
         showMetricsVisibility: showMetricsVisibilityRef.current,
         showHeatmap,
         showPpm,
+        beamIntensity: beamIntensityRef.current,
+        beamColor: beamColorRef.current,
       };
     }
 
@@ -4397,6 +4721,14 @@ export default function DesignerView({ onBack }) {
 
     setShowHeatmap(Boolean(targetSlide.showHeatmap));
     setShowPpm(Boolean(targetSlide.showPpm));
+
+    const targetBeamIntensity = targetSlide.beamIntensity !== undefined ? targetSlide.beamIntensity : 0.6;
+    setBeamIntensity(targetBeamIntensity);
+    beamIntensityRef.current = targetBeamIntensity;
+
+    const targetBeamColor = targetSlide.beamColor || "#0ea5e9";
+    setBeamColor(targetBeamColor);
+    beamColorRef.current = targetBeamColor;
 
     drawingPointsRef.current = [];
     setDrawingPoints([]);
@@ -4444,7 +4776,107 @@ export default function DesignerView({ onBack }) {
       isSwitchingSlideRef.current = false;
     }, 80);
   }, [recordState, fitImage, draw, showHeatmap, showPpm]);
+  // ── PPT pages inside a floor ───────────────────────────────────────────────
+  const switchPage = useCallback((targetIdx) => {
+    const slideIdx = slidesRef.current.findIndex(s => s.id === activeSlideIdRef.current);
+    if (slideIdx < 0) return;
+    const slide = slidesRef.current[slideIdx];
+    const pages = slide.pages;
+    const curIdx = slide.pageIndex || 0;
+    if (!pages || targetIdx < 0 || targetIdx >= pages.length || targetIdx === curIdx) return;
+    if (!pages[targetIdx].floorPlan) {
+      alert("This page image is not available. Please re-import the presentation.");
+      return;
+    }
 
+    recordState();
+    isSwitchingSlideRef.current = true;
+
+    // 1. save the current canvas state into the page we are leaving
+    const savedPages = pages.map((p, i) => i !== curIdx ? p : {
+      ...p,
+      placed: placedRef.current || [],
+      zones: zonesRef.current || [],
+      draftZones: draftZonesRef.current || [],
+      textNodes: textNodesRef.current || [],
+      ppm: ppmRef.current || PIXELS_PER_METRE,
+      calibration: slide.calibration || null,
+    });
+
+    // 2. make the target page the floor's active content
+    const t = savedPages[targetIdx];
+    const updatedSlide = {
+      ...slide,
+      pages: savedPages,
+      pageIndex: targetIdx,
+      floorPlan: t.floorPlan,
+      imageWidth: t.imageWidth || slide.imageWidth,
+      imageHeight: t.imageHeight || slide.imageHeight,
+      placed: t.placed || [],
+      zones: t.zones || [],
+      draftZones: t.draftZones || [],
+      textNodes: t.textNodes || [],
+      ppm: t.ppm || PIXELS_PER_METRE,
+      calibration: t.calibration || null,
+    };
+    const updatedSlides = [...slidesRef.current];
+    updatedSlides[slideIdx] = updatedSlide;
+    slidesRef.current = updatedSlides;
+    setSlides(updatedSlides);
+
+    // 3. load it into the editor
+    placedRef.current = updatedSlide.placed;   setPlaced(updatedSlide.placed);
+    zonesRef.current = updatedSlide.zones;     setZones(updatedSlide.zones);
+    draftZonesRef.current = updatedSlide.draftZones; setDraftZones(updatedSlide.draftZones);
+    textNodesRef.current = updatedSlide.textNodes;   setTextNodes(updatedSlide.textNodes);
+    setPpm(updatedSlide.ppm); ppmRef.current = updatedSlide.ppm;
+
+    drawingPointsRef.current = []; setDrawingPoints([]);
+    setSelectedIdx(null);
+    setActiveZoneId(null); activeZoneIdRef.current = null;
+    setAutoPlacementPreview(null); autoPlacementPreviewRef.current = null;
+
+    const img = new Image();
+    img.onload = () => {
+      floorImgRef.current = img;
+      setHasFloor(true);
+      setTimeout(fitImage, 50);
+    };
+    img.src = t.floorPlan;
+
+    scheduleSave(updatedSlide.placed, updatedSlide.zones, updatedSlide.ppm);
+    setTimeout(() => { isSwitchingSlideRef.current = false; }, 80);
+  }, [recordState, fitImage, scheduleSave]);
+
+  const goToPage = useCallback((slideId, pageIdx) => {
+    if (slideId !== activeSlideIdRef.current) {
+      switchSlide(slideId);
+      setTimeout(() => switchPage(pageIdx), 150);
+    } else {
+      switchPage(pageIdx);
+    }
+  }, [switchSlide, switchPage]);
+
+  const attachPptPagesToActiveFloor = useCallback((pptSlides) => {
+    if (!pptSlides || pptSlides.length < 2) return;
+    const stamp = Date.now();
+    const pages = pptSlides.map((s, i) => ({
+      id: `pg_${stamp}_${i}`,
+      name: `Pg ${i + 1}`,
+      floorPlan: s.dataUrl,
+      imageWidth: s.width || 2400,
+      imageHeight: s.height || 1800,
+      placed: [], zones: [], draftZones: [], textNodes: [],
+      ppm: PIXELS_PER_METRE,
+      calibration: null,
+    }));
+    const updated = slidesRef.current.map(s =>
+      s.id === activeSlideIdRef.current ? { ...s, pages, pageIndex: 0 } : s
+    );
+    slidesRef.current = updated;
+    setSlides(updated);
+    scheduleSave(placedRef.current, zonesRef.current, ppmRef.current);
+  }, [scheduleSave]);
   const deleteSlide = useCallback((slideId, e) => {
     if (e) e.stopPropagation();
 
@@ -4556,6 +4988,8 @@ export default function DesignerView({ onBack }) {
       ppm: effectivePpm,
       calibration: effectiveCalib,
       walls: walls || [],
+      beamIntensity: 0.6,
+      beamColor: "#0ea5e9",
       versions: [initialVersion],
     };
 
@@ -4564,6 +4998,11 @@ export default function DesignerView({ onBack }) {
     setSlides(updatedSlides);
     setActiveSlideId(newSlideId);
     activeSlideIdRef.current = newSlideId;
+
+    setBeamIntensity(0.6);
+    beamIntensityRef.current = 0.6;
+    setBeamColor("#0ea5e9");
+    beamColorRef.current = "#0ea5e9";
 
     setPpm(effectivePpm);
     ppmRef.current = effectivePpm;
@@ -4605,70 +5044,103 @@ export default function DesignerView({ onBack }) {
     scheduleSave(embeddedPlaced, [], effectivePpm);
   }, [recordState, fitImage, draw, scheduleSave]);
 
-  const loadOrUpdateSlide = useCallback((floorPlan = null, floorPlanName = null, options = {}) => {
-    const currentActiveSlide = slidesRef.current.find(s => s.id === activeSlideIdRef.current);
-    const isCurrentEmpty = currentActiveSlide && !currentActiveSlide.floorPlan && !currentActiveSlide.modelDataUrl && (!currentActiveSlide.placed || currentActiveSlide.placed.length === 0);
+  const applyFloorImportResult = useCallback((targetSlideId, floorPlan = null, floorPlanName = null, options = {}) => {
+    const {
+      modelDataUrl = null,
+      autoPpm = null,
+      imageWidth = 2400,
+      imageHeight = 1800,
+      partsReport = null,
+      embeddedPlaced = [],
+      walls = [],
+      calibration = null,
+      units = "meters",
+      pages = null
+    } = options;
 
-    if (isCurrentEmpty) {
-      const { modelDataUrl = null, autoPpm = null, imageWidth = 2048, imageHeight = 2048, partsReport = null, embeddedPlaced = [], walls = [], calibration = null, units = "meters" } = options;
-      recordState();
+    const effectivePpm = autoPpm || PIXELS_PER_METRE;
+    const effectiveCalib = calibration || (autoPpm ? {
+      enabled: true,
+      mode: "standard",
+      ppm: effectivePpm,
+      unit: units,
+      references: [],
+      imageDimensions: { width: imageWidth, height: imageHeight },
+      timestamp: Date.now(),
+    } : null);
 
-      const effectivePpm = autoPpm || PIXELS_PER_METRE;
-      const effectiveCalib = calibration || (autoPpm ? {
-        enabled: true,
-        mode: "standard",
-        ppm: effectivePpm,
-        unit: units,
-        references: [],
-        imageDimensions: { width: imageWidth, height: imageHeight },
-        timestamp: Date.now(),
-      } : null);
+    const initialVersion = {
+      id: "v_" + Date.now(),
+      name: "v1",
+      timestamp: Date.now(),
+      floorPlan,
+      modelDataUrl,
+      placed: JSON.parse(JSON.stringify(embeddedPlaced || [])),
+      zones: [],
+      ppm: effectivePpm,
+      calibration: effectiveCalib,
+      walls: walls || [],
+      partsReport: partsReport || null,
+    };
 
-      const initialVersion = {
-        id: "v_" + Date.now(),
-        name: "v1",
-        timestamp: Date.now(),
-        floorPlan,
-        modelDataUrl,
-        placed: JSON.parse(JSON.stringify(embeddedPlaced || [])),
-        zones: [],
-        ppm: effectivePpm,
-        calibration: effectiveCalib,
-        walls: walls || [],
-        partsReport: partsReport || null,
-      };
+    let targetIdx = slidesRef.current.findIndex(s => s.id === targetSlideId);
+    let updatedSlides = [...slidesRef.current];
 
-      const updatedSlide = {
-        ...currentActiveSlide,
-        name: floorPlanName || currentActiveSlide.name,
+    if (targetIdx >= 0) {
+      const existing = updatedSlides[targetIdx];
+      const updatedVersions = (existing.versions && existing.versions.length > 0)
+        ? [...existing.versions, initialVersion]
+        : [initialVersion];
+
+      updatedSlides[targetIdx] = {
+        ...existing,
+        name: floorPlanName || existing.name,
         floorPlan,
         modelDataUrl,
         imageWidth,
         imageHeight,
         partsReport,
-        placed: embeddedPlaced,
+        placed: (embeddedPlaced && embeddedPlaced.length > 0) ? embeddedPlaced : (existing.placed || []),
         ppm: effectivePpm,
         calibration: effectiveCalib,
         walls: walls || [],
-        versions: (currentActiveSlide.versions && currentActiveSlide.versions.length > 0) ? currentActiveSlide.versions : [initialVersion],
+        versions: updatedVersions,
+        ...(pages && pages.length > 0 ? { pages, pageIndex: 0 } : {})
       };
+    } else {
+      const newSlide = {
+        id: targetSlideId || ("slide_" + Date.now()),
+        name: floorPlanName || `Floor Draft ${updatedSlides.length + 1}`,
+        floorPlan,
+        modelDataUrl,
+        imageWidth,
+        imageHeight,
+        partsReport,
+        placed: embeddedPlaced || [],
+        zones: [],
+        draftZones: [],
+        ppm: effectivePpm,
+        calibration: effectiveCalib,
+        walls: walls || [],
+        versions: [initialVersion],
+        ...(pages && pages.length > 0 ? { pages, pageIndex: 0 } : {})
+      };
+      updatedSlides.push(newSlide);
+    }
 
-      const updatedSlides = slidesRef.current.map(s => s.id === updatedSlide.id ? updatedSlide : s);
-      slidesRef.current = updatedSlides;
-      setSlides(updatedSlides);
+    slidesRef.current = updatedSlides;
+    setSlides([...updatedSlides]);
+    saveFloorsDB(updatedSlides, activeSlideIdRef.current);
+
+    // If currently viewing THIS floor, update canvas viewport live
+    if (activeSlideIdRef.current === targetSlideId) {
+      recordState();
       setPpm(effectivePpm);
       ppmRef.current = effectivePpm;
-      placedRef.current = embeddedPlaced;
-      setPlaced(embeddedPlaced);
-      zonesRef.current = [];
-      setZones([]);
-      draftZonesRef.current = [];
-      setDraftZones([]);
-      drawingPointsRef.current = [];
-      setDrawingPoints([]);
-      setSelectedIdx(null);
-      setActiveZoneId(null);
-      activeZoneIdRef.current = null;
+      if (embeddedPlaced && embeddedPlaced.length > 0) {
+        placedRef.current = embeddedPlaced;
+        setPlaced(embeddedPlaced);
+      }
 
       if (floorPlan) {
         const img = new Image();
@@ -4676,11 +5148,13 @@ export default function DesignerView({ onBack }) {
           floorImgRef.current = img;
           setHasFloor(true);
           setTimeout(fitImage, 50);
+          draw();
         };
         img.src = floorPlan;
       } else if (modelDataUrl) {
         floorImgRef.current = null;
         setHasFloor(true);
+        draw();
       } else {
         floorImgRef.current = null;
         setHasFloor(false);
@@ -4688,11 +5162,117 @@ export default function DesignerView({ onBack }) {
       }
 
       apiSaveFloorPlan(floorPlan);
-      scheduleSave(embeddedPlaced, [], effectivePpm);
+      scheduleSave(embeddedPlaced || placedRef.current, zonesRef.current, effectivePpm);
     } else {
-      addNewSlide(floorPlan, floorPlanName, options);
+      // User has moved to another floor — persist layout quietly without disturbing current floor canvas
+      apiSaveLayout({
+        placed: (embeddedPlaced && embeddedPlaced.length > 0) ? embeddedPlaced : [],
+        zones: [],
+        ppm: effectivePpm,
+        floorPlan,
+        slides: updatedSlides,
+        activeSlideId: activeSlideIdRef.current
+      });
     }
-  }, [addNewSlide, recordState, fitImage, draw, scheduleSave]);
+  }, [recordState, fitImage, draw, scheduleSave]);
+
+  const loadOrUpdateSlide = useCallback((floorPlan = null, floorPlanName = null, options = {}) => {
+    applyFloorImportResult(activeSlideIdRef.current, floorPlan, floorPlanName, options);
+  }, [applyFloorImportResult]);
+
+  const createFloorImportTracker = useCallback((targetSlideId, file, options = {}) => {
+    const ext = file.name.toLowerCase().split(".").pop();
+    const slide = slidesRef.current.find(s => s.id === targetSlideId);
+    const floorName = slide?.name || "Floor";
+    const fileSizeStr = file.size > 1024 * 1024
+      ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
+      : `${Math.round(file.size / 1024)} KB`;
+
+    let currentPercent = 5;
+    let currentStage = options.initialStage || `Reading ${file.name}...`;
+
+    const record = {
+      slideId: targetSlideId,
+      floorName,
+      fileName: file.name,
+      fileSize: fileSizeStr,
+      ext: ext.toUpperCase(),
+      percent: 5,
+      stage: currentStage,
+      status: "loading",
+      startedAt: Date.now()
+    };
+
+    const updateState = (pct, stageText, status = "loading") => {
+      currentPercent = Math.min(100, Math.max(currentPercent, Math.round(pct)));
+      if (stageText) currentStage = stageText;
+      setFloorImports(prev => ({
+        ...prev,
+        [targetSlideId]: {
+          ...(prev[targetSlideId] || record),
+          percent: currentPercent,
+          stage: currentStage,
+          status
+        }
+      }));
+    };
+
+    updateState(5, currentStage);
+
+    let ticker = null;
+    const startTicker = (fromPct, maxPct, step, intervalMs, stageText) => {
+      if (ticker) clearInterval(ticker);
+      ticker = setInterval(() => {
+        if (currentPercent < maxPct) {
+          currentPercent = Math.min(maxPct, currentPercent + step);
+          updateState(currentPercent, stageText || currentStage);
+        }
+      }, intervalMs);
+    };
+
+    const stopTicker = () => {
+      if (ticker) {
+        clearInterval(ticker);
+        ticker = null;
+      }
+    };
+
+    return {
+      targetSlideId,
+      floorName,
+      setProgress: (pct, stageText) => {
+        updateState(pct, stageText);
+      },
+      startTicker,
+      stopTicker,
+      complete: (onFinished) => {
+        stopTicker();
+        updateState(100, "Import complete! Mounting layout...", "complete");
+        setTimeout(() => {
+          if (onFinished) onFinished();
+          setTimeout(() => {
+            setFloorImports(prev => {
+              const next = { ...prev };
+              delete next[targetSlideId];
+              return next;
+            });
+          }, 900);
+        }, 300);
+      },
+      fail: (err) => {
+        stopTicker();
+        console.error(`[DesignerView] Import failed for floor ${targetSlideId}:`, err);
+        updateState(currentPercent, `Failed: ${err.message || "Unknown error"}`, "error");
+        setTimeout(() => {
+          setFloorImports(prev => {
+            const next = { ...prev };
+            delete next[targetSlideId];
+            return next;
+          });
+        }, 3500);
+      }
+    };
+  }, []);
 
   const applyZoom = useCallback((delta, cx, cy) => {
     const prev = scaleRef.current;
@@ -5881,46 +6461,99 @@ export default function DesignerView({ onBack }) {
   // ── Floor plan import ─────────────────────────────────────────────────────
   async function handleFileChange(e) {
     const file = e.target.files[0]; if (!file) return;
-    // Security Fix: Enforce file size restriction (5MB)
-    const MAX_FILE_SIZE = 5 * 1024 * 1024;
+    const name = file.name.replace(/\.[^/.]+$/, "");
+    const ext = file.name.toLowerCase().split(".").pop();
+    // Security Fix: Enforce file size restriction (5MB standard, up to 30MB for CAD/PowerPoint/3D)
+    const isLargeFormat = ["pptx", "ppt", "dwg", "dxf", "glb", "gltf"].includes(ext);
+    const MAX_FILE_SIZE = isLargeFormat ? 30 * 1024 * 1024 : 5 * 1024 * 1024;
     if (file.size > MAX_FILE_SIZE) {
-      alert("File upload failed. The selected file exceeds the maximum allowed size of 5MB.");
+      alert(`File upload failed. The selected file exceeds the maximum allowed size of ${isLargeFormat ? "30MB" : "5MB"}.`);
       e.target.value = "";
       return;
     }
-    const name = file.name.replace(/\.[^/.]+$/, "");
-    const ext = file.name.toLowerCase().split(".").pop();
+
+    // Determine whether current active floor is a blank new floor (e.g. from "+ New") or existing file with content
+    const activeSlide = slidesRef.current.find(s => s.id === activeSlideIdRef.current);
+    const isCurrentFloorBlank = activeSlide &&
+      !activeSlide.floorPlan &&
+      !activeSlide.modelDataUrl &&
+      (!activeSlide.walls || activeSlide.walls.length === 0) &&
+      (!activeSlide.placed || activeSlide.placed.length === 0) &&
+      (!activeSlide.zones || activeSlide.zones.length === 0) &&
+      !floorImgRef.current &&
+      (placedRef.current.length === 0);
+
+    let targetSlideId;
+    if (isCurrentFloorBlank && activeSlide) {
+      // User clicked "New" and imports a file -> import directly into the new floor they created!
+      targetSlideId = activeSlide.id;
+    } else {
+      // Current floor is an existing file -> import into a NEW file (new floor draft) so existing floor is not overwritten!
+      const newSlideId = "slide_" + Date.now();
+      const newSlideName = name || `Floor Draft ${slidesRef.current.length + 1}`;
+      const initialVer = {
+        id: "v_" + Date.now(),
+        name: "v1",
+        timestamp: Date.now(),
+        floorPlan: null,
+        modelDataUrl: null,
+        placed: [],
+        zones: [],
+        ppm: PIXELS_PER_METRE,
+        calibration: null,
+        walls: [],
+      };
+      const newSlide = {
+        id: newSlideId,
+        name: newSlideName,
+        floorPlan: null,
+        modelDataUrl: null,
+        imageWidth: 2400,
+        imageHeight: 1800,
+        partsReport: null,
+        placed: [],
+        zones: [],
+        draftZones: [],
+        ppm: PIXELS_PER_METRE,
+        calibration: null,
+        walls: [],
+        versions: [initialVer],
+      };
+      const updatedSlides = [...slidesRef.current, newSlide];
+      slidesRef.current = updatedSlides;
+      setSlides(updatedSlides);
+      setActiveSlideId(newSlideId);
+      activeSlideIdRef.current = newSlideId;
+
+      floorImgRef.current = null;
+      setHasFloor(false);
+      placedRef.current = [];
+      setPlaced([]);
+      zonesRef.current = [];
+      setZones([]);
+      draftZonesRef.current = [];
+      setDraftZones([]);
+      setSelectedIdx(null);
+      setActiveZoneId(null);
+      activeZoneIdRef.current = null;
+      targetSlideId = newSlideId;
+    }
+
+    const tracker = createFloorImportTracker(targetSlideId, file);
 
     // ── AutoCAD .dwg / .dxf layout import with Real-Time Progress ───
     if (ext === "dwg" || ext === "dxf") {
-      setCadImportProgress({
-        open: true,
-        percent: 5,
-        stage: `Uploading ${file.name}...`,
-        fileName: file.name,
-        fileSize: file.size,
-      });
+      tracker.setProgress(8, `Uploading ${file.name}...`);
+      tracker.startTicker(8, 35, 3, 200, `Uploading CAD File...`);
 
       try {
         const token = getToken();
 
         const cadData = await importCadWithProgress(file, token, (percent, stage) => {
-          setCadImportProgress({
-            open: true,
-            percent,
-            stage,
-            fileName: file.name,
-            fileSize: file.size,
-          });
+          tracker.setProgress(percent, stage);
         });
 
-        setCadImportProgress({
-          open: true,
-          percent: 95,
-          stage: "Mounting layout to canvas...",
-          fileName: file.name,
-          fileSize: file.size,
-        });
+        tracker.setProgress(94, "Mounting layout to canvas...");
 
         const autoCalib = cadData.ppm
           ? {
@@ -5934,39 +6567,19 @@ export default function DesignerView({ onBack }) {
             }
           : null;
 
-        // ── [CAD-DIAGNOSTIC PART C: DESIGNERVIEW] ──────────────────────────
-        const canvasRect = wrapRef.current?.getBoundingClientRect() || { width: 0, height: 0 };
-        console.log(`\n==================== [CAD-DIAGNOSTIC PART C: DESIGNERVIEW .${ext.toUpperCase()}] ====================`);
-        console.log(`1. Response PPM Received: ${cadData.ppm} px/m (Units: ${cadData.units})`);
-        console.log(`2. SVG Vector Dimensions: ${cadData.width} x ${cadData.height} px`);
-        console.log(`3. Rendered Canvas/Container DOM Rect: ${canvasRect.width.toFixed(1)} x ${canvasRect.height.toFixed(1)} px`);
-        console.log(`4. Zoom Scale at Import: scaleRef=${scaleRef.current.toFixed(4)} (Zoom: ${Math.round(scaleRef.current * 100)}%)`);
-        console.log(`5. Responsive Canvas Scaling: Active slide autoPpm=${cadData.ppm || PIXELS_PER_METRE}, scale=${scaleRef.current.toFixed(4)}`);
-        console.log(`=============================================================================================\n`);
-
-        loadOrUpdateSlide(cadData.dataUrl, name, {
-          autoPpm: cadData.ppm || PIXELS_PER_METRE,
-          imageWidth: cadData.width || 2400,
-          imageHeight: cadData.height || 1800,
-          walls: cadData.walls || [],
-          partsReport: cadData.partsReport || null,
-          calibration: autoCalib,
-          units: cadData.units || "meters",
+        tracker.complete(() => {
+          applyFloorImportResult(targetSlideId, cadData.dataUrl, name, {
+            autoPpm: cadData.ppm || PIXELS_PER_METRE,
+            imageWidth: cadData.width || 2400,
+            imageHeight: cadData.height || 1800,
+            walls: cadData.walls || [],
+            partsReport: cadData.partsReport || null,
+            calibration: autoCalib,
+            units: cadData.units || "meters",
+          });
         });
-
-        setCadImportProgress({
-          open: true,
-          percent: 100,
-          stage: "Import complete!",
-          fileName: file.name,
-          fileSize: file.size,
-        });
-
-        setTimeout(() => {
-          setCadImportProgress(null);
-        }, 300);
       } catch (err) {
-        setCadImportProgress(null);
+        tracker.fail(err);
         console.error("[DesignerView] AutoCAD conversion failed:", err);
         showAlert("AutoCAD Import Failed", "Failed to convert AutoCAD layout: " + (err.message || "unknown error"));
       }
@@ -5976,11 +6589,24 @@ export default function DesignerView({ onBack }) {
 
     // ── .gltf / .glb → load 3D model and auto-calibrate scale (PPM) ─────
     if (ext === "gltf" || ext === "glb") {
+      tracker.setProgress(10, `Reading 3D binary file ${file.name}...`);
+      tracker.startTicker(10, 45, 3, 200, "Reading 3D model buffer...");
+
       const reader = new FileReader();
+      reader.onprogress = (ev) => {
+        if (ev.lengthComputable && ev.total > 0) {
+          tracker.setProgress(Math.round((ev.loaded / ev.total) * 40), "Reading 3D file data...");
+        }
+      };
       reader.onload = async (ev) => {
         const modelDataUrl = ev.target.result;
         try {
-          const { dataUrl: imageDataUrl, ppm: autoPpm, partsReport, embeddedMarkers, width, height } = await renderGltfToImage(file);
+          tracker.setProgress(45, "Rendering orthographic top-down projection...");
+          tracker.startTicker(45, 88, 3, 250, "Extracting floor plan & coordinates...");
+
+          const { dataUrl: imageDataUrl, ppm: autoPpm, partsReport, embeddedMarkers, width, height } = await renderGltfToImage(file, 2048, (pct, stg) => {
+            tracker.setProgress(pct, stg);
+          });
           console.log(`[DesignerView] Loaded GLB model. Auto-calibrated PPM: ${autoPpm}`);
 
           let restoredPlaced = [];
@@ -6012,19 +6638,24 @@ export default function DesignerView({ onBack }) {
             });
           }
 
-          loadOrUpdateSlide(imageDataUrl, name, {
-            modelDataUrl,
-            autoPpm: autoPpm || PIXELS_PER_METRE,
-            imageWidth: width || 2048,
-            imageHeight: height || 2048,
-            partsReport,
-            embeddedPlaced: restoredPlaced
+          tracker.setProgress(95, "Mounting 3D floor plan...");
+          tracker.complete(() => {
+            applyFloorImportResult(targetSlideId, imageDataUrl, name, {
+              modelDataUrl,
+              autoPpm: autoPpm || PIXELS_PER_METRE,
+              imageWidth: width || 2048,
+              imageHeight: height || 2048,
+              partsReport,
+              embeddedPlaced: restoredPlaced
+            });
           });
         } catch (err) {
+          tracker.fail(err);
           console.error("[DesignerView] GLTF/GLB load failed:", err);
           alert("Failed to load 3D model: " + (err.message || "unknown error"));
         }
       };
+      reader.onerror = () => tracker.fail(new Error("Failed to read 3D model file"));
       reader.readAsDataURL(file);
       e.target.value = "";
       return;
@@ -6032,10 +6663,16 @@ export default function DesignerView({ onBack }) {
 
     // ── .html → render HTML to 2D image ───────────────────────────
     if (ext === "html" || ext === "htm") {
+      tracker.setProgress(15, `Reading HTML layout ${file.name}...`);
+      tracker.startTicker(15, 85, 4, 180, "Rendering DOM layout to canvas...");
       try {
         const { dataUrl } = await renderHtmlToImage(file);
-        loadOrUpdateSlide(dataUrl, name);
+        tracker.setProgress(95, "Mounting HTML layout...");
+        tracker.complete(() => {
+          applyFloorImportResult(targetSlideId, dataUrl, name);
+        });
       } catch (err) {
+        tracker.fail(err);
         console.error("[DesignerView] HTML render failed:", err);
         alert("Failed to load HTML floor plan: " + (err.message || "unknown error"));
       }
@@ -6043,14 +6680,78 @@ export default function DesignerView({ onBack }) {
       return;
     }
 
+    // ── .ppt / .pptx → PowerPoint presentation layout import ─────────────
+    if (ext === "pptx" || ext === "ppt") {
+      tracker.setProgress(10, `Opening presentation ${file.name}...`);
+      tracker.startTicker(10, 45, 3, 200, "Unzipping slides & parsing vector shapes...");
+      try {
+        setSaveStatus("saving");
+
+        const pptSlides = await renderPptToImages(file, {
+          targetWidth: 2400,
+          onProgress: (percent, stage) => {
+            tracker.setProgress(percent, stage);
+          },
+        });
+        if (!pptSlides || pptSlides.length === 0) {
+          throw new Error("No visible slides could be extracted from this PowerPoint presentation.");
+        }
+
+        tracker.setProgress(95, `Processing ${pptSlides.length} layout page(s)...`);
+
+        const first = pptSlides[0];
+        const stamp = Date.now();
+        const pages = pptSlides.length > 1 ? pptSlides.map((s, i) => ({
+          id: `pg_${stamp}_${i}`,
+          name: `Pg ${i + 1}`,
+          floorPlan: s.dataUrl,
+          imageWidth: s.width || 2400,
+          imageHeight: s.height || 1800,
+          placed: [], zones: [], draftZones: [], textNodes: [],
+          ppm: PIXELS_PER_METRE,
+          calibration: null,
+        })) : null;
+
+        tracker.complete(() => {
+          applyFloorImportResult(targetSlideId, first.dataUrl, name, {
+            imageWidth: first.width || 2400,
+            imageHeight: first.height || 1800,
+            autoPpm: PIXELS_PER_METRE,
+            pages
+          });
+        });
+
+        setSaveStatus("saved");
+      } catch (err) {
+        tracker.fail(err);
+        console.error("[DesignerView] PowerPoint layout import failed:", err);
+        alert("Failed to load PowerPoint layout: " + (err.message || "unknown error"));
+        setSaveStatus("failed");
+      }
+      e.target.value = "";
+      return;
+    }
+
+    // ── .pdf → High-Resolution Vector Architectural PDF import ─────────────
     if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+      tracker.setProgress(10, `Reading PDF document ${file.name}...`);
       const fileReader = new FileReader();
+      fileReader.onprogress = (ev) => {
+        if (ev.lengthComputable && ev.total > 0) {
+          tracker.setProgress(Math.round((ev.loaded / ev.total) * 30), "Reading PDF data bytes...");
+        }
+      };
       fileReader.onload = async function() {
         try {
+          tracker.setProgress(35, "Parsing PDF structure...");
+          tracker.startTicker(35, 75, 4, 180, "Rasterizing architectural vector page...");
+          await new Promise(r => setTimeout(r, 20));
+
           const typedarray = new Uint8Array(this.result);
           const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
+          tracker.setProgress(55, "Rendering architectural page...");
           const page = await pdf.getPage(1);
-          const viewport = page.getViewport({ scale: 6.0 });
+          const viewport = page.getViewport({ scale: 4.0 });
          
           const canvas = document.createElement("canvas");
           const context = canvas.getContext("2d");
@@ -6060,22 +6761,62 @@ export default function DesignerView({ onBack }) {
           context.fillStyle = "#ffffff";
           context.fillRect(0, 0, canvas.width, canvas.height);
          
+          tracker.setProgress(75, "Rendering vector lines & annotations...");
           await page.render({ canvasContext: context, viewport: viewport }).promise;
+          
+          tracker.setProgress(92, "Encoding floor plan image...");
+          await new Promise(r => setTimeout(r, 20));
           const dataUrl = canvas.toDataURL("image/png");
-          loadOrUpdateSlide(dataUrl, name);
+
+          tracker.complete(() => {
+            applyFloorImportResult(targetSlideId, dataUrl, name, {
+              imageWidth: viewport.width,
+              imageHeight: viewport.height,
+              autoPpm: PIXELS_PER_METRE
+            });
+          });
         } catch (err) {
+          tracker.fail(err);
           console.error("Failed to parse PDF", err);
-          alert("Failed to parse PDF.");
+          alert("Failed to parse PDF: " + (err.message || "unknown error"));
         }
       };
+      fileReader.onerror = () => tracker.fail(new Error("Failed to read PDF file"));
       fileReader.readAsArrayBuffer(file);
-    } else {
-      const reader = new FileReader();
-      reader.onload = ev => {
-        loadOrUpdateSlide(ev.target.result, name);
-      };
-      reader.readAsDataURL(file);
+      e.target.value = "";
+      return;
     }
+
+    // ── Standard Image layout import (PNG, JPG, SVG, WebP, etc.) ─────────
+    tracker.setProgress(15, `Reading image file ${file.name}...`);
+    const reader = new FileReader();
+    reader.onprogress = (ev) => {
+      if (ev.lengthComputable && ev.total > 0) {
+        tracker.setProgress(Math.round((ev.loaded / ev.total) * 45), "Reading image data bytes...");
+      }
+    };
+    reader.onload = ev => {
+      tracker.setProgress(55, "Decoding image & computing dimensions...");
+      tracker.startTicker(55, 92, 4, 120, "Rasterizing layout resolution...");
+      const img = new Image();
+      img.onload = () => {
+        tracker.setProgress(95, "Mounting layout to canvas...");
+        tracker.complete(() => {
+          applyFloorImportResult(targetSlideId, ev.target.result, name, {
+            imageWidth: img.naturalWidth || 2048,
+            imageHeight: img.naturalHeight || 2048,
+            autoPpm: PIXELS_PER_METRE
+          });
+        });
+      };
+      img.onerror = () => {
+        tracker.fail(new Error("Failed to decode image data"));
+        alert("Failed to decode image file.");
+      };
+      img.src = ev.target.result;
+    };
+    reader.onerror = () => tracker.fail(new Error("Failed to read image file"));
+    reader.readAsDataURL(file);
     e.target.value = "";
   }
 
@@ -6169,6 +6910,8 @@ export default function DesignerView({ onBack }) {
       calibration: currentSlide.calibration ? JSON.parse(JSON.stringify(currentSlide.calibration)) : null,
       walls: currentSlide.walls ? JSON.parse(JSON.stringify(currentSlide.walls)) : [],
       partsReport: currentSlide.partsReport ? JSON.parse(JSON.stringify(currentSlide.partsReport)) : null,
+      beamIntensity: beamIntensityRef.current,
+      beamColor: beamColorRef.current,
     };
     const updatedSlide = { ...currentSlide, versions: [...versions, newVersion] };
     const updatedSlides = [...slidesRef.current];
@@ -6202,6 +6945,14 @@ export default function DesignerView({ onBack }) {
     if (version.ppm) {
       ppmRef.current = version.ppm;
       setPpm(version.ppm);
+    }
+    if (version.beamIntensity !== undefined) {
+      setBeamIntensity(version.beamIntensity);
+      beamIntensityRef.current = version.beamIntensity;
+    }
+    if (version.beamColor) {
+      setBeamColor(version.beamColor);
+      beamColorRef.current = version.beamColor;
     }
     if (version.floorPlan && version.floorPlan !== slide.floorPlan) {
       const img = new Image();
@@ -6382,15 +7133,18 @@ export default function DesignerView({ onBack }) {
   }));
   const heatmapCameras = placed.map(p => ({ id: p.id, status: "online" }));
 
-function drawCameraStatsToCanvas(ctx, canvasW, canvasH, placedCameras, overrideX = null, overrideY = null, scaleMultiplier = 1, previewW = 960) {
-  const typeCounts = {};
-  placedCameras.forEach(p => {
-    const t = p.camera.type || "dome";
-    typeCounts[t] = (typeCounts[t] || 0) + 1;
+function drawCameraStatsToCanvas(ctx, canvasW, canvasH, placedCameras, overrideX = null, overrideY = null, scaleMultiplier = 1, previewW = 960, cameraDB = []) {
+  const counts = {};
+  (placedCameras || []).forEach(p => {
+    const cam = p.camera || {};
+    const label = formatCameraStatsLabel(cam, cameraDB);
+    counts[label] = (counts[label] || 0) + 1;
   });
-  const entries = Object.keys(typeCounts).sort().map(type => ({
-    label: `${type.charAt(0).toUpperCase() + type.slice(1)}: ${typeCounts[type]}`,
-  }));
+  const entries = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([label, count]) => ({
+      label: `${label}: ${count}`,
+    }));
   if (!entries.length) return;
 
   const canvasScale = canvasW / previewW;
@@ -6399,7 +7153,7 @@ function drawCameraStatsToCanvas(ctx, canvasW, canvasH, placedCameras, overrideX
   const fontSize  = 10 * zoom;
   const titleSize = 11 * zoom;
   const rowGap    = 16 * zoom;
-  const padX      = 14 * zoom;
+  const padX      = 16 * zoom;
   const padY      = 10 * zoom;
   const margin    = 12 * canvasScale; // base margin regardless of scale
   const cornerR   = 8 * zoom;
@@ -6410,13 +7164,13 @@ function drawCameraStatsToCanvas(ctx, canvasW, canvasH, placedCameras, overrideX
   ctx.font = `bold ${titleSize}px Inter, system-ui, sans-serif`;
   const titleWidth = ctx.measureText("Camera Statistics").width;
   ctx.font = `600 ${fontSize}px Inter, system-ui, sans-serif`;
-  const totalLabel = `Total Cameras: ${placedCameras.length}`;
+  const totalLabel = `Total Cameras: ${(placedCameras || []).length}`;
   const totalWidth = ctx.measureText(totalLabel).width;
   const maxLW = Math.max(...entries.map(e => ctx.measureText(e.label).width));
   const maxTextW = Math.max(titleWidth, totalWidth, maxLW);
 
   const boxW = padX * 2 + maxTextW;
-  const boxH = padY * 2 + (entries.length + 1.5) * rowGap;
+  const boxH = padY * 2 + (entries.length + 2) * rowGap;
   // Use override position if provided (from drag), else default bottom-right
   const bx = overrideX !== null ? overrideX : canvasW - boxW - margin;
   const by = overrideY !== null ? overrideY : canvasH - boxH - margin;
@@ -6582,7 +7336,9 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
   const mapCoord = (v, previewDim, canvasDim) =>
     (previewSize && previewDim && v !== null) ? (v / previewDim) * canvasDim : null;
 
-  if (exportMode === "design") {
+  const effectiveShowDori = exportMode === "dori" || Boolean(showPpmRef.current || showPpm);
+
+  if (exportMode === "design" || exportMode === "dori") {
     zonesRef.current.forEach(zone => {
       if (zone.polygon.length < 2) return;
       ctx.save(); ctx.beginPath();
@@ -6600,11 +7356,11 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
       });
       ctx.restore();
     });
-      placedRef.current.forEach(p =>
-      drawPlacedCamera(ctx, p, ppm, false, false, zonesRef, activeZoneIdRef, null, false, false, false, iconScaleRef.current, "beam", scaleRef.current, showMetricsVisibilityRef.current)
+    placedRef.current.forEach(p =>
+      drawPlacedCamera(ctx, p, ppm, false, false, zonesRef, activeZoneIdRef, null, false, effectiveShowDori, false, iconScaleRef.current, "beam", scaleRef.current, showMetricsVisibilityRef.current, false, null, beamIntensityRef.current, beamColorRef.current)
     );
     placedRef.current.forEach(p =>
-      drawPlacedCamera(ctx, p, ppm, false, false, zonesRef, activeZoneIdRef, null, false, false, false, iconScaleRef.current, "body", scaleRef.current, showMetricsVisibilityRef.current)
+      drawPlacedCamera(ctx, p, ppm, false, false, zonesRef, activeZoneIdRef, null, false, effectiveShowDori, false, iconScaleRef.current, "body", scaleRef.current, showMetricsVisibilityRef.current, false, null, beamIntensityRef.current, beamColorRef.current)
     );
     // ── Camera Stats box ──
     if (overlayOpts && overlayOpts.stats?.show !== false) {
@@ -6612,15 +7368,23 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       const sx = mapCoord(overlayOpts?.stats?.x, previewSize?.w, oc.width);
       const sy = mapCoord(overlayOpts?.stats?.y, previewSize?.h, oc.height);
-      drawCameraStatsToCanvas(ctx, oc.width, oc.height, placedRef.current, sx, sy, overlayOpts?.stats?.scale, previewSize?.w);
+      drawCameraStatsToCanvas(ctx, oc.width, oc.height, placedRef.current, sx, sy, overlayOpts?.stats?.scale, previewSize?.w, cameraDBRef.current);
       ctx.restore();
     }
-    // No DORI legend in Designer View
+    // ── DORI legend ──
+    if (effectiveShowDori && (!overlayOpts || overlayOpts.dori?.show !== false)) {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      const dx = mapCoord(overlayOpts?.dori?.x, previewSize?.w, oc.width) ?? 18;
+      const dy = mapCoord(overlayOpts?.dori?.y, previewSize?.h, oc.height) ?? (oc.height - 140);
+      drawDoriLegendToCanvas(ctx, dx, dy, overlayOpts?.dori?.scale, oc.width, previewSize?.w);
+      ctx.restore();
+    }
 
   } else if (exportMode === "heatmap") {
     // Soft blueprint slate blindspot tint to clearly distinguish uncovered areas while keeping layout sharp
     ctx.save();
-    ctx.fillStyle = "rgba(15, 23, 42, 0.25)";
+    ctx.fillStyle = "rgba(15, 23, 42, 0.16)";
     ctx.fillRect(0, 0, img.width, img.height);
     ctx.restore();
 
@@ -6638,11 +7402,23 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
     const activeSlide = slidesRef.current.find(s => s.id === activeSlideIdRef.current);
     const currentWalls = activeSlide?.walls || [];
 
+    // Render multi-tier coverage density heatmap onto export canvas
+    const exportScaleRatio = oc.width / (img.width || 1);
+    drawHeatmapToContext(ctx, oc.width, oc.height, {
+      markers: heatmapMarkers,
+      cameras: heatmapCameras,
+      scale: exportScaleRatio,
+      offset: { x: 0, y: 0 },
+      activeZone: activeZoneIdRef.current ? zonesRef.current.find(z => z.id === activeZoneIdRef.current) : null,
+      allZones: zonesRef.current,
+      floorImg: img,
+      step: 3,
+      clear: false,
+      walls: currentWalls
+    });
+
     placedRef.current.forEach(p =>
-      drawPlacedCamera(ctx, p, ppm, false, false, zonesRef, activeZoneIdRef, null, false, false, false, iconScaleRef.current, "beam", scaleRef.current, showMetricsVisibilityRef.current, true, currentWalls)
-    );
-    placedRef.current.forEach(p =>
-      drawPlacedCamera(ctx, p, ppm, false, false, zonesRef, activeZoneIdRef, null, false, false, false, iconScaleRef.current, "body", scaleRef.current, showMetricsVisibilityRef.current, true, currentWalls)
+      drawPlacedCamera(ctx, p, ppm, false, false, zonesRef, activeZoneIdRef, null, false, false, false, iconScaleRef.current, "body", scaleRef.current, showMetricsVisibilityRef.current, true, currentWalls, beamIntensityRef.current, beamColorRef.current)
     );
     // ── Camera Stats box ──
     if (overlayOpts && overlayOpts.stats?.show !== false) {
@@ -6650,7 +7426,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       const sx = mapCoord(overlayOpts?.stats?.x, previewSize?.w, oc.width);
       const sy = mapCoord(overlayOpts?.stats?.y, previewSize?.h, oc.height);
-      drawCameraStatsToCanvas(ctx, oc.width, oc.height, placedRef.current, sx, sy, overlayOpts?.stats?.scale, previewSize?.w);
+      drawCameraStatsToCanvas(ctx, oc.width, oc.height, placedRef.current, sx, sy, overlayOpts?.stats?.scale, previewSize?.w, cameraDBRef.current);
       ctx.restore();
     }
     // ── Heatmap Legend ──
@@ -6668,48 +7444,6 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
       });
       ctx.restore();
     }
-  } else if (exportMode === "dori") {
-    zonesRef.current.forEach(zone => {
-      if (zone.polygon.length < 2) return;
-      ctx.save(); ctx.beginPath();
-      zone.polygon.forEach((pt, i) => {
-        if (i === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
-      });
-      ctx.closePath();
-      ctx.strokeStyle = zone.color + "ff"; ctx.lineWidth = 2;
-      ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]);
-      zone.polygon.forEach(pt => {
-        ctx.beginPath(); ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2);
-        ctx.fillStyle = zone.color; ctx.globalAlpha = 0.7; ctx.fill();
-        ctx.strokeStyle = "#fff"; ctx.lineWidth = 1; ctx.globalAlpha = 0.5; ctx.stroke();
-        ctx.globalAlpha = 1;
-      });
-      ctx.restore();
-    });
-    placedRef.current.forEach(p =>
-      drawPlacedCamera(ctx, p, ppm, false, false, zonesRef, activeZoneIdRef, null, false, true, false, iconScaleRef.current, "beam", scaleRef.current, showMetricsVisibilityRef.current)
-    );
-    placedRef.current.forEach(p =>
-      drawPlacedCamera(ctx, p, ppm, false, false, zonesRef, activeZoneIdRef, null, false, true, false, iconScaleRef.current, "body", scaleRef.current, showMetricsVisibilityRef.current)
-    );
-    // ── Camera Stats box ──
-    if (overlayOpts && overlayOpts.stats?.show !== false) {
-      ctx.save();
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      const sx = mapCoord(overlayOpts?.stats?.x, previewSize?.w, oc.width);
-      const sy = mapCoord(overlayOpts?.stats?.y, previewSize?.h, oc.height);
-      drawCameraStatsToCanvas(ctx, oc.width, oc.height, placedRef.current, sx, sy, overlayOpts?.stats?.scale, previewSize?.w);
-      ctx.restore();
-    }
-    // ── DORI legend ──
-    if (overlayOpts && overlayOpts.dori?.show !== false) {
-      ctx.save();
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      const dx = mapCoord(overlayOpts?.dori?.x, previewSize?.w, oc.width) ?? 18;
-      const dy = mapCoord(overlayOpts?.dori?.y, previewSize?.h, oc.height) ?? (oc.height - 140);
-      drawDoriLegendToCanvas(ctx, dx, dy, overlayOpts?.dori?.scale, oc.width, previewSize?.w);
-      ctx.restore();
-    }
   }
 
   // ── Watermark badge (logo) ──
@@ -6718,140 +7452,128 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
     ? "SENTINEL TECHNOLOGIES PRIVATE LIMITED"
     : "Mirador AI Technologies";
 
-  const drawTitleOverlay = () => {
-    if (overlayOpts && overlayOpts.titleOverlay?.show !== false) {
-      ctx.save();
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      const mappedX = mapCoord(overlayOpts?.titleOverlay?.x, previewSize?.w, oc.width);
-      const mappedY = mapCoord(overlayOpts?.titleOverlay?.y, previewSize?.h, oc.height);
-      
-      let titleText = "DESIGNER VIEW";
-      if (exportMode === "heatmap") titleText = "COVERAGE HEATMAP";
-      else if (exportMode === "dori") titleText = "CLARITY ZONES";
+  // ── Compose separate company header ABOVE the floor layout ──
+  const composeBrandedExportCanvas = (layoutCanvas) => {
+    const s = exportScale;
+    const headerHeight = Math.round(132 * s);
+    const padding = Math.round(36 * s);
 
-      const scaleMultiplier = overlayOpts?.titleOverlay?.scale || 1;
-      const canvasScale = previewSize?.w ? (oc.width / previewSize.w) : (oc.width / 960);
-      const zoom = scaleMultiplier * canvasScale;
-      
-      const tx = mappedX !== null ? mappedX : (12 * canvasScale);
-      const ty = mappedY !== null ? mappedY : (12 * canvasScale);
+    const finalCanvas = document.createElement("canvas");
+    finalCanvas.width = layoutCanvas.width;
+    finalCanvas.height = layoutCanvas.height + headerHeight;
 
-      const tSize = 16 * zoom;
+    const finalCtx = finalCanvas.getContext("2d");
 
-      ctx.font = `bold ${tSize}px Inter, Arial, sans-serif`;
-      const textW = ctx.measureText(titleText).width;
-      const padX = 16 * zoom;
-      const padY = 12 * zoom;
-      const badgeW = textW + padX * 2;
-      const badgeH = tSize + padY * 2;
+    // Header background
+    finalCtx.fillStyle = "#ffffff";
+    finalCtx.fillRect(0, 0, finalCanvas.width, headerHeight);
 
-      ctx.shadowColor = "rgba(0,0,0,0.55)";
-      ctx.shadowBlur = 14 * zoom;
-      ctx.shadowOffsetY = 3 * zoom;
+    // Bottom separator
+    finalCtx.fillStyle = "#e2e8f0";
+    finalCtx.fillRect(0, headerHeight - 2 * s, finalCanvas.width, 2 * s);
 
-      ctx.fillStyle = "rgba(13, 17, 23, 0.9)";
-      ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(tx, ty, badgeW, badgeH, 8 * zoom);
-      else ctx.rect(tx, ty, badgeW, badgeH);
-      ctx.fill();
+    const logoSrc = company === "sentinel"
+      ? sentinelLogoImg
+      : logoImg;
 
-      ctx.shadowColor = "transparent";
-      ctx.shadowBlur = 0;
-      ctx.shadowOffsetY = 0;
+    const watermark = new Image();
 
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
-      ctx.lineWidth = Math.max(1, 1 * zoom);
-      ctx.stroke();
+    const drawHeader = () => {
+      const logoH = 62 * s;
+      let logoW = 0;
 
-      ctx.fillStyle = "#e2e8f0";
-      ctx.textAlign = "left";
-      ctx.textBaseline = "middle";
-      ctx.fillText(titleText, tx + padX, ty + badgeH / 2);
-      ctx.restore();
-    }
+      if (watermark.complete && watermark.naturalWidth > 0) {
+        const ratio = watermark.naturalWidth / watermark.naturalHeight;
+        logoW = Math.min(190 * s, logoH * ratio);
+
+        finalCtx.drawImage(
+          watermark,
+          padding,
+          (headerHeight - logoH) / 2,
+          logoW,
+          logoH
+        );
+      }
+
+      // Company name
+      const textX = padding + logoW + 22 * s;
+
+      finalCtx.fillStyle = "#111827";
+      finalCtx.font = `bold ${26 * s}px Arial, sans-serif`;
+      finalCtx.textAlign = "left";
+      finalCtx.textBaseline = "middle";
+
+      finalCtx.fillText(
+        companyName,
+        textX,
+        headerHeight / 2 - 10 * s
+      );
+
+      // Report subtitle
+      const reportTitle = exportMode === "heatmap"
+        ? "COVERAGE HEATMAP"
+        : exportMode === "dori"
+          ? "CLARITY ZONES (DORI)"
+          : "DESIGNER VIEW";
+
+      finalCtx.fillStyle = "#64748b";
+      finalCtx.font = `${13 * s}px Arial, sans-serif`;
+
+      finalCtx.fillText(
+        reportTitle,
+        textX,
+        headerHeight / 2 + 20 * s
+      );
+
+      // Floor name on the right
+      const activeSlide = slidesRef.current.find(
+        slide => slide.id === activeSlideIdRef.current
+      );
+
+      finalCtx.fillStyle = "#475569";
+      finalCtx.font = `600 ${14 * s}px Arial, sans-serif`;
+      finalCtx.textAlign = "right";
+
+      finalCtx.fillText(
+        activeSlide?.name || "Floor Layout",
+        finalCanvas.width - padding,
+        headerHeight / 2
+      );
+
+      // Draw the COMPLETE original layout below the header.
+      // No cropping, scaling or overlapping of the layout.
+      finalCtx.drawImage(
+        layoutCanvas,
+        0,
+        headerHeight
+      );
+
+      onReady(finalCanvas);
+    };
+
+    watermark.onload = drawHeader;
+    watermark.onerror = drawHeader;
+    watermark.src = logoSrc;
+  };
+
+
+  // Company logo + name go in a separate header ABOVE the layout (never over it)
+  if (overlayOpts) {
+    composeBrandedExportCanvas(oc);
+  } else {
     onReady(oc);
-  };
-
-  // Skip logo if user removed it in preview or if previewing base image
-  if (!overlayOpts || overlayOpts.logo?.show === false) {
-    drawTitleOverlay();
-    return;
   }
-
-  const watermark = new Image();
-  watermark.onload = () => {
-    // skip logic if missing, just do existing drawing then drawTitleOverlay
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.globalAlpha = 1;
-
-    const refW    = oc.width;
-    const scaleMultiplier = overlayOpts?.logo?.scale || 1;
-    const canvasScale = previewSize?.w ? (oc.width / previewSize.w) : (oc.width / 960);
-    const zoom = scaleMultiplier * canvasScale;
-
-    const logoH   = 28 * zoom;
-    const logoW   = (watermark.width / watermark.height) * logoH;
-    const tSize   = 12 * zoom;
-
-    ctx.font = `bold ${tSize}px Inter, Arial, sans-serif`;
-    const textW   = ctx.measureText(companyName).width;
-    const gap     = 8 * zoom;
-    const padX    = 14 * zoom;
-    const padY    = 8 * zoom;
-    const margin  = 12 * canvasScale;
-    const cornerR = 8 * zoom;
-
-    const badgeW = padX * 2 + logoW + gap + textW;
-    const badgeH = Math.max(logoH, tSize) + padY * 2;
-
-    const mappedX = mapCoord(overlayOpts?.logo?.x, previewSize?.w, oc.width);
-    const mappedY = mapCoord(overlayOpts?.logo?.y, previewSize?.h, oc.height);
-    const bx = mappedX !== null ? mappedX : oc.width  - badgeW - margin;
-    const by = mappedY !== null ? mappedY : margin;
-
-    ctx.shadowColor = "rgba(0,0,0,0.18)";
-    ctx.shadowBlur = 14 * zoom;
-    ctx.shadowOffsetY = 3 * zoom;
-
-    ctx.fillStyle = "rgba(255, 255, 255, 0.96)";
-    ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(bx, by, badgeW, badgeH, cornerR);
-    else ctx.rect(bx, by, badgeW, badgeH);
-    ctx.fill();
-
-    ctx.shadowColor = "transparent";
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
-
-    ctx.strokeStyle = "rgba(0,0,0,0.07)";
-    ctx.lineWidth = Math.max(1, 1 * zoom);
-    ctx.stroke();
-
-    const midY = by + badgeH / 2;
-
-    ctx.drawImage(watermark, bx + padX, midY - logoH / 2, logoW, logoH);
-
-    ctx.fillStyle = "#0f172a";
-    ctx.font = `bold ${tSize}px Inter, Arial, sans-serif`;
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    ctx.fillText(companyName, bx + padX + logoW + gap, midY);
-
-    ctx.restore();
-    drawTitleOverlay();
-  };
-  watermark.onerror = () => drawTitleOverlay();
-  watermark.src = logoSrc;
 }
 
   function downloadCanvasAsJpg(canvas, exportMode) {
     if (!canvas) return;
     const a = document.createElement("a");
-    let fname = "designerview.jpg";
-    if (exportMode === "heatmap") fname = "coverage_heatmap.jpg";
-    else if (exportMode === "dori") fname = "Clarityzones.jpg";
-    a.download = fname;
+    const isDori = exportMode === "dori" || Boolean(showPpmRef.current);
+     const floorName = toFileName(slidesRef.current.find(s => s.id === activeSlideIdRef.current)?.name);
+    let suffix = "design";
+    if (exportMode === "heatmap") suffix = "heatmap";
+    else if (isDori) suffix = "clarityzones";
+    a.download = `${floorName}_${suffix}.jpg`;
     a.href = canvas.toDataURL("image/jpeg", 0.95);
     a.click();
   }
@@ -6861,9 +7583,10 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
 
     const placedList = placedRef.current;
     const zonesList = zonesRef.current;
+    const isDori = exportMode === "dori" || Boolean(showPpmRef.current);
     const typeCounts = {};
     placedList.forEach(p => {
-      const t = p.camera.type || "dome";
+      const t = formatCameraStatsLabel(p.camera, cameraDBRef.current);
       typeCounts[t] = (typeCounts[t] || 0) + 1;
     });
     const totalAreaM2 = zonesList.reduce((sum, z) => sum + getPolygonArea(z.polygon, ppmRef.current), 0);
@@ -6894,10 +7617,11 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
 
       doc.addImage(imgData, "JPEG", imgX, imgY, finalImgW, finalImgH);
 
-      let pdfName = "designerview.pdf";
-      if (exportMode === "heatmap") pdfName = "coverage_heatmap.pdf";
-      else if (exportMode === "dori") pdfName = "Clarityzones.pdf";
-      doc.save(pdfName);
+      const floorName = toFileName(slidesRef.current.find(s => s.id === activeSlideIdRef.current)?.name);
+      let suffix = "design";
+      if (exportMode === "heatmap") suffix = "heatmap";
+      else if (isDori) suffix = "clarityzones";
+      doc.save(`${floorName}_${suffix}.pdf`);
     };
 
     buildDoc();
@@ -7027,25 +7751,68 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
   }, []);
 
   // ── Export 2D Map Snapshot (Design / Heatmap PNG) ──
-  const exportMapSnapshot = useCallback((exportMode = "design") => {
-    if (!floorImgRef.current) return;
-    const activeSlide = slidesRef.current.find(s => s.id === activeSlideIdRef.current);
-    const slideName = (activeSlide?.name || "Floor_Design").replace(/\s+/g, "_");
-    
-    buildExportCanvas(exportMode, selectedCompany, null, null, (canvas) => {
+
+const exportMapSnapshot = useCallback((exportMode = "design") => {
+  if (!floorImgRef.current) return;
+
+  const activeSlide = slidesRef.current.find(
+    s => s.id === activeSlideIdRef.current
+  );
+
+  const slideName = toFileName(activeSlide?.name, "Floor_Design");
+
+  const isDoriActive = exportMode === "dori" || Boolean(showPpmRef.current);
+
+  // Enable company logo and company name in downloaded image
+  const exportOptions = {
+    logo: {
+      show: true,
+      x: null,
+      y: null,
+      scale: 1
+    },
+    titleOverlay: {
+      show: false
+    },
+    stats: {
+      show: false
+    },
+    dori: {
+      show: isDoriActive
+    },
+    heatmapLegend: {
+      show: exportMode === "heatmap"
+    }
+  };
+
+  buildExportCanvas(
+    isDoriActive && exportMode === "design" ? "dori" : exportMode,
+    selectedCompany,
+    exportOptions,
+    null,
+    (canvas) => {
       if (!canvas) return;
+
       const a = document.createElement("a");
-      a.download = `${slideName}_${exportMode === "heatmap" ? "heatmap" : "design"}.png`;
+
+      a.download = `${slideName}_${
+        exportMode === "heatmap" ? "heatmap" : isDoriActive ? "clarityzones" : "design"
+      }.png`;
+
       a.href = canvas.toDataURL("image/png");
       a.click();
-    });
-    setFileDropdownOpen(false);
-  }, [selectedCompany]);
+    }
+  );
+
+  setFileDropdownOpen(false);
+
+}, [selectedCompany]);
+
 
   // ── Export AutoCAD DWG File with Camera Layers ──
   const exportCADDesignDWG = useCallback(async () => {
     const activeSlide = slidesRef.current.find(s => s.id === activeSlideIdRef.current);
-    const slideName = (activeSlide?.name || "Floor_Design").replace(/\s+/g, "_");
+    const slideName = toFileName(activeSlide?.name, "Floor_Design");
 
     const payload = {
       filename: `${slideName}.dwg`,
@@ -7273,6 +8040,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                   <button
                     className="dv-dropdown-item-btn"
                     onClick={() => { setFileDropdownOpen(false); fileInputRef.current?.click(); }}
+                   title="Import Floor Plan (Image, PDF, CAD .dwg/.dxf, 3D .glb/.gltf, PowerPoint .ppt/.pptx)"
                   >
                     <div className="dv-dropdown-item-btn__icon">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
@@ -7415,7 +8183,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                           <button
                             className="dv-dropdown-item-btn"
                             style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-light)", padding: "8px 10px" }}
-                            onClick={() => exportMapSnapshot("design")}
+                            onClick={() => { setFileDropdownOpen(false); handleOpenExportPreview("design"); }}
                             title="Download layout snapshot image"
                           >
                             <div className="dv-dropdown-item-btn__icon" style={{ color: "#3b82f6" }}>
@@ -7454,7 +8222,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                               opacity: !showHeatmap ? 0.45 : 1,
                               cursor: !showHeatmap ? "not-allowed" : "pointer"
                             }}
-                            onClick={() => { if (showHeatmap) exportMapSnapshot("heatmap"); }}
+                            onClick={() => { if (showHeatmap) { setFileDropdownOpen(false); handleOpenExportPreview("heatmap"); } }}
                           >
                             <div className="dv-dropdown-item-btn__icon" style={{ color: showHeatmap ? "#f59e0b" : "inherit" }}>
                               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
@@ -7475,7 +8243,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                         <button
                           className="dv-dropdown-item-btn"
                           style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-light)", padding: "8px 10px" }}
-                          onClick={() => exportMapSnapshot("design")}
+                          onClick={() => { setFileDropdownOpen(false); handleOpenExportPreview("design"); }}
                           title="Download layout snapshot image"
                         >
                           <div className="dv-dropdown-item-btn__icon" style={{ color: "#3b82f6" }}>
@@ -7499,7 +8267,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                             opacity: !showHeatmap ? 0.45 : 1,
                             cursor: !showHeatmap ? "not-allowed" : "pointer"
                           }}
-                          onClick={() => { if (showHeatmap) exportMapSnapshot("heatmap"); }}
+                          onClick={() => { if (showHeatmap) { setFileDropdownOpen(false); handleOpenExportPreview("heatmap"); } }}
                         >
                           <div className="dv-dropdown-item-btn__icon" style={{ color: showHeatmap ? "#f59e0b" : "inherit" }}>
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
@@ -7535,7 +8303,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
               )}
             </div>
            
-            <input ref={fileInputRef} type="file" accept="image/*,.pdf,.gltf,.glb,.html,.htm,.dwg,.dxf,.svg" style={{ display: "none" }} onChange={handleFileChange} />
+            <input ref={fileInputRef} type="file" accept="image/*,.pdf,.gltf,.glb,.html,.htm,.dwg,.dxf,.svg,.ppt,.pptx" style={{ display: "none" }} onChange={handleFileChange} />
             <input ref={jsonFileInputRef} type="file" accept=".json" style={{ display: "none" }} onChange={handleJsonImport} />
             <input ref={datasheetInputRef} type="file" accept=".pdf" style={{ display: "none" }} onChange={handleDatasheetUpload} />
 
@@ -8146,9 +8914,114 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                   padding: '12px',
                   boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
                   zIndex: 50,
-                  width: 200,
+                  width: 220,
                   pointerEvents: 'auto'
                 }}>
+                  {/* Beam Intensity & Color */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase" }}>Beam Intensity</div>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: beamColor || "#38bdf8" }}>{Math.round(beamIntensity * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="15"
+                      max="100"
+                      step="5"
+                      value={Math.round(beamIntensity * 100)}
+                      onChange={(e) => {
+                        const val = Math.max(0.15, Math.min(1.0, Number(e.target.value) / 100));
+                        setBeamIntensity(val);
+                        beamIntensityRef.current = val;
+                        const curIdx = slidesRef.current.findIndex(s => s.id === activeSlideIdRef.current);
+                        if (curIdx >= 0) {
+                          slidesRef.current[curIdx] = {
+                            ...slidesRef.current[curIdx],
+                            beamIntensity: val,
+                          };
+                          setSlides([...slidesRef.current]);
+                        }
+                        draw();
+                        scheduleSave(placedRef.current, zonesRef.current, ppmRef.current);
+                      }}
+                      style={{
+                        width: "100%",
+                        height: 6,
+                        borderRadius: 3,
+                        cursor: "pointer",
+                        accentColor: beamColor || "#0ea5e9"
+                      }}
+                      title="Adjust camera beam intensity for this floor"
+                    />
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 2 }}>
+                      <div style={{ fontSize: 10, color: "var(--text-secondary)", fontWeight: 500 }}>Color:</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                        {["#0ea5e9", "#06b6d4", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899"].map(c => (
+                          <button
+                            key={c}
+                            onClick={() => {
+                              setBeamColor(c);
+                              beamColorRef.current = c;
+                              const curIdx = slidesRef.current.findIndex(s => s.id === activeSlideIdRef.current);
+                              if (curIdx >= 0) {
+                                slidesRef.current[curIdx] = {
+                                  ...slidesRef.current[curIdx],
+                                  beamColor: c,
+                                };
+                                setSlides([...slidesRef.current]);
+                              }
+                              draw();
+                              scheduleSave(placedRef.current, zonesRef.current, ppmRef.current);
+                            }}
+                            style={{
+                              width: 16,
+                              height: 16,
+                              borderRadius: "50%",
+                              background: c,
+                              border: beamColor === c ? "2px solid #fff" : "1px solid rgba(255,255,255,0.3)",
+                              boxShadow: beamColor === c ? `0 0 6px ${c}` : "none",
+                              cursor: "pointer",
+                              padding: 0,
+                              outline: "none"
+                            }}
+                            title={`Set beam color: ${c}`}
+                          />
+                        ))}
+                        <input
+                          type="color"
+                          value={beamColor || "#0ea5e9"}
+                          onChange={(e) => {
+                            const c = e.target.value;
+                            setBeamColor(c);
+                            beamColorRef.current = c;
+                            const curIdx = slidesRef.current.findIndex(s => s.id === activeSlideIdRef.current);
+                            if (curIdx >= 0) {
+                              slidesRef.current[curIdx] = {
+                                ...slidesRef.current[curIdx],
+                                beamColor: c,
+                              };
+                              setSlides([...slidesRef.current]);
+                            }
+                            draw();
+                            scheduleSave(placedRef.current, zonesRef.current, ppmRef.current);
+                          }}
+                          style={{
+                            width: 18,
+                            height: 18,
+                            padding: 0,
+                            borderRadius: 3,
+                            border: "1px solid var(--border-light)",
+                            cursor: "pointer",
+                            background: "transparent"
+                          }}
+                          title="Custom beam color"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <hr style={{ border: 0, borderTop: "1px solid var(--border-light)", margin: "2px 0" }} />
+
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase" }}>Camera Icon Size</div>
                     <div style={{ display: "flex", background: "var(--bg-elevated)", borderRadius: 4, overflow: "hidden", alignItems: "center", height: 28, border: '1px solid var(--border-light)', justifyContent: "space-between" }}>
@@ -8452,19 +9325,23 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                       display: "flex",
                       flexDirection: "column",
                       background: "var(--bg-elevated)",
-                      border: isActive ? "1.5px solid var(--button-bg)" : "1px solid var(--border)",
+                      border: isActive
+                        ? "1.5px solid var(--button-bg)"
+                        : (floorImports[slide.id] ? "1.5px solid #3b82f6" : "1px solid var(--border)"),
                       borderRadius: "6px",
                       overflow: "hidden",
                       transition: "all 0.15s ease",
-                      boxShadow: isActive ? "0 0 10px rgba(16, 185, 129, 0.15)" : "none"
+                      boxShadow: floorImports[slide.id]
+                        ? "0 0 10px rgba(59, 130, 246, 0.35)"
+                        : (isActive ? "0 0 10px rgba(16, 185, 129, 0.15)" : "none")
                     }}
                     onMouseEnter={e => {
-                      if (!isActive) {
+                      if (!isActive && !floorImports[slide.id]) {
                         e.currentTarget.style.borderColor = "var(--border-light)";
                       }
                     }}
                     onMouseLeave={e => {
-                      if (!isActive) {
+                      if (!isActive && !floorImports[slide.id]) {
                         e.currentTarget.style.borderColor = "var(--border)";
                       }
                     }}
@@ -8482,6 +9359,42 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                         overflow: "hidden"
                       }}
                     >
+                      {/* Simultaneous Background Loading Overlay on Floor Thumbnail */}
+                      {floorImports[slide.id] && (
+                        <div style={{
+                          position: "absolute",
+                          inset: 0,
+                          background: "rgba(10, 14, 23, 0.88)",
+                          backdropFilter: "blur(2px)",
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: "4px",
+                          zIndex: 10,
+                          padding: "6px"
+                        }}>
+                          <div style={{
+                            width: "18px",
+                            height: "18px",
+                            border: "2.5px solid rgba(59, 130, 246, 0.2)",
+                            borderTopColor: "#3b82f6",
+                            borderRadius: "50%",
+                            animation: "spin 0.8s linear infinite"
+                          }} />
+                          <span style={{ fontSize: "11px", fontWeight: "800", color: "#60a5fa", fontVariantNumeric: "tabular-nums" }}>
+                            {floorImports[slide.id].percent}%
+                          </span>
+                          <div style={{ width: "80%", height: "3px", background: "rgba(255,255,255,0.15)", borderRadius: "2px", overflow: "hidden" }}>
+                            <div style={{
+                              width: `${floorImports[slide.id].percent}%`,
+                              height: "100%",
+                              background: floorImports[slide.id].percent >= 100 ? "#10b981" : "#3b82f6",
+                              transition: "width 0.2s ease"
+                            }} />
+                          </div>
+                        </div>
+                      )}
                       {(() => {
                         const is3D = Boolean(slide.modelDataUrl);
                         const isCad = !is3D && Boolean(
@@ -8490,8 +9403,9 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                           (slide.cadLayers && slide.cadLayers.length > 0) ||
                           /(\.dwg|\.dxf|autocad|cad)/i.test(slide.name || "")
                         );
-                        const badgeType = is3D ? "3D" : isCad ? "CAD" : "2D";
-                        const badgeBg = is3D ? "#10b981" : isCad ? "#8b5cf6" : "#3b82f6";
+                        const isPpt = !is3D && !isCad && /(\.ppt|\.pptx|powerpoint|slide)/i.test(slide.name || "");
+                        const badgeType = is3D ? "3D" : isCad ? "CAD" : isPpt ? "PPT" : "2D";
+                        const badgeBg = is3D ? "#10b981" : isCad ? "#8b5cf6" : isPpt ? "#ea580c" : "#3b82f6";
                         return (
                           <div style={{
                             position: "absolute",
@@ -8698,7 +9612,30 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
                     </div>
                   </div>
                 </div>
-
+                {/* PPT Pages under this floor */}
+                {slide.pages && slide.pages.length > 1 && (
+                  <div style={{ paddingLeft: "28px", display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                    {slide.pages.map((pg, pIdx) => {
+                      const isActivePg = isActive && (slide.pageIndex || 0) === pIdx;
+                      return (
+                        <button
+                          key={pg.id}
+                          onClick={(e) => { e.stopPropagation(); goToPage(slide.id, pIdx); }}
+                          style={{
+                            fontSize: "10.5px", fontWeight: 700, padding: "2px 8px",
+                            borderRadius: "4px", cursor: "pointer",
+                            background: isActivePg ? "rgba(234, 88, 12, 0.2)" : "var(--bg-elevated)",
+                            color: isActivePg ? "#ea580c" : "var(--text-secondary)",
+                            border: isActivePg ? "1px solid #ea580c" : "1px solid var(--border-light)",
+                          }}
+                          title={`Go to page ${pIdx + 1}`}
+                        >
+                          Pg {pIdx + 1}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 {/* Versions Tree */}
                 {slide.versions && slide.versions.length > 0 && expandedVersions[slide.id] && (
                   <div style={{ paddingLeft: "28px", display: "flex", flexDirection: "column", gap: "4px", position: "relative", paddingBottom: "4px" }}>
@@ -9129,6 +10066,100 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
           onDrop={onDrop}
           style={{ position: "relative", zIndex: 1 }}
         >
+          {/* ── Active Floor Import Live Progress Overlay (Non-Blocking) ── */}
+          {floorImports[activeSlideId] && (
+            <div style={{
+              position: "absolute",
+              inset: 0,
+              background: "rgba(10, 14, 23, 0.65)",
+              backdropFilter: "blur(4px)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 90,
+              pointerEvents: "none"
+            }}>
+              <div style={{
+                pointerEvents: "auto",
+                width: "90%",
+                maxWidth: "450px",
+                background: "#161b26",
+                border: "1px solid rgba(59, 130, 246, 0.4)",
+                borderRadius: "14px",
+                padding: "24px 28px",
+                boxShadow: "0 25px 60px rgba(0, 0, 0, 0.8), 0 0 30px rgba(59, 130, 246, 0.2)",
+                display: "flex",
+                flexDirection: "column",
+                gap: "18px",
+                color: "#f1f5f9"
+              }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                    <div style={{
+                      width: "42px",
+                      height: "42px",
+                      borderRadius: "10px",
+                      background: "rgba(59, 130, 246, 0.15)",
+                      border: "1px solid rgba(59, 130, 246, 0.4)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "#60a5fa",
+                      flexShrink: 0
+                    }}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="22" height="22">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                        <line x1="12" y1="18" x2="12" y2="12" />
+                        <line x1="9" y1="15" x2="15" y2="15" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: "15px", fontWeight: 700, color: "#ffffff" }}>
+                        Importing into {floorImports[activeSlideId].floorName}
+                      </div>
+                      <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "2px", maxWidth: "250px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {floorImports[activeSlideId].fileName} {floorImports[activeSlideId].fileSize ? `(${floorImports[activeSlideId].fileSize})` : ""}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{
+                    fontSize: "26px",
+                    fontWeight: 800,
+                    color: floorImports[activeSlideId].percent >= 100 ? "#10b981" : "#3b82f6",
+                    fontVariantNumeric: "tabular-nums"
+                  }}>
+                    {floorImports[activeSlideId].percent}%
+                  </div>
+                </div>
+
+                {/* Progress Bar */}
+                <div style={{
+                  height: "8px",
+                  width: "100%",
+                  background: "rgba(255, 255, 255, 0.08)",
+                  borderRadius: "999px",
+                  overflow: "hidden"
+                }}>
+                  <div style={{
+                    height: "100%",
+                    width: `${floorImports[activeSlideId].percent}%`,
+                    background: floorImports[activeSlideId].percent >= 100
+                      ? "linear-gradient(90deg, #10b981, #34d399)"
+                      : "linear-gradient(90deg, #3b82f6, #60a5fa)",
+                    transition: "width 0.25s ease-out"
+                  }} />
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "12px", color: "#94a3b8" }}>
+                  <span>{floorImports[activeSlideId].stage}</span>
+                  <span style={{ fontSize: "11px", color: "#64748b" }}>You can switch floors while this loads</span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {slides.find(s => s.id === activeSlideId)?.modelDataUrl ? (
             <Gltf3DViewer
               ref={gltfViewerRef}
@@ -9479,7 +10510,7 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
               activeZone={activeZone}
               zones={zones}
               walls={slides.find(s => s.id === activeSlideId)?.walls || []}
-              onlyLegend={true}
+              onlyLegend={false}
               onClose={() => setShowHeatmap(false)}
             />
           )}
@@ -9656,6 +10687,23 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
             </button>
             <div className="dv-zoom-hud-divider" style={{ width: "1px", height: "14px", background: "var(--border-light)", margin: "0 4px" }} />
             <button className="dv-zbtn dv-zbtn--fit" onClick={fitImage}>Fit</button>
+            {(() => {
+              const cs = slides.find(s => s.id === activeSlideId);
+              const n = cs?.pages?.length || 0;
+              if (n < 2) return null;
+              const pi = cs.pageIndex || 0;
+              return (
+                <>
+                  <button className="dv-zbtn" onClick={() => switchPage(pi - 1)} disabled={pi === 0}
+                    title="Previous page" style={{ opacity: pi === 0 ? 0.35 : 1 }}>&lt;</button>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-primary)", minWidth: 44, textAlign: "center" }}>
+                    Pg {pi + 1}/{n}
+                  </span>
+                  <button className="dv-zbtn" onClick={() => switchPage(pi + 1)} disabled={pi === n - 1}
+                    title="Next page" style={{ opacity: pi === n - 1 ? 0.35 : 1 }}>&gt;</button>
+                </>
+              );
+            })()}
             <div className="dv-zoom-hud-divider" style={{ width: "1px", height: "14px", background: "var(--border-light)", margin: "0 4px" }} />
             <button className="dv-zbtn" onClick={() => { const el = wrapRef.current; if (el) applyZoom(-0.2, el.clientWidth / 2, el.clientHeight / 2); }} title="Zoom Out">−</button>
             <div style={{ display: "flex", alignItems: "center" }}>
@@ -10016,10 +11064,12 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
         <ExportPreviewModal
           baseDataUrl={exportPreviewDataUrl}
           exportMode={pendingExportMode}
-          showDori={pendingExportMode === "dori"}
+          showDori={pendingExportMode === "dori" || (pendingExportMode === "design" && Boolean(showPpm))}
           isDownloading={isGeneratingExport}
           onDownload={handleExportDownload}
           selectedCompany={selectedCompany}
+          placed={placed}
+          cameraDB={cameraDB}
           onCancel={() => {
             if (!isGeneratingExport) {
               setExportPreviewOpen(false);
@@ -10032,8 +11082,126 @@ function buildExportCanvas(exportMode = "design", company = "mirador", overlayOp
       )}
       <PremiumPopup {...popupState} />
 
-      {/* Real-time CAD Import Progress Modal */}
-      <CadImportProgressModal progress={cadImportProgress} />
+      {/* ── Multi-Floor Simultaneous Floating Imports Dock ── */}
+      {Object.keys(floorImports).length > 0 && (
+        <div style={{
+          position: "fixed",
+          bottom: "24px",
+          right: "24px",
+          zIndex: 9999,
+          display: "flex",
+          flexDirection: "column",
+          gap: "10px",
+          maxWidth: "380px",
+          pointerEvents: "none"
+        }}>
+          {Object.values(floorImports).map(item => (
+            <div
+              key={item.slideId}
+              style={{
+                pointerEvents: "auto",
+                background: "#161b26",
+                border: item.status === "error"
+                  ? "1px solid rgba(239, 68, 68, 0.5)"
+                  : item.status === "complete"
+                    ? "1px solid rgba(16, 185, 129, 0.6)"
+                    : "1px solid rgba(59, 130, 246, 0.4)",
+                borderRadius: "10px",
+                padding: "14px 18px",
+                boxShadow: "0 10px 30px rgba(0,0,0,0.6)",
+                color: "#f1f5f9",
+                display: "flex",
+                flexDirection: "column",
+                gap: "8px",
+                animation: "slideInUp 0.25s ease",
+                transition: "all 0.2s ease"
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    padding: "2px 6px",
+                    borderRadius: "4px",
+                    background: "rgba(59, 130, 246, 0.2)",
+                    color: "#60a5fa"
+                  }}>
+                    {item.ext || "FILE"}
+                  </span>
+                  <span style={{ fontSize: "13px", fontWeight: 600, color: "#e2e8f0" }}>
+                    {item.floorName}
+                  </span>
+                </div>
+                <span style={{
+                  fontSize: "14px",
+                  fontWeight: 800,
+                  color: item.status === "complete" ? "#10b981" : "#3b82f6",
+                  fontVariantNumeric: "tabular-nums"
+                }}>
+                  {item.percent}%
+                </span>
+              </div>
+
+              <div style={{
+                fontSize: "12px",
+                color: "#94a3b8",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap"
+              }}>
+                {item.fileName} {item.fileSize ? `(${item.fileSize})` : ""}
+              </div>
+
+              {/* Progress Bar */}
+              <div style={{
+                width: "100%",
+                height: "6px",
+                background: "rgba(255, 255, 255, 0.1)",
+                borderRadius: "3px",
+                overflow: "hidden"
+              }}>
+                <div style={{
+                  height: "100%",
+                  width: `${item.percent}%`,
+                  background: item.status === "complete"
+                    ? "linear-gradient(90deg, #10b981, #34d399)"
+                    : "linear-gradient(90deg, #3b82f6, #60a5fa)",
+                  transition: "width 0.25s ease-out"
+                }} />
+              </div>
+
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                fontSize: "11px",
+                color: item.status === "error" ? "#f87171" : "#94a3b8"
+              }}>
+                <span>{item.stage}</span>
+                {activeSlideId !== item.slideId && (
+                  <button
+                    onClick={() => switchSlide(item.slideId)}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      color: "#38bdf8",
+                      cursor: "pointer",
+                      padding: "2px 4px",
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      textDecoration: "underline"
+                    }}
+                  >
+                    View Floor
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Auto Camera Placement Modal */}
       <AutoPlacementModal
@@ -10125,12 +11293,12 @@ function ProjectStatsPanel({
 
   const typeCounts = {};
   activePlaced.forEach(p => {
-    const t = p.camera.type || "dome";
+    const t = formatCameraStatsLabel(p.camera, cameraDB);
     typeCounts[t] = (typeCounts[t] || 0) + 1;
   });
   activeManualCams.forEach(mc => {
     const dbCam = cameraDB.find(c => c.brand === mc.brand && c.model === mc.model);
-    const t = dbCam ? (dbCam.type || "dome") : "dome";
+    const t = formatCameraStatsLabel({ brand: mc.brand, model: mc.model, type: dbCam?.type }, cameraDB);
     typeCounts[t] = (typeCounts[t] || 0) + (Number(mc.qty) || 0);
   });
 

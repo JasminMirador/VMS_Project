@@ -23,11 +23,13 @@ import { analyzeGltfParts } from "./GltfPartAnalyzer.js";
  * @param {number} size – max pixel dimension of output image (default 2048)
  * @returns {Promise<{ dataUrl: string, width: number, height: number }>}
  */
-export async function renderGltfToImage(file, size = 2048) {
+export async function renderGltfToImage(file, size = 2048, onProgress = null) {
   // ── 1. Read file into an ArrayBuffer ────────────────────────────
+  if (onProgress) onProgress(20, "Reading 3D binary data...");
   const arrayBuffer = await file.arrayBuffer();
 
   // ── 2. Load the GLTF/GLB model first to get bounds ─────────────
+  if (onProgress) onProgress(45, "Parsing 3D scene & mesh hierarchies...");
   const loader = new GLTFLoader();
 
   const gltf = await new Promise((resolve, reject) => {
@@ -196,9 +198,11 @@ export async function renderGltfToImage(file, size = 2048) {
   camera.updateProjectionMatrix();
 
   // ── 9. Render ───────────────────────────────────────────────────
+  if (onProgress) onProgress(75, "Rendering top-down 2D floor projection...");
   renderer.render(scene, camera);
 
   // ── 10. Extract image ───────────────────────────────────────────
+  if (onProgress) onProgress(90, "Extracting layout texture...");
   const dataUrl = renderer.domElement.toDataURL("image/png");
 
   // ── 11. Cleanup GPU resources ───────────────────────────────────

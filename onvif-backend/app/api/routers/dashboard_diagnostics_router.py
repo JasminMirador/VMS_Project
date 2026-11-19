@@ -14,6 +14,8 @@ def get_storage_diagnostics():
         
     from app.services.storage import rtsp_recorder as recorder
     rec_dir = recorder.get_recordings_dir()
+    if rec_dir and os.name == 'nt' and len(rec_dir) >= 2 and rec_dir[1] == ':' and (len(rec_dir) == 2 or rec_dir[2] != '\\'):
+        rec_dir = rec_dir[:2] + '\\' + rec_dir[2:]
     
     try:
         usage = shutil.disk_usage(rec_dir if os.path.exists(rec_dir) else "/")
@@ -26,8 +28,9 @@ def get_storage_diagnostics():
 
     usage_pct = round((used_gb / total_gb) * 100, 1) if total_gb > 0 else 0.0
 
-    # Read historical metrics from storage_history
-    history = list(_db["storage_history"].find().sort("timestamp", 1))
+    # Read historical metrics from storage_history for the current active disk
+    disk_filter = {"total_gb": {"$gte": total_gb * 0.85, "$lte": total_gb * 1.15}} if total_gb > 0 else {}
+    history = list(_db["storage_history"].find(disk_filter).sort("timestamp", 1))
     
     avg_daily_consumption = None
     retention_days = None
@@ -38,11 +41,19 @@ def get_storage_diagnostics():
     if len(history) >= 2:
         first = history[0]
         last = history[-1]
-        time_diff = (last["timestamp"] - first["timestamp"]).total_seconds()
+        now_dt = datetime.now()
+        if (now_dt - last["timestamp"]).total_seconds() > 3600 and used_gb > 0:
+            end_ts = now_dt
+            end_used = used_gb
+        else:
+            end_ts = last["timestamp"]
+            end_used = last["used_gb"]
+            
+        time_diff = (end_ts - first["timestamp"]).total_seconds()
         days_elapsed = time_diff / 86400.0
         
         if days_elapsed >= 0.1: # require at least 2.4 hours of historical data
-            used_diff = last["used_gb"] - first["used_gb"]
+            used_diff = end_used - first["used_gb"]
             if used_diff > 0:
                 avg_daily_consumption = round(used_diff / days_elapsed, 2)
                 if avg_daily_consumption > 0:
@@ -102,6 +113,13 @@ def get_storage_diagnostics():
                 "used_gb": h["used_gb"],
                 "free_gb": h["free_gb"]
             })
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        if trend_history[-1]["timestamp"][:10] != now_str[:10]:
+            trend_history.append({
+                "timestamp": now_str,
+                "used_gb": used_gb,
+                "free_gb": free_gb
+            })
     else:
         # fallback to scanned daily sizes if any
         try:
@@ -143,6 +161,19 @@ def get_bitrate_diagnostics(filter_type: str = "1h"):
                 current_bitrate += float(bitrate)
             except:
                 pass
+    if current_bitrate == 0.0:
+        # Fallback to camera_health collection if infrastructure_nodes is not yet populated
+        ch_list = list(_db["camera_health"].find())
+        for ch in ch_list:
+            b = ch.get("bitrate")
+            if b:
+                try:
+                    val = float(b)
+                    if val > 100:
+                        val = val / 1024.0
+                    current_bitrate += val
+                except:
+                    pass
     current_bitrate = round(current_bitrate, 2)
 
     # Fetch bitrate history based on filter
@@ -158,17 +189,26 @@ def get_bitrate_diagnostics(filter_type: str = "1h"):
         {"timestamp": {"$gte": start_time}}
     ).sort("timestamp", 1))
 
-    bitrates = [h["bitrate_mbps"] for h in history] if history else [current_bitrate]
+    bitrates = [h["bitrate_mbps"] for h in history if h.get("bitrate_mbps") is not None] if history else ([current_bitrate] if current_bitrate > 0 else [])
     avg_bitrate = round(sum(bitrates) / len(bitrates), 2) if bitrates else current_bitrate
     peak_bitrate = round(max(bitrates), 2) if bitrates else current_bitrate
 
     trend_data = []
     for h in history:
-        time_str = h["timestamp"].strftime("%H:%M") if filter_type == "1h" else h["timestamp"].strftime("%Y-%m-%d %H:%M")
+        ts = h.get("timestamp")
+        time_str = ts.strftime("%H:%M") if filter_type == "1h" else ts.strftime("%Y-%m-%d %H:%M") if hasattr(ts, "strftime") else str(ts)
         trend_data.append({
             "timestamp": time_str,
-            "bitrate_mbps": h["bitrate_mbps"]
+            "bitrate_mbps": round(float(h.get("bitrate_mbps", 0.0)), 2)
         })
+
+    if current_bitrate > 0:
+        now_time_str = now.strftime("%H:%M") if filter_type == "1h" else now.strftime("%Y-%m-%d %H:%M")
+        if not trend_data or trend_data[-1]["timestamp"] != now_time_str:
+            trend_data.append({
+                "timestamp": now_time_str,
+                "bitrate_mbps": current_bitrate
+            })
 
     return {
         "current_bitrate": current_bitrate,

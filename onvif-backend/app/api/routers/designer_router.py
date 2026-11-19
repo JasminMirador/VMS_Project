@@ -8,6 +8,15 @@ from app.api.routers.auth_router import limiter
 from fastapi import Request
 from app.core.ws_manager import ws_manager
 import os
+import io
+import base64
+import shutil
+import asyncio
+import tempfile
+import subprocess
+import json
+from pathlib import Path
+from fastapi.responses import StreamingResponse
 
 MONGO_URI = os.environ["MONGO_URI"]
 _client   = mongo_client
@@ -260,7 +269,7 @@ def save_designer_layout(req: DesignerSaveRequest):
         {
             "map_id": req.map_id,
             "floor_id": req.floor_id,
-            "client_id": getattr(req, "client_id", None) or (req.dict().get("client_id") if hasattr(req, "dict") else None),
+            "client_id": (req.model_extra or {}).get("client_id"),
             "updated_at": update_doc["updated_at"],
         }
     )
@@ -576,3 +585,223 @@ async def upload_datasheet(request: Request, file: UploadFile = File(...), overw
     except Exception as e:
         print(f"[DATASHEET-UPLOAD] ❌ Failed to process datasheet: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to process datasheet: {str(e)}")
+
+    
+
+# ── POST /api/designer/convert-ppt ───────────────────────────────
+def _soffice_path():
+    env = os.environ.get("SOFFICE_PATH")
+    if env and os.path.exists(env):
+        return env
+    found = shutil.which("soffice") or shutil.which("soffice.exe")
+    if found:
+        return found
+    for p in (
+        r"C:\Program Files\LibreOffice\program\soffice.exe",
+        r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+    ):
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def _fix_pptx_text(src_path):
+    """Stop tiny badge text from wrapping: wrap=none, zero insets."""
+    import zipfile, re
+    tmp = src_path + ".fixed"
+    with zipfile.ZipFile(src_path) as zin, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if re.match(r"ppt/slides/slide\d+\.xml$", item.filename):
+                xml = data.decode("utf-8")
+                xml = re.sub(
+                    r"<a:bodyPr([^>]*?)(/?)>",
+                    lambda m: "<a:bodyPr"
+                        + re.sub(r'\s(wrap|lIns|rIns|tIns|bIns)="[^"]*"', "", m.group(1))
+                        + ' wrap="none" lIns="0" rIns="0" tIns="0" bIns="0"'
+                        + m.group(2) + ">",
+                    xml)
+                data = xml.encode("utf-8")
+            zout.writestr(item, data)
+    os.replace(tmp, src_path)
+
+
+def _run_soffice(soffice, src, d, timeout=300):
+    profile_uri = Path(d, "profile").as_uri()
+    env = os.environ.copy()
+    env["SAL_DISABLEGL"] = "1"          # avoid GPU/OpenGL crashes
+    env["SAL_DISABLE_OPENCL"] = "1"
+    proc = subprocess.run(
+        [soffice, f"-env:UserInstallation={profile_uri}",
+         "--headless", "--norestore", "--nolockcheck", "--nodefault", "--nologo",
+         "--convert-to", "pdf:impress_pdf_Export",
+         "--outdir", d, src],
+        timeout=timeout, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+    )
+    pdf_path = os.path.join(d, Path(src).stem + ".pdf")
+    if proc.returncode != 0 or not os.path.exists(pdf_path):
+        raise RuntimeError(
+            f"soffice rc={proc.returncode} stderr={proc.stderr.decode(errors='ignore')[:500]} "
+            f"stdout={proc.stdout.decode(errors='ignore')[:300]}"
+        )
+    return pdf_path
+
+
+def _convert_ppt_sync(data: bytes, filename: str):
+    import fitz  # PyMuPDF
+    import traceback
+
+    soffice = _soffice_path()
+    if not soffice:
+        raise RuntimeError("LibreOffice (soffice) not found. Install it or set SOFFICE_PATH.")
+
+    ext = os.path.splitext(filename or "")[1].lower()
+    if ext not in (".ppt", ".pptx"):
+        ext = ".pptx"
+
+    with tempfile.TemporaryDirectory() as d:
+        pdf_path = None
+        attempts = [True, False] if ext == ".pptx" else [False]
+        last_err = None
+
+        for use_fix in attempts:
+            sub = os.path.join(d, "fix" if use_fix else "plain")
+            os.makedirs(sub, exist_ok=True)
+            src = os.path.join(sub, "input" + ext)
+            with open(src, "wb") as f:
+                f.write(data)
+            try:
+                if use_fix:
+                    _fix_pptx_text(src)
+                pdf_path = _run_soffice(soffice, src, sub)
+                break
+            except Exception as e:
+                last_err = e
+                print(f"[PPT-CONVERT] attempt (fix={use_fix}) failed: {e}")
+                traceback.print_exc()
+
+        if not pdf_path:
+            raise RuntimeError(str(last_err))
+
+        slides = []
+        doc = fitz.open(pdf_path)
+        for i, page in enumerate(doc):
+            pix = page.get_pixmap(dpi=150)
+            b64 = base64.b64encode(pix.tobytes("png")).decode()
+            slides.append({
+                "slideIndex": i + 1,
+                "name": f"Slide {i + 1}",
+                "dataUrl": "data:image/png;base64," + b64,
+            })
+        doc.close()
+        return slides
+
+@router.post("/convert-ppt", dependencies=[Depends(verify_token)])
+async def convert_ppt(file: UploadFile = File(...)):
+    """Converts .ppt/.pptx to one PNG per slide using LibreOffice + PyMuPDF."""
+    data = await file.read()
+    if len(data) > 30 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 30MB).")
+    try:
+        slides = await asyncio.to_thread(_convert_ppt_sync, data, file.filename)
+        return {"slides": slides}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"[PPT-CONVERT] ❌ {e}")
+        raise HTTPException(status_code=500, detail=f"PPT conversion failed: {str(e)}")
+
+# ── POST /api/designer/convert-ppt-stream ────────────────────────
+def _ndjson(obj):
+    return (json.dumps(obj) + "\n").encode("utf-8")
+
+
+def _ppt_to_pdf(data: bytes, filename: str, d: str):
+    """Same logic as the first half of _convert_ppt_sync, but works in dir `d`."""
+    import traceback
+    soffice = _soffice_path()
+    if not soffice:
+        raise RuntimeError("LibreOffice (soffice) not found. Install it or set SOFFICE_PATH.")
+
+    ext = os.path.splitext(filename or "")[1].lower()
+    if ext not in (".ppt", ".pptx"):
+        ext = ".pptx"
+
+    attempts = [True, False] if ext == ".pptx" else [False]
+    last_err = None
+    for use_fix in attempts:
+        sub = os.path.join(d, "fix" if use_fix else "plain")
+        os.makedirs(sub, exist_ok=True)
+        src = os.path.join(sub, "input" + ext)
+        with open(src, "wb") as f:
+            f.write(data)
+        try:
+            if use_fix:
+                _fix_pptx_text(src)
+            return _run_soffice(soffice, src, sub)
+        except Exception as e:
+            last_err = e
+            print(f"[PPT-CONVERT] attempt (fix={use_fix}) failed: {e}")
+            traceback.print_exc()
+    raise RuntimeError(str(last_err))
+
+
+def _render_pdf_page(doc, i):
+    page = doc[i]
+    pix = page.get_pixmap(dpi=150)
+    b64 = base64.b64encode(pix.tobytes("png")).decode()
+    return {
+        "slideIndex": i + 1,
+        "name": f"Slide {i + 1}",
+        "dataUrl": "data:image/png;base64," + b64,
+    }
+
+
+@router.post("/convert-ppt-stream", dependencies=[Depends(verify_token)])
+async def convert_ppt_stream(file: UploadFile = File(...)):
+    """Streams NDJSON: progress events, one 'slide' event per page, then 'done'."""
+    data = await file.read()
+    if len(data) > 30 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 30MB).")
+    filename = file.filename
+
+    async def gen():
+        import fitz
+        d = tempfile.mkdtemp()
+        try:
+            yield _ndjson({"type": "progress", "percent": 35, "stage": "Converting presentation…"})
+
+            task = asyncio.create_task(asyncio.to_thread(_ppt_to_pdf, data, filename, d))
+            pct = 35.0
+            while not task.done():
+                await asyncio.sleep(0.7)
+                pct = min(64.0, pct + (64.0 - pct) * 0.08)   # estimated creep 35 → 64
+                yield _ndjson({"type": "progress", "percent": round(pct, 1),
+                               "stage": "Converting presentation…"})
+            pdf_path = await task
+
+            doc = fitz.open(pdf_path)
+            total = len(doc)
+            yield _ndjson({"type": "progress", "percent": 65,
+                           "stage": f"Rendering {total} page(s)…"})
+            for i in range(total):
+                slide = await asyncio.to_thread(_render_pdf_page, doc, i)
+                yield _ndjson({
+                    "type": "slide",
+                    "slide": slide,
+                    "percent": 65 + round(35 * (i + 1) / total, 1),
+                    "stage": f"Rendering page {i + 1} of {total}…",
+                })
+            doc.close()
+            yield _ndjson({"type": "done", "percent": 100})
+        except Exception as e:
+            print(f"[PPT-CONVERT] ❌ {e}")
+            yield _ndjson({"type": "error", "detail": str(e)})
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    return StreamingResponse(
+        gen(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

@@ -1,15 +1,16 @@
 import { useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { apiUrl } from "../config/appConfig";
 
-const API_BASE = import.meta.env.VITE_API_URL;
+
 
 
 export const logUIAction = async (user, action, category, details = {}) => {
   if (!user) return;
 console.log("LOG USER:", user);
   try {
-    await fetch(`${API_BASE}/api/logs/ui`, {
+    await fetch(apiUrl("/logs/ui"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
