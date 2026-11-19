@@ -10,7 +10,6 @@ from datetime import datetime, timedelta
 from minio import Minio
 import pymongo
 
-os.environ.setdefault('MONGO_DB_NAME', 'vms_demo')
 import sys
 from dotenv import load_dotenv
 
@@ -54,17 +53,18 @@ minio_client = Minio(
 # Connect to Dedicated VMS Redis Server
 redis_client = None
 try:
-    redis_port = int(os.environ.get("RECORDER_REDIS_PORT") or os.environ.get("REDIS_PORT") or 6379)
+    redis_host = os.environ["REDIS_HOST"]
+    redis_port = int(os.environ["RECORDER_REDIS_PORT"])
     redis_client = redis.Redis(
-        host=os.environ["REDIS_HOST"],
-        port=int(os.environ["RECORDER_REDIS_PORT"]),
+        host=redis_host,
+        port=redis_port,
         db=1,
         socket_timeout=15,
         socket_connect_timeout=5,
         health_check_interval=30
     )
     redis_client.ping()
-    print(f"[REDIS] Connected to Redis on {os.environ.get('REDIS_HOST', '127.0.0.1')}:{redis_port}")
+    print(f"[REDIS] Connected to Redis on {redis_host}:{redis_port}")
 except Exception as e:
     print(f"[ERROR] Could not connect to Redis: {e}")
 

@@ -1218,7 +1218,7 @@ def list_nvr_cameras():
     """Returns cameras that are channels on an NVR."""
     try:
         from app.services.camera.nvr_service import is_nvr_camera
-        db_name = os.environ.get("MONGO_DB_NAME", "vms_demo")
+        db_name = os.environ("MONGO_DB_NAME")
         cameras_col = mongo_client[db_name]["cameras"]
         all_cams = list(cameras_col.find({"enabled": {"$ne": False}}))
         nvr_cams = []
@@ -1243,7 +1243,7 @@ def list_nvr_recordings(stream_key: str = Query(...), date: str = Query(...)):
     """Queries NVR directly for recorded files on the specified channel and date."""
     try:
         from app.services.camera.nvr_service import query_dahua_recordings, extract_nvr_channel
-        db_name = os.environ.get("MONGO_DB_NAME", "vms_demo")
+        db_name = os.environ("MONGO_DB_NAME")
         cameras_col = mongo_client[db_name]["cameras"]
         cam = cameras_col.find_one({"stream_key": stream_key})
         if not cam:
@@ -1286,7 +1286,7 @@ def play_nvr_recording(
         from requests.auth import HTTPDigestAuth
         from app.services.camera.nvr_service import build_dahua_playback_rtsp, extract_nvr_channel
 
-        db_name = os.environ.get("MONGO_DB_NAME", "vms_demo")
+        db_name = os.environ("MONGO_DB_NAME")
         cameras_col = mongo_client[db_name]["cameras"]
         cam = cameras_col.find_one({"stream_key": stream_key})
         if not cam:
