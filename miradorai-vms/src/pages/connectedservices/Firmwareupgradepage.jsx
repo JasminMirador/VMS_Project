@@ -1,6 +1,6 @@
 import { useState } from "react";
 import Button from "../../components/shared/Button";
-import "./FirmwareUpgradePage.css";
+import "./Firmwareupgradepage.css";
 
 const CHECK_INTERVALS = [
   "Every Start-Up",

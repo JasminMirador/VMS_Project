@@ -223,7 +223,7 @@ function slimFloorsForUpload(floors) {
   });
 }
 
-const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // keep under your server/proxy limit
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // keep under your server/proxy limit
 
 async function apiSaveMap(floors, clientId = null) {
   const body = JSON.stringify({ map_id: MAP_ID, client_id: clientId, floors: slimFloorsForUpload(floors) });
@@ -979,6 +979,41 @@ export default function MapViewPage() {
   const [tooltip,          setTooltip]          = useState({ visible: false, x: 0, y: 0, text: "" });
   const [ctxMenu,          setCtxMenu]          = useState({ visible: false, x: 0, y: 0, idx: -1 });
   const [streamCam,        setStreamCam]        = useState(null);
+  const [hoveredCamMarker, setHoveredCamMarker] = useState(null);
+  const hoveredCamMarkerRef = useRef(null);
+  useEffect(() => { hoveredCamMarkerRef.current = hoveredCamMarker; }, [hoveredCamMarker]);
+  const isHoveringThumbRef  = useRef(false);
+  const leaveTimeoutRef     = useRef(null);
+
+  const handleThumbMouseEnter = useCallback(() => {
+    isHoveringThumbRef.current = true;
+    if (leaveTimeoutRef.current) {
+      clearTimeout(leaveTimeoutRef.current);
+      leaveTimeoutRef.current = null;
+    }
+  }, []);
+
+  const handleThumbMouseLeave = useCallback(() => {
+    isHoveringThumbRef.current = false;
+    if (leaveTimeoutRef.current) clearTimeout(leaveTimeoutRef.current);
+    leaveTimeoutRef.current = setTimeout(() => {
+      if (!isHoveringThumbRef.current) {
+        setHoveredCamMarker(null);
+      }
+      leaveTimeoutRef.current = null;
+    }, 250);
+  }, []);
+
+  useEffect(() => {
+    setHoveredCamMarker(null);
+  }, [activeFloor]);
+
+  useEffect(() => {
+    return () => {
+      if (leaveTimeoutRef.current) clearTimeout(leaveTimeoutRef.current);
+    };
+  }, []);
+
   const [showHeatmap,      setShowHeatmap]      = useState(false);
   const [virtualMode,      setVirtualMode]      = useState(() => {
     return localStorage.getItem("miradorai_virtualMode") === "true";
@@ -1374,18 +1409,24 @@ export default function MapViewPage() {
     );
 
     if (isValidImageUrl(effectiveImageUrl)) {
-      const img   = new Image();
-      img.onload  = () => { 
-        floorImgRef.current = img; 
-        setHasFloor(true); 
-        fitImage(); 
+      if (floorImgRef.current && floorImgRef.current.src === effectiveImageUrl) {
+        setHasFloor(true);
+        canvasApiRef.current?.drawAll();
         wrapRef.current?.__vtReposition?.();
-      };
-      img.onerror = () => {
-        floorImgRef.current = null;
-        setHasFloor(false);
-      };
-      img.src     = effectiveImageUrl;
+      } else {
+        const img   = new Image();
+        img.onload  = () => { 
+          floorImgRef.current = img; 
+          setHasFloor(true); 
+          fitImage(); 
+          wrapRef.current?.__vtReposition?.();
+        };
+        img.onerror = () => {
+          floorImgRef.current = null;
+          setHasFloor(false);
+        };
+        img.src     = effectiveImageUrl;
+      }
     } else if (fl.modelDataUrl) {
       floorImgRef.current = null;
       setHasFloor(true);
@@ -1490,6 +1531,7 @@ export default function MapViewPage() {
 
       const savedFloorIdx = Number(localStorage.getItem("miradorai_active_floor_index") || 0);
 
+      let hasLocalFloors = false;
       if (dbFloors?.length) {
         const sanitized = dbFloors.map(hydrateFloorWithLatestVersion);
         setFloors(sanitized);
@@ -1497,6 +1539,7 @@ export default function MapViewPage() {
         const validIdx = savedFloorIdx < sanitized.length ? savedFloorIdx : 0;
         setActiveFloor(validIdx);
         loadFloor(validIdx, sanitized);
+        hasLocalFloors = true;
       } else {
         const cached = lsLoad();
         if (cached?.length) {
@@ -1506,25 +1549,27 @@ export default function MapViewPage() {
           const validIdx = savedFloorIdx < sanitized.length ? savedFloorIdx : 0;
           setActiveFloor(validIdx);
           loadFloor(validIdx, sanitized);
+          hasLocalFloors = true;
         }
       }
 
-      let models = [];
-      try {
-        const mr = await fetch(apiUrl("/designer/camera-models"), { headers: getAuthHeaders() });
-        if (mr.ok) {
-          const mj = await mr.json();
-          models = mj.cameras || [];
-        }
-      } catch {}
+      // Instant cache render: if local floors exist, unblock the UI immediately!
+      if (hasLocalFloors) {
+        setPageLoad(false);
+      }
 
+      // Parallelize camera-models, cameras, and map fetches concurrently
+      const [modelsResult, camerasResult, mapResult] = await Promise.allSettled([
+        fetch(apiUrl("/designer/camera-models"), { headers: getAuthHeaders() }).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetchCameras().catch(() => []),
+        apiGetMap(),
+      ]);
+
+      const models = (modelsResult.status === "fulfilled" && modelsResult.value?.cameras) ? modelsResult.value.cameras : [];
       let cams = [];
-      try {
-        const rawDevices = await fetchCameras();
-        if (rawDevices && rawDevices.length) {
-          cams = normalizeCams(rawDevices, models);
-        }
-      } catch {}
+      if (camerasResult.status === "fulfilled" && camerasResult.value?.length) {
+        cams = normalizeCams(camerasResult.value, models);
+      }
       if (!cams.length) {
         try { cams = normalizeCams(JSON.parse(localStorage.getItem("miradorai_devices") || "[]"), models); }
         catch {}
@@ -1532,16 +1577,23 @@ export default function MapViewPage() {
       setCameras(cams);
 
       try {
-        const data = await apiGetMap();
+        if (mapResult.status !== "fulfilled" || !mapResult.value) {
+          if (mapResult.status === "rejected") {
+            const e = mapResult.reason;
+            if (e?.message === "401") authFailedRef.current = true;
+          }
+          setStatus(dbFloors?.length ? "Map restored from storage" : "Import a floor plan to start");
+        } else {
+          const data = mapResult.value;
 
-        if (data.zones?.length && !dbZones?.length) {
-          setZones(data.zones);
-          zonesRef.current = data.zones;
-          saveZonesDB(MAP_ID, data.zones);
-          lsZoneSave(data.zones);
-        }
+          if (data.zones?.length && !dbZones?.length) {
+            setZones(data.zones);
+            zonesRef.current = data.zones;
+            saveZonesDB(MAP_ID, data.zones);
+            lsZoneSave(data.zones);
+          }
 
-        if (data.floors?.length) {
+          if (data.floors?.length) {
           // Merge with local dbFloors so full modelDataUrl/imageDataUrl, versions, and any locally created extra floors are never lost
           const maxLength = Math.max(data.floors.length, (dbFloors || []).length);
           const mergedFloors = [];
@@ -1680,6 +1732,7 @@ export default function MapViewPage() {
         } else {
           setStatus("Map restored from cache - select a camera then click to place");
         }
+        }
       } catch (e) {
         if (e.message === "401") authFailedRef.current = true;
         setStatus(dbFloors?.length ? "Map restored from storage" : "Import a floor plan to start");
@@ -1688,10 +1741,10 @@ export default function MapViewPage() {
       }
     }
     
-    // Fallback: force loading false after 5 seconds just in case API hangs
+    // Fallback: force loading false after 2 seconds just in case API hangs
     const fallbackTimer = setTimeout(() => {
       setPageLoad(false);
-    }, 5000);
+    }, 2000);
 
     init();
     
@@ -1969,17 +2022,28 @@ export default function MapViewPage() {
       hoveredIdxRef.current = idx;
       canvasApiRef.current?.drawAll();
     }
-    if (idx >= 0) {
+    if (idx >= 0 && !selectedCamRef.current) {
       const m   = markersRef.current[idx];
-      const cam = cameras.find(c => c.id === m.camId) || {
-        id:     m.camId,
-        name:   m.camName || m.camId,
-        ip:     m.camIp || "",
-        status: "offline",
-        isDeleted: true
-      };
+      if (leaveTimeoutRef.current) {
+        clearTimeout(leaveTimeoutRef.current);
+        leaveTimeoutRef.current = null;
+      }
+      setHoveredCamMarker(prev => {
+        if (prev?.marker?.camId === m.camId && prev?.index === idx) return prev;
+        return { marker: m, index: idx };
+      });
       setTooltip(t => ({ ...t, visible: false }));
     } else {
+      if (hoveredCamMarkerRef.current && !isHoveringThumbRef.current) {
+        if (!leaveTimeoutRef.current) {
+          leaveTimeoutRef.current = setTimeout(() => {
+            if (!isHoveringThumbRef.current) {
+              setHoveredCamMarker(null);
+            }
+            leaveTimeoutRef.current = null;
+          }, 250);
+        }
+      }
       const hoveredZone = zonesRef.current
         .filter(z => z.floorIndex === activeFloor)
         .find(z => z.polygon?.length >= 3 && pointInPolygon(p.x, p.y, z.polygon));
@@ -2010,6 +2074,11 @@ export default function MapViewPage() {
   const onMouseDown = useCallback(e => {
     if (!floorImgRef.current || e.button === 2) return;
     setCtxMenu(c => ({ ...c, visible: false }));
+    if (leaveTimeoutRef.current) {
+      clearTimeout(leaveTimeoutRef.current);
+      leaveTimeoutRef.current = null;
+    }
+    setHoveredCamMarker(null);
     mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
     const p = toImg(e.clientX, e.clientY);
 
@@ -2259,6 +2328,7 @@ export default function MapViewPage() {
         status: "offline",
         isDeleted: true
       };
+      setHoveredCamMarker(null);
       setStreamCam(null);
       setTimeout(() => setStreamCam(cam), 50);
     }
@@ -2437,10 +2507,10 @@ export default function MapViewPage() {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Security Fix: Enforce file size restriction (5MB)
-    const MAX_FILE_SIZE = 5 * 1024 * 1024;
+    // Security Fix: Enforce file size restriction (50MB)
+    const MAX_FILE_SIZE = 50 * 1024 * 1024;
     if (file.size > MAX_FILE_SIZE) {
-      alert("File upload failed. The selected file exceeds the maximum allowed size of 5MB.");
+      alert("File upload failed. The selected file exceeds the maximum allowed size of 50MB.");
       e.target.value = "";
       return;
     }
@@ -4737,6 +4807,16 @@ export default function MapViewPage() {
                       setTooltip(t => ({ ...t, visible: false }));
                       hoveredIdxRef.current = -1;
                       canvasApiRef.current?.drawAll();
+                      if (hoveredCamMarkerRef.current && !isHoveringThumbRef.current) {
+                        if (!leaveTimeoutRef.current) {
+                          leaveTimeoutRef.current = setTimeout(() => {
+                            if (!isHoveringThumbRef.current) {
+                              setHoveredCamMarker(null);
+                            }
+                            leaveTimeoutRef.current = null;
+                          }, 250);
+                        }
+                      }
                     }}
                     onContextMenu={onContextMenu}
                     iconScale={iconScale}
@@ -4889,9 +4969,15 @@ export default function MapViewPage() {
             floorImgRef={floorImgRef}
             expandedCamId={expandedCamId}
             onClose={() => setExpandedCamId(null)}
-            onExpand={setExpandedCamId}
+            onExpand={(camId) => {
+              setHoveredCamMarker(null);
+              setExpandedCamId(camId);
+            }}
             alertCounts={alertCounts}
             is3D={Boolean(floors[activeFloor]?.modelDataUrl)}
+            hoveredCamMarker={hoveredCamMarker}
+            onThumbMouseEnter={handleThumbMouseEnter}
+            onThumbMouseLeave={handleThumbMouseLeave}
           />
 
           {/* Configuration panel modal */}
@@ -5083,6 +5169,7 @@ export default function MapViewPage() {
                               onDragStart={c => { dragCamRef.current = c; }}
                               marker={canvasMarkers.find(m => m.camId === cam.id)}
                               calibration={floors[activeFloor]?.calibration}
+                              alertCount={alertCounts[cam.ip] || 0}
                             />
                           ))
 

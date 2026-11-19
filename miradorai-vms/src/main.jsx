@@ -3,7 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import Toast from "./components/shared/Toast";
 import "./styles/global.css";
-import "./mobile.css";
+import "./styles/mobile.css";
 import "./styles/button-theme.css";
 import "./styles/table-theme.css";
 import { prefixes, getEnv } from "./config/appConfig";
@@ -89,10 +89,9 @@ window.fetch = async (...args) => {
 
   // Attach SSO JWT token to all integration server calls.
   // Covers both direct calls (external AI port) and calls via the /external-ai-api proxy.
-  // But NOT to the keybasedlogin endpoint itself (that's where we get the token).
   const isIntegrationCall = (
     typeof resource === 'string' && (
-      (resource.includes(':' + externalAiPort) && !resource.includes(p.unsecure + '/keybasedlogin')) ||
+      resource.includes(':' + externalAiPort) ||
       resource.includes(p.externalAi)
     )
   );
@@ -111,7 +110,7 @@ window.fetch = async (...args) => {
   const response = await originalFetch(resource, config);
  
   // Handle unauthorized responses globally
-  if (response.status === 401 && !resource.includes(p.api + '/auth/') && !resource.includes(p.unsecure + '/keybasedlogin')) {
+  if (response.status === 401 && !resource.includes(p.api + '/auth/')) {
     console.warn("Unauthorized API call:", resource);
     const hadToken = Boolean((localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")));
     
@@ -122,7 +121,7 @@ window.fetch = async (...args) => {
       sessionStorage.removeItem('miradorai_user');
       sessionStorage.removeItem('miradorai_token');
       sessionStorage.removeItem('miradorai_session_id');
-      window.location.href = '/';
+      window.location.href = '/login';
     }
   }
  

@@ -1,8 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { encryptPassword, getPublicKey } from "../utils/crypto";
 import { useWebSocket } from "../hooks/useWebSocket";
-import { fetchAndCacheAiIp } from "../utils/aiIntegration";
-import { unsecureUrl, getEnv, apiUrl } from '../config/appConfig';
+import { apiUrl } from '../config/appConfig';
 
 const AuthContext = createContext();
 
@@ -23,90 +22,6 @@ export const useAuth = () => {
 
 // Change this to your backend URL if different
 
-// Mirador Analytics AI — key-based SSO
-const SSO_APP_NAME = "vms";
-const SSO_TOKEN_KEY = "miradorai_sso_token";
-const SSO_TOKEN_EXPIRY_KEY = "miradorai_sso_token_expiry";
-
-/**
- * Silently fetches a short-lived SSO JWT using the VMS access token.
- * Resolves the AI server IP dynamically from /api/integrations (with localStorage cache).
- * Stores the result in localStorage so AiAnalyticsPage can consume it.
- */
-const fetchSsoToken = async (accessToken) => {
-  if (!accessToken) return;
-  try {
-    // Resolve AI server IP from integrations
-    const aiIp = await fetchAndCacheAiIp();
-    
-    // Hit the remote IP directly (no proxy)
-    const ssoPort = getEnv("SSO_PORT");
-    const ssoUrl = unsecureUrl(aiIp, "/keybasedlogin", ssoPort);
-    console.log("[SSO] Calling keybasedlogin directly at:", ssoUrl);
-
-    // Fetch integrations to get appName and accessToken
-    let ssoAppName = "vms";
-    let ssoAccessToken = "uUlAaZ3xCg8zc5C4_MfvngOtWuWfQdazAB53K5M4Zcc";
-    try {
-      const tokenForApi = getAuthItem("token") || getAuthItem("miradorai_token");
-      const integRes = await fetch(apiUrl('/integrations'), {
-        headers: { Authorization: tokenForApi ? `Bearer ${tokenForApi}` : "" }
-      });
-      if (integRes.ok) {
-        const integrations = await integRes.json();
-        // find the one that has appName and accessToken
-        const aiInteg = integrations.find(c => (c.type === "Mirador AI" || c.appName) && c.accessToken);
-        if (aiInteg && aiInteg.appName && aiInteg.accessToken) {
-          ssoAppName = aiInteg.appName;
-          ssoAccessToken = aiInteg.accessToken;
-        }
-      }
-    } catch (e) {
-      console.warn("[SSO] Failed to fetch dynamic appName and accessToken from integrations", e);
-    }
-
-
-    const res = await fetch(ssoUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        accessToken: ssoAccessToken, 
-        appName: ssoAppName 
-
-      }),
-    });
-    let data = null;
-    try {
-      data = await res.json();
-      console.log("[SSO] Full response data from keybasedlogin:", data);
-    } catch (e) {
-      console.error("[SSO] Could not parse JSON from response:", e);
-    }
-
-    if (!res.ok) {
-      console.warn("[SSO] keybasedlogin returned", res.status, data);
-      return;
-    }
-    
-    if (data?.token) {
-      // Get the tokenType from the response, fallback to 'Bearer'
-      const tokenType = data.tokenType || "Bearer";
-      const formattedToken = `${tokenType} ${data.token}`;
-      
-      console.log("[SSO] Successfully received token:", formattedToken);
-      localStorage.setItem(SSO_TOKEN_KEY, formattedToken);
-      
-      // Store expiry as Unix ms so we can refresh proactively
-      const expiresInMs = (data.expiresIn || 3600) * 1000;
-      localStorage.setItem(SSO_TOKEN_EXPIRY_KEY, String(Date.now() + expiresInMs));
-      console.log("[SSO] SSO token obtained from", aiIp, "— expires in", data.expiresIn, "ms");
-    }
-  } catch (err) {
-    // Non-blocking — VMS login should still succeed even if SSO fails
-    console.warn("[SSO] fetchSsoToken failed:", err.message);
-  }
-};
-
 const AUTH_KEYS = ["miradorai_user", "miradorai_token", "miradorai_session_id"];
 
 // Read auth item (always prefers localStorage, falls back to sessionStorage for legacy migration)
@@ -126,10 +41,25 @@ const setAuthItems = (items) => {
 };
 
 const clearAuthItems = () => {
-  AUTH_KEYS.forEach((key) => {
-    localStorage.removeItem(key);
-    sessionStorage.removeItem(key);
-  });
+  try {
+    // Preserve harmless UI preferences (visual theme & language)
+    const preserved = {
+      miradorai_theme: localStorage.getItem("miradorai_theme"),
+      mirador_language: localStorage.getItem("mirador_language"),
+    };
+
+    localStorage.clear();
+    sessionStorage.clear();
+
+    // Re-apply preserved preferences
+    Object.entries(preserved).forEach(([key, val]) => {
+      if (val !== null && val !== undefined) {
+        localStorage.setItem(key, val);
+      }
+    });
+  } catch (err) {
+    console.error("[AUTH] Error clearing storage:", err);
+  }
 };
 
 export const AuthProvider = ({ children }) => {
@@ -168,17 +98,27 @@ export const AuthProvider = ({ children }) => {
       const currentSession = getAuthItem("miradorai_session_id");
       if (!currentSession) return; // ignore if we don't have a session locally
 
-      if (lastEvent.data?.user_email === user.email && lastEvent.data?.session_id !== currentSession) {
-        const removed =
-          lastEvent.data?.reason === "account_removed" || lastEvent.data?.session_id == null;
-        alert(
-          removed
-            ? "Your account has been removed or is no longer active. You have been logged out."
-            : "Session expired: Another session has been initiated under this account."
-        );
-        setUser(null);
-        setSupervisorUnlocked(false);
-        clearAuthItems();
+      if (lastEvent.data?.user_email === user.email) {
+        const isAccountRemoved =
+          lastEvent.data?.reason === "account_removed" ||
+          (!lastEvent.data?.revoked_session_ids && lastEvent.data?.session_id == null);
+
+        const isThisSessionRevoked =
+          Array.isArray(lastEvent.data?.revoked_session_ids)
+            ? lastEvent.data.revoked_session_ids.includes(currentSession)
+            : (lastEvent.data?.session_id && lastEvent.data.session_id !== currentSession);
+
+        if (isAccountRemoved || isThisSessionRevoked) {
+          alert(
+            isAccountRemoved
+              ? "Your account has been removed or is no longer active. You have been logged out."
+              : "Session expired: Another session has been initiated under this account."
+          );
+          setUser(null);
+          setSupervisorUnlocked(false);
+          clearAuthItems();
+          window.location.href = "/login";
+        }
       }
     }
   }, [lastEvent, user]);
@@ -188,9 +128,8 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
     setSupervisorUnlocked(false);
     clearAuthItems();
-    localStorage.removeItem(SSO_TOKEN_KEY);
-    localStorage.removeItem(SSO_TOKEN_EXPIRY_KEY);
     if (message) alert(message);
+    window.location.href = "/login";
   }, []);
 
   // Verify the session with the backend on load, on tab focus, and every 60s
@@ -445,9 +384,6 @@ export const AuthProvider = ({ children }) => {
     keepLoggedIn
   );
 
-  // 🔑 Silently obtain an SSO token for the AI Analytics iframe
-  fetchSsoToken(data.token);
-
   return {
     success: true,
     has_active_session: false,
@@ -628,9 +564,8 @@ export const AuthProvider = ({ children }) => {
     } catch (e) {
       console.error("Window closure blocked by browser policy.", e);
     }
-    // Clear SSO token
-    localStorage.removeItem("miradorai_sso_token");
-    localStorage.removeItem("miradorai_sso_token_expiry");
+    // Cleanly redirect to root / login page
+    window.location.href = "/login";
   };
 
   const isAdmin        = user?.role === "admin";
@@ -648,7 +583,6 @@ export const AuthProvider = ({ children }) => {
       },
       keepLoggedIn
     );
-    fetchSsoToken(token);
   };
 
   return (

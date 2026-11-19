@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import SplashScreen from "../../components/layout/SplashScreen";
 import { fetchAndCacheAiIp, getCachedAiIp } from "../../utils/aiIntegration";
 import "./AiAnalyticsPage.css";
-import { unsecureUrl, apiUrl } from '../../config/appConfig';
+import { apiUrl } from '../../config/appConfig';
 
 export default function AiAnalyticsPage() {
   const [showSplash, setShowSplash] = useState(true);
@@ -71,7 +71,7 @@ export default function AiAnalyticsPage() {
         if (ssoAccessToken) aiIntegrationUrl += `&accessToken=${encodeURIComponent(ssoAccessToken)}`;
 
 
-        const framedUrl = aiIntegrationUrl.replace("/ai-integration", "");
+        // const framedUrl = aiIntegrationUrl.replace("/ai-integration", "");
 
         // 1. First trigger the iframe call to the ai-integration URL (visible under Doc in Network tab)
         setIframeSrc(aiIntegrationUrl);
@@ -87,30 +87,34 @@ export default function AiAnalyticsPage() {
   }, [externalAiIp, iframeSrc]);
 
   return (
-    <>
+    <div className="ai-analytics-page">
       {showSplash && (
         <SplashScreen
+          embedded={true}
           onDone={handleSplashDone}
           title="MIRADOR AI"
           subtitle="ANALYTICS"
         />
       )}
       <div
-        className="ai-analytics-page"
-        style={{ opacity: contentVisible ? 1 : 0, transition: "opacity 0.5s ease", display: showSplash ? "none" : "flex", height: "100%", width: "100%" }}
+        className="ai-analytics-content"
+        style={{
+          width: "100%",
+          height: "100%",
+          opacity: contentVisible ? 1 : 0,
+          transition: "opacity 0.4s ease",
+        }}
       >
-        <div className="ai-analytics-content" style={{ width: "100%", height: "100%" }}>
-          {iframeSrc && (
-            <iframe
-              src={iframeSrc}
-              title="MIRADOR AI Analytics Dashboard"
-              className="ai-analytics-iframe"
-              style={{ width: "100%", height: "100%", border: "none" }}
-            />
-          )}
-        </div>
+        {iframeSrc && (
+          <iframe
+            src={iframeSrc}
+            title="MIRADOR AI Analytics Dashboard"
+            className="ai-analytics-iframe"
+            style={{ width: "100%", height: "100%", border: "none" }}
+          />
+        )}
       </div>
-    </>
+    </div>
   );
 }
 

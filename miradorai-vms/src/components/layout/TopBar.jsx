@@ -9,6 +9,7 @@ import logoImg from "../../assets/logo.jpg";
 import { useI18n } from "../../i18n";
 import { Icon, iconSvg } from "./topbarIcons";
 import Dock from "../shared/Dock/Dock";
+import JoystickStatusBadge from "../shared/JoystickStatusBadge";
 import "./TopBar.css";
 import "./SupervisorModal.css";
 import { apiUrl } from "../../config/appConfig";
@@ -594,7 +595,11 @@ const updateUserMenuPosition = () => {
   useEffect(() => {
     const update = () => {
       setCamCount(loadDevices().length);
-      setAlarmCount(loadAlarms().filter((a) => !a.read && !(a.category && a.category.toLowerCase().includes("motion"))).length);
+      setAlarmCount(loadAlarms().filter((a) => {
+        if (a.read) return false;
+        const text = `${a.category || ""} ${a.description || ""} ${a.type || ""}`.toLowerCase();
+        return !text.includes("motion");
+      }).length);
     };
     update();
     const interval = setInterval(update, 5000);
@@ -693,8 +698,9 @@ const updateUserMenuPosition = () => {
         {isAiActive && (
           <div className="topbar__ai-wrap">
             <button 
-              className="topbar__ai-btn" 
+              className={`topbar__ai-btn ${activePage === "ai-analytics" ? "topbar__ai-btn--active" : ""}`} 
               onClick={() => navigate('/ai-analytics')}
+              aria-current={activePage === "ai-analytics" ? "page" : undefined}
             >
               <div className="topbar__ai-logo-mark">
                 <img src={logoImg} alt="MIRADOR AI" className="topbar__ai-logo-img" />
@@ -820,6 +826,9 @@ const updateUserMenuPosition = () => {
 
         {/* Fullscreen toggle */}
         <FullscreenButton />
+
+        {/* Joystick Controller Status */}
+        <JoystickStatusBadge />
 
         <div className="topbar__divider" />
 

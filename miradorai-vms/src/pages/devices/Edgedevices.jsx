@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import StatusBadge from "../../components/shared/StatusBadge";
-import "./EdgeDevices.css";
+import "./Edgedevices.css";
 
 /* ─── helpers ─────────────────────────────────────────────────────────────── */
 export const isEdgeCamera = (d) => Boolean(d?.is_edge_camera || d?.source === "edge" || d?.edge_id || d?.edge_ip);

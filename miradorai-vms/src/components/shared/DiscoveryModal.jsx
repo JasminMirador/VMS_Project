@@ -285,6 +285,8 @@ export default function DiscoveryModal({
 
         let ws_url = null;
         let stream_key = null;
+        let sub_stream_key = null;
+        let sub_stream_rtsp = null;
         let stream_status = "error";
         let rtsp_url = null;
 
@@ -323,7 +325,9 @@ export default function DiscoveryModal({
 
           if (data?.success && data?.ws_url) {
             ws_url = data.ws_url;
-            stream_key = data.stream_key || data.stream_key || null;
+            stream_key = data.stream_key || null;
+            sub_stream_key = data.sub_stream_key || null;
+            sub_stream_rtsp = data.sub_stream_rtsp || null;
             stream_status = data.status || "streaming";
             rtsp_url = data.rtsp_url || data.stream_uri || null;
 
@@ -343,17 +347,21 @@ export default function DiscoveryModal({
             }));
           } else {
             const errMsg = data?.error || `HTTP ${res.status}`;
+            setAlertMsg(`${device.ip} → ${errMsg}`);
             setRegStatus((prev) => ({
               ...prev,
               [device.id]: { status: "error", error: errMsg }
             }));
+            return null;
           }
 
         } catch (err) {
+          setAlertMsg(`${device.ip} → ${err.message}`);
           setRegStatus((prev) => ({
             ...prev,
             [device.id]: { status: "error", error: err.message }
           }));
+          return null;
         }
 
         return {
@@ -374,6 +382,8 @@ export default function DiscoveryModal({
           rtsp_url,
           ws_url,
           stream_key,
+          sub_stream_key,
+          sub_stream_rtsp,
           stream_status,
           source: "discovery",
           stream_profiles: streamProfiles,
@@ -384,8 +394,13 @@ export default function DiscoveryModal({
 
     await new Promise((r) => setTimeout(r, 600));
     setIsRegistering(false);
-    onAddDevices(results.filter(Boolean));
-    onClose();
+    const valid = results.filter(Boolean);
+    if (valid.length > 0) {
+      onAddDevices(valid);
+      onClose();
+    } else {
+      setAlertMsg("Failed to enroll selected camera(s). Please verify credentials and network connection.");
+    }
   };
 
   const RegBadge = ({ deviceId }) => {

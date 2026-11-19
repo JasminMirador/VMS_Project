@@ -4,8 +4,99 @@ import { useAuth } from "./AuthContext";
 import { useUserSettings } from "./UserSettingsContext";
 import { useNotificationPermission } from "../hooks/useNotificationPermission";
 import { useWebSocket } from "../hooks/useWebSocket";
-import { apiUrl } from "../config/appConfig";
+import { apiUrl, getEnv } from "../config/appConfig";
 import "./NotificationContext.css";
+
+export function isMotionAlert(data) {
+  if (!data) return false;
+  const raw = data.rawData || data.raw || {};
+  const values = [
+    data.type,
+    data.eventType,
+    data.event,
+    data.scenario,
+    data.scenario_name,
+    data.category,
+    data.description,
+    data.topic,
+    data.feature,
+    data.alertType,
+    raw.type,
+    raw.feature,
+    raw.scenario,
+    raw.category,
+    raw.description,
+  ].filter(Boolean).join(" ").toLowerCase();
+  return values.includes("motion") || values.includes("tns1:videosource/motionalarm");
+}
+
+function formatEventTitle(name) {
+  if (!name || name === "N/A" || name === "unknown") return "Security Alert";
+  let formatted = String(name).trim();
+  if (formatted.toLowerCase() === "face_recognition") return "Face Recognition";
+  if (formatted.toLowerCase() === "intrusion") return "Intrusion";
+  if (formatted.startsWith("fr-")) formatted = formatted.substring(3);
+  formatted = formatted.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ");
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1);
+}
+
+function formatDateTime(timeStr) {
+  if (!timeStr) {
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  }
+  return String(timeStr).replace("T", " ").split(".")[0].split("+")[0];
+}
+
+function resolveCameraName(ipOrSerial, payload) {
+  if (payload?.camera_name) return payload.camera_name;
+  if (payload?.cameraName) return payload.cameraName;
+  if (payload?.readerName) return payload.readerName;
+  if (payload?.reader_name) return payload.reader_name;
+  if (payload?.device) return payload.device;
+  if (!ipOrSerial) return "";
+  try {
+    const devices = JSON.parse(localStorage.getItem("miradorai_devices") || "[]");
+    const norm = ipOrSerial.replace(/_/g, ".");
+    const found = devices.find(
+      (d) =>
+        (d.ip && d.ip.replace(/_/g, ".") === norm) ||
+        (d.serial && d.serial === ipOrSerial) ||
+        String(d.id) === String(ipOrSerial) ||
+        (d.reader_id && String(d.reader_id) === String(ipOrSerial))
+    );
+    if (found?.name) return found.name;
+  } catch (e) {}
+  return "";
+}
+
+function resolveAlertThumbnail(payload) {
+  if (!payload) return null;
+  const raw = payload.rawData || payload.raw || {};
+  const dataObj = payload.data || raw.data || {};
+  
+  const findLoc = (obj) => {
+    if (!obj) return null;
+    const key = Object.keys(obj).find(k => k.toLowerCase().replace(/_/g, '') === 'imagelocation' || k.toLowerCase().replace(/_/g, '') === 'imglocation' || k.toLowerCase().replace(/_/g, '') === 'imgelocation');
+    return key ? obj[key] : null;
+  };
+  
+  const imgLoc = findLoc(payload) || findLoc(raw) || findLoc(dataObj);
+  if (imgLoc) {
+    if (imgLoc.startsWith("http")) return imgLoc;
+    const cleanLoc = imgLoc.startsWith("/") ? imgLoc.substring(1) : imgLoc;
+    const minioPort = getEnv("MINIO_PORT") || "9000";
+    const externalAiHost = getEnv("EXTERNAL_AI_HOST") || window.location.hostname;
+    return `http://${externalAiHost}:${minioPort}/${cleanLoc}`;
+  }
+  
+  let thumb = payload.image || payload.thumbnailUrl || payload.imageUrl || payload.snapshot_url || payload.snapshotUrl || payload.snapshot || null;
+  if (thumb && typeof thumb === "string" && thumb.startsWith("/") && !thumb.startsWith("//")) {
+    thumb = apiUrl(thumb);
+  }
+  return thumb;
+}
 
 const NotificationContext = createContext({});
 export const useNotifications = () => useContext(NotificationContext);
@@ -73,22 +164,60 @@ export const NotificationProvider = ({ children }) => {
     }
   }, []);
 
-  const showToast = useCallback(({ title, body, variant = "info", persistent = false, playSound = true }) => {
+  const showToast = useCallback((toastData) => {
     if (isBlockedPage()) return;
+    
+    const opts = typeof toastData === "string" ? { body: toastData } : (toastData || {});
+
+    // Filter out motion alerts from notifications completely
+    if (isMotionAlert(opts) || isMotionAlert(opts.raw)) {
+      return;
+    }
+    if (typeof opts.body === "string" && /motion/i.test(opts.body) && /alert|detect/i.test(opts.body)) {
+      return;
+    }
+    if (typeof opts.alertType === "string" && /motion/i.test(opts.alertType)) {
+      return;
+    }
+
     const id = Date.now() + Math.random();
-    setToasts(prev => [...prev, { id, title: '', body: body || title || '', variant, persistent }]);
-    if (playSound) {
+    const isAlert = Boolean(opts.isAlert);
+    const variant = opts.variant || (isAlert ? "warning" : "info");
+    const persistent = Boolean(opts.persistent);
+    const duration = opts.duration || (isAlert ? 6000 : 4500);
+
+    const item = {
+      id,
+      isAlert,
+      title: opts.title || "",
+      body: opts.body || "",
+      variant,
+      cameraName: opts.cameraName || "",
+      ip: opts.ip || "",
+      alertType: opts.alertType || "",
+      rawType: opts.rawType || opts.alertType || "",
+      time: opts.time || "",
+      thumbnailUrl: opts.thumbnailUrl || null,
+      raw: opts.raw || null,
+      persistent,
+      duration,
+    };
+
+    setToasts((prev) => [item, ...prev].slice(0, 5));
+
+    if (opts.playSound !== false) {
       playSoundForType('alarm');
     }
+
     if (!persistent) {
       setTimeout(() => {
-        setToasts(prev => prev.filter(t => t.id !== id));
-      }, 5000);
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, duration);
     }
   }, [isBlockedPage, playSoundForType]);
 
   const removeToast = useCallback((id) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
+    setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
   const lastSnapshotTimeRef = useRef(0);
@@ -120,6 +249,11 @@ export const NotificationProvider = ({ children }) => {
     if (isBlockedPage()) return;
     const payload = event.data;
     if (!payload) return;
+
+    // Filter out motion alerts completely from all notifications and sounds
+    if (isMotionAlert(payload)) {
+      return;
+    }
 
     const isSystem = event.topic === 'system';
     const payloadType = payload.type || 'Analytics Event';
@@ -158,10 +292,40 @@ export const NotificationProvider = ({ children }) => {
         showToast({ title: '', body: payload.description || payloadType, variant: 'info' });
     }
     if (!isSystem && settingsRef.current?.notifAlarms !== false && !isBlockedPage()) {
+        const ipVal = payload.ip || payload.serial || payload.readerIp || payload.reader_ip || "";
+        const displayIp = ipVal ? ipVal.replace(/_/g, ".") : "";
+        const camName = resolveCameraName(displayIp || ipVal, payload);
+        const rawAlert = payload.rawData || payload.raw || payload;
+        const rawType = payload.type || rawAlert.type || payload.feature || rawAlert.feature || payload.scenario || "Alert";
+        const alertType = formatEventTitle(rawType);
+        const timeVal = formatDateTime(payload.detectionTime || payload.time || payload.received_at || rawAlert.detectionTime || "");
+        const thumb = resolveAlertThumbnail(payload);
+
+        let alertVariant = 'warning';
+        const typeLower = String(rawType).toLowerCase();
+        if (DEVICE_FAILURES.includes(payloadType) || SYSTEM_FAILURES.includes(payloadType) || typeLower.includes("intrusion") || typeLower.includes("tamper") || typeLower.includes("tripwire") || typeLower.includes("offline")) {
+          alertVariant = 'error';
+        } else if (DEVICE_RECOVERIES.includes(payloadType) || typeLower.includes("restore") || typeLower.includes("online")) {
+          alertVariant = 'success';
+        } else if (typeLower.includes("idle") || typeLower.includes("loiter") || typeLower.includes("unattended")) {
+          alertVariant = 'warning';
+        } else if (typeLower.includes("crossing") || typeLower.includes("field") || typeLower.includes("zone")) {
+          alertVariant = 'info';
+        } else {
+          alertVariant = variant || 'warning';
+        }
+
         showToast({
-           title: '',
-           body: `${payloadType}: ${payload.ip || payload.serial || 'Unknown'}`,
-           variant
+           isAlert: true,
+           cameraName: camName,
+           ip: displayIp,
+           alertType,
+           rawType,
+           time: timeVal,
+           thumbnailUrl: thumb,
+           variant: alertVariant,
+           raw: payload,
+           playSound: true,
         });
     }
   }, [showToast, playSoundForType, handleSnapshot, isBlockedPage]);
@@ -256,21 +420,116 @@ export const NotificationProvider = ({ children }) => {
     <NotificationContext.Provider value={{ notify, firmwareUpdateCount, clearFirmwareBadge, showToast }}>
       {children}
       {!isBlockedPage() && toasts.length > 0 && (
-        <div className="toast-container-box">
-          <button 
-            className="toast-box-close-all" 
-            title="Dismiss all notifications" 
-            onClick={() => setToasts([])}
-          >
-            &times;
-          </button>
-          <div className="toast-list">
-            {toasts.map(t => (
-              <div key={t.id} className={`toast-item toast-${t.variant}`}>
-                <div className="toast-content">
-                  <p className="toast-body">{t.body || t.title}</p>
+        <div className="modern-toast-container" role="region" aria-label="Notifications">
+          {toasts.length > 1 && (
+            <div className="modern-toast-header">
+              <span className="modern-toast-count">
+                <span className="modern-toast-live-dot" />
+                {toasts.length} Alerts
+              </span>
+              <button 
+                className="modern-toast-dismiss-all" 
+                title="Dismiss all alerts" 
+                aria-label="Dismiss all alerts"
+                onClick={() => setToasts([])}
+              >
+                <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" fill="none">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+          )}
+          <div className="modern-toast-list">
+            {toasts.map((t) => (
+              <div 
+                key={t.id} 
+                className={`modern-toast-card modern-toast-card--${t.variant} ${t.isAlert ? "modern-toast-card--alert" : ""}`}
+                onClick={() => {
+                  if (t.isAlert && t.raw) {
+                    window.dispatchEvent(new CustomEvent('vms-toast-alert-clicked', { detail: t.raw }));
+                  }
+                }}
+              >
+                <div className="modern-toast-indicator" />
+                
+                <div className="modern-toast-main">
+                  {t.isAlert ? (
+                    <>
+                      <div className="modern-toast-top-row">
+                        <div className="modern-toast-badge-group">
+                          <span className="modern-toast-pill-alert">
+                            <span className="modern-toast-live-dot" />
+                            {t.alertType || "Alert"}
+                          </span>
+                        </div>
+                        <button 
+                          className="modern-toast-close-btn" 
+                          title="Dismiss" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeToast(t.id);
+                          }}
+                        >
+                          &times;
+                        </button>
+                      </div>
+
+                      <div className="modern-toast-content-row">
+                        <div className="modern-toast-details">
+                          <div className="modern-toast-cam-row" title={t.cameraName ? `${t.cameraName} (${t.ip})` : t.ip}>
+                            <svg className="modern-toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M23 7l-7 5 7 5V7z" />
+                              <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                            </svg>
+                            <span className="modern-toast-cam-name">
+                              {t.cameraName || "Camera"}
+                            </span>
+                            {t.ip && <span className="modern-toast-ip-tag">{t.ip}</span>}
+                          </div>
+
+                          <div className="modern-toast-time-row">
+                            <svg className="modern-toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <circle cx="12" cy="12" r="10" />
+                              <polyline points="12 6 12 12 16 14" />
+                            </svg>
+                            <span className="modern-toast-time-text">{t.time}</span>
+                          </div>
+                        </div>
+
+                        {t.thumbnailUrl && (
+                          <div className="modern-toast-thumb-wrap">
+                            <img 
+                              src={t.thumbnailUrl} 
+                              alt="Alert Preview" 
+                              className="modern-toast-thumb"
+                              onError={(e) => {
+                                e.currentTarget.style.display = "none";
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="modern-toast-system-row">
+                      <div className="modern-toast-details">
+                        {t.title && <div className="modern-toast-title">{t.title}</div>}
+                        <div className="modern-toast-body-text">{t.body}</div>
+                      </div>
+                      <button 
+                        className="modern-toast-close-btn" 
+                        title="Dismiss" 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeToast(t.id);
+                        }}
+                      >
+                        &times;
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <button className="toast-close" title="Dismiss" onClick={() => removeToast(t.id)}>&times;</button>
               </div>
             ))}
           </div>

@@ -1,10 +1,9 @@
 
 import { useState, useEffect } from "react";
-import { BrowserRouter, useLocation } from "react-router-dom";
+import { BrowserRouter, useLocation, Navigate } from "react-router-dom";
 import NumberTranslator from "./translation/NumberTranslator";
 import { useI18n } from "./i18n";
-import { I18nProvider } from "./i18n"; // 👈 You imported it here...
-
+import { I18nProvider } from "./i18n";
   
  
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -23,8 +22,12 @@ import { ThemeProvider } from "./context/ThemeContext";
 import { UserSettingsProvider } from "./context/UserSettingsContext";
 import { NotificationProvider } from "./context/NotificationContext";
 import { CamerasProvider } from "./context/CamerasContext";
+import { JoystickProvider } from "./context/JoystickContext";
+import JoystickOSD from "./components/shared/JoystickOSD";
+import JoystickSettingsModal from "./components/shared/JoystickSettingsModal";
  
 import GlobalLiveMirror from "./components/layout/GlobalLiveMirror";
+import FaceJobGlobalTracker from "./components/layout/FaceJobGlobalTracker";
  
 import "./styles/global.css";
  
@@ -57,12 +60,20 @@ function AppContent() {
   }
  
   if (!isAuthenticated) {
+    if (location.pathname !== "/login") {
+      return <Navigate to="/login" replace />;
+    }
     return <LoginPage />;
+  }
+
+  if (location.pathname === "/login" || location.pathname === "/" || location.pathname === "") {
+    return <Navigate to="/dashboard" replace />;
   }
  
   return (
     <>
       <GlobalLiveMirror />
+      <FaceJobGlobalTracker />
  
       <NumberTranslator />
  
@@ -114,7 +125,11 @@ export default function App() {
           <BrowserRouter>
             <NotificationProvider>
               <CamerasProvider>
-                <AppContent />
+                <JoystickProvider>
+                  <AppContent />
+                  <JoystickOSD />
+                  <JoystickSettingsModal />
+                </JoystickProvider>
               </CamerasProvider>
             </NotificationProvider>
           </BrowserRouter>

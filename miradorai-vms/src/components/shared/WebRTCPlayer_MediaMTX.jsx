@@ -3,6 +3,7 @@ import { useImageConfig } from "../../hooks/useImageConfig";
 import { Volume2, VolumeX } from "lucide-react";
 import { useDigitalZoom } from "../../hooks/useDigitalZoom";
 import LiveSpinner from "./LiveSpinner";
+import { whepUrl, whepSessionUrl, getEnv } from "../../config/appConfig";
 
 // ─── SDP Bandwidth Injection ──────────────────────────────────────────────────
 // Inserts a b=TIAS (Transport Independent Application Specific) line into
@@ -58,6 +59,18 @@ async function applyBitrateLimit(pc, maxKbps) {
   }
 }
 
+// ─── WHEP URL Helper ──────────────────────────────────────────────────────────
+// Always route through nginx /whep/ proxy, for both localhost and
+// public IP. MediaMTX CORS is disabled (allowOrigins: []) so nginx is the sole
+// CORS controller — going direct to MediaMTX would get zero CORS headers.
+// nginx listens on the default web port on the same machine, so http://localhost/whep/ works
+// even during local dev on frontend port.
+function getWhepBaseUrl(streamKey) {
+  return whepUrl(streamKey);
+
+
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // maxBitrate: number (Kbps)
 //   - Grid view:       pass 2000  (2 Mbps)
@@ -77,12 +90,10 @@ function WebRTCPlayer_MediaMTX({ streamKey, cameraId, onConnectChange, onError, 
   const lastBytesRef = useRef({ bytes: 0, ts: 0 });
 
   const [currentStreamKey, setCurrentStreamKey] = useState(streamKey);
-  const [hasFallenBack, setHasFallenBack] = useState(false);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
 
   useEffect(() => {
     setCurrentStreamKey(streamKey);
-    setHasFallenBack(false);
   }, [streamKey]);
 
   // When maxBitrate changes on an already-connected stream (e.g. user enters/exits fullscreen),
@@ -113,11 +124,7 @@ function WebRTCPlayer_MediaMTX({ streamKey, cameraId, onConnectChange, onError, 
 
     if (whepLocationRef.current) {
       try {
-        //simulation replace 
-        // const portStr = window.location.port ? `:${window.location.port}` : '';
-        // const whepUrl = new URL(whepLocationRef.current, `http://${window.location.hostname}${portStr}/whep/${currentStreamKey}/whep`);
-        //simulation replace
-        const whepUrl = new URL(whepLocationRef.current, `${window.location.protocol}//${window.location.hostname}/whep/${currentStreamKey}/whep`);
+        const whepUrl = new URL(whepLocationRef.current, getWhepBaseUrl(currentStreamKey));
         fetch(whepUrl.toString(), { method: "DELETE", keepalive: true }).catch(() => {});
       } catch {
         // ignore
@@ -147,7 +154,7 @@ function WebRTCPlayer_MediaMTX({ streamKey, cameraId, onConnectChange, onError, 
 
     try {
       const pc = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+        iceServers: [{ urls: getEnv("STUN_SERVER") }],
       });
       pcRef.current = pc;
 
@@ -196,11 +203,8 @@ function WebRTCPlayer_MediaMTX({ streamKey, cameraId, onConnectChange, onError, 
         sdp: constrainedSdp,
       });
 
-      // simulation replace 
-      // const portStr = window.location.port ? `:${window.location.port}` : '';
-      // const response = await fetch(`http://${window.location.hostname}${portStr}/whep/${currentStreamKey}/whep`, {
-      //simulation replace
-      const response = await fetch(`${window.location.protocol}//${window.location.hostname}/whep/${currentStreamKey}/whep`, {
+      // Port present (dev/LAN) → direct MediaMTX; no port (prod) → nginx /whep/ proxy
+      const response = await fetch(getWhepBaseUrl(currentStreamKey), {
         method: "POST",
         headers: {
           "Content-Type": "application/sdp",
@@ -209,12 +213,6 @@ function WebRTCPlayer_MediaMTX({ streamKey, cameraId, onConnectChange, onError, 
       });
 
       if (!response.ok) {
-        if (response.status === 400 && !hasFallenBack) {
-          console.warn(`[WebRTC] WHEP 400 error on ${currentStreamKey}. Trying fallback path...`);
-          setHasFallenBack(true);
-          setCurrentStreamKey((prev) => prev.endsWith("_h264") ? prev.replace("_h264", "") : prev + "_h264");
-          return;
-        }
 
         const isStreamError = response.status === 400 || response.status === 404;
         const err = new Error(`WHEP error: ${response.status}`);

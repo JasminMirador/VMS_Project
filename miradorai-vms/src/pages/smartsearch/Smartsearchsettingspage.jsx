@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Button from "../../components/shared/Button";
 import SearchBar from "../../components/shared/SearchBar";
-import "./SmartSearchSettingsPage.css";
+import "./Smartsearchsettingspage.css";
 
 const DRIVES = ["C:\\", "D:\\", "E:\\"];
 

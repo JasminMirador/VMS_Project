@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import { useI18n } from "../../i18n";
-import Loader from "../../components/shared/Loader";
+import Loader from "../../components/shared/loader";
 import "./DashboardNewPage.css";
 import { apiUrl } from "../../config/appConfig";
 
@@ -629,7 +629,7 @@ export default function DashboardNewPage() {
     return arr;
   }, [summary.hourly_alarms, events]);
 
-  const attention = useMemo(() => {
+  const { attention, attentionN } = useMemo(() => {
     const list = [];
     (summary.alerts || []).forEach((a, i) => {
       list.push({ kind: "crit", reason: "systemAlert", name: a, ago: 0, id: `sys-${i}` });
@@ -648,9 +648,8 @@ export default function DashboardNewPage() {
         id: a.id || a._id
       });
     });
-    return list.slice(0, 8);
+    return { attention: list.slice(0, 30), attentionN: list.length };
   }, [summary.alerts, fleet, activeAlerts]);
-  const attentionN = attention.length;
 
   const rangeDays = range === "today" ? 1 : range === "7d" ? 7 : 30;
   const nameByIp = useCallback((ip) => {
@@ -950,7 +949,7 @@ export default function DashboardNewPage() {
             {!loaded ? <Loader variant="inline" size="sm" text="Loading alerts..." /> : T("nothingAttention")}
           </div>
         ) : (
-          <ul className="dn-al">
+          <ul className="dn-al dn-al-scroll">
             {attention.map((a, i) => (
               <li key={a.id || i} onClick={() => a.raw && setSelectedAlert(a)}>
                 <span className={`dn-ai ${a.kind}`}>{KIND_ICON[a.kind]}</span>

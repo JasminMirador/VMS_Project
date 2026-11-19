@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import Button from "../../components/shared/Button";
 import Toggle from "../../components/shared/Toggle";
 import SearchBar from "../../components/shared/SearchBar";
-import "./ActionRulesPage.css";
+import "./Actionrulespage.css";
 
 const SCHEDULES = ["Always", "Always on", "Office Hours", "Weekends", "Never"];
 

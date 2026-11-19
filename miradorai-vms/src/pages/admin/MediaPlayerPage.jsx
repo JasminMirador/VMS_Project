@@ -203,6 +203,8 @@ export default function MediaPlayerPage() {
       window.removeEventListener("devicesUpdated", handleStorage);
     };
   }, []);
+  const [playbackSource, setPlaybackSource] = useState("vms"); // "vms" | "nvr"
+  const [nvrCameras, setNvrCameras] = useState([]);
   const [recordingCameras, setRecordingCameras] = useState([]);
   const [activeRecorders, setActiveRecorders] = useState([]);
   const [selectedCam, setSelectedCam] = useState(null);
@@ -236,6 +238,60 @@ export default function MediaPlayerPage() {
       return activeRecorders.includes(cam.stream_key) || activeRecorders.includes(cam.stream_key);
     }).length;
   }, [activeRecorders, filteredCameras]);
+
+  const activeCameraList = useMemo(() => {
+    if (playbackSource === "nvr") {
+      return filteredCameras.filter((c) => {
+        const sk = (c.stream_key || String(c.id)).toLowerCase();
+        const m = (c.model || "").toLowerCase();
+        const devType = (c.device_type || "").toLowerCase();
+        return (
+          sk.includes("_cam") ||
+          m.includes("nvr") ||
+          m.includes("dvr") ||
+          m.includes("recorder") ||
+          devType.includes("nvr") ||
+          devType.includes("recorder") ||
+          nvrCameras.some((nc) => nc.stream_key === c.stream_key || nc.ip === c.ip)
+        );
+      });
+    }
+    return filteredCameras;
+  }, [playbackSource, filteredCameras, nvrCameras]);
+
+  useEffect(() => {
+    const fetchNvrCameras = async () => {
+      try {
+        const res = await fetch(apiUrl("/recordings/nvr/cameras"), {
+          headers: authHeaders(),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setNvrCameras(data || []);
+        }
+      } catch (e) {
+        console.error("Failed to fetch NVR cameras:", e);
+      }
+    };
+    fetchNvrCameras();
+  }, []);
+
+  useEffect(() => {
+    if (activeCameraList.length > 0) {
+      const match = activeCameraList.find((c) => (c.stream_key || String(c.id)) === selectedCam?.stream_key);
+      if (!match) {
+        const first = activeCameraList[0];
+        setSelectedCam({
+          stream_key: first.stream_key || String(first.id),
+          name: first.name || first.stream_key || String(first.id),
+        });
+        setPlayingFile(null);
+      }
+    } else {
+      setSelectedCam(null);
+      setPlayingFile(null);
+    }
+  }, [playbackSource, activeCameraList]);
 
   const getCameraInfo = useCallback((camId) => {
     if (!camId) return { name: "No camera selected", ip: "" };
@@ -288,9 +344,18 @@ export default function MediaPlayerPage() {
   const [files, setFiles] = useState([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [playingFile, setPlayingFile] = useState(null);
+  const playingFileRef = useRef(null);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+
+  const effectiveDuration = useMemo(() => {
+    if (duration && isFinite(duration) && duration > 0) return duration;
+    if (playingFile?.duration_seconds && playingFile.duration_seconds > 0) {
+      return playingFile.duration_seconds;
+    }
+    return 0;
+  }, [duration, playingFile]);
   const [motionRanges, setMotionRanges] = useState([]);
 
   const [volume, setVolume] = useState(0.8);
@@ -319,6 +384,8 @@ export default function MediaPlayerPage() {
   const [downloadTrimStart, setDownloadTrimStart] = useState(0);
   const [downloadTrimEnd, setDownloadTrimEnd] = useState(100);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [videoWatermark, setVideoWatermark] = useState(() => localStorage.getItem("miradorai_video_watermark") || "");
+  const [videoWatermarkPos, setVideoWatermarkPos] = useState(() => localStorage.getItem("miradorai_video_watermark_pos") || "center");
 
   // ── Verify Signature Modal ──────────────────────────────────────
   const [showVerifyModal, setShowVerifyModal] = useState(false);
@@ -373,6 +440,30 @@ export default function MediaPlayerPage() {
     })();
   }, []);
 
+  // ── Fetch default watermark settings on mount ───────────────────
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(apiUrl("/recordings/watermark-settings"), {
+          headers: authHeaders(),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && typeof data.watermark === "string") {
+            if (!localStorage.getItem("miradorai_video_watermark") && data.watermark) {
+              setVideoWatermark(data.watermark);
+              localStorage.setItem("miradorai_video_watermark", data.watermark);
+            }
+            if (!localStorage.getItem("miradorai_video_watermark_pos") && data.watermark_pos) {
+              setVideoWatermarkPos(data.watermark_pos);
+              localStorage.setItem("miradorai_video_watermark_pos", data.watermark_pos);
+            }
+          }
+        }
+      } catch (e) { console.error("Failed to fetch watermark settings:", e); }
+    })();
+  }, []);
+
   // ── Fetch active recording status on mount and poll ────────────
   useEffect(() => {
     const fetchRecordingStatus = async () => {
@@ -399,37 +490,46 @@ export default function MediaPlayerPage() {
       setLoadingFiles(true);
       setFiles([]);
       try {
-        const res = await fetch(
-          apiUrl(`/recordings/${selectedCam.stream_key}?date=${selectedDate}`),
-          { headers: authHeaders() }
-        );
+        const endpoint = playbackSource === "nvr"
+          ? apiUrl(`/recordings/nvr/list?stream_key=${encodeURIComponent(selectedCam.stream_key)}&date=${encodeURIComponent(selectedDate)}`)
+          : apiUrl(`/recordings/${selectedCam.stream_key}?date=${selectedDate}`);
+
+        const res = await fetch(endpoint, { headers: authHeaders() });
         if (!cancelled && res.ok) {
           const data = await res.json();
           const raw = Array.isArray(data) ? data : (data.files || []);
           setFiles(raw.map((rec) => ({
-            camera_id: rec.camera_id,
+            camera_id: rec.camera_id || selectedCam.stream_key,
             date: rec.date,
             start_time: rec.start_time,
-            size: rec.file_size ?? rec.bytes_written ?? 0,
-            name: rec.file_path ? rec.file_path.split("/").pop() : "Unknown File",
+            end_time: rec.end_time,
+            size: rec.size ?? rec.file_size ?? rec.bytes_written ?? 0,
+            name: rec.name || (rec.file_path ? rec.file_path.split("/").pop() : "Unknown File"),
             status: rec.status || "COMPLETED",
             duration_seconds: rec.duration_seconds ?? 0,
             base_iv: rec.base_iv || null,
             file_path: rec.file_path,
+            source: rec.source || playbackSource,
           })));
         }
       } catch { if (!cancelled) setFiles([]); }
       finally { if (!cancelled) setLoadingFiles(false); }
     })();
     return () => { cancelled = true; };
-  }, [selectedCam, selectedDate]);
+  }, [selectedCam, selectedDate, playbackSource]);
 
   // ── Video event listeners ──────────────────────────────────────
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     const onTime = () => setCurrentTime(v.currentTime);
-    const onMeta = () => setDuration(v.duration);
+    const onMeta = () => {
+      if (v.duration && isFinite(v.duration) && v.duration > 0) {
+        setDuration(v.duration);
+      } else if (playingFileRef.current?.duration_seconds) {
+        setDuration(playingFileRef.current.duration_seconds);
+      }
+    };
     const onPlay = () => { setPlaying(true); setIsVideoLoading(false); };
     const onPause = () => setPlaying(false);
     const onEnded = () => setPlaying(false);
@@ -475,21 +575,21 @@ export default function MediaPlayerPage() {
   useEffect(() => {
     const handleMove = (e) => {
       // Progress bar drag
-      if (isDragging.current && progressRef.current && duration) {
+      if (isDragging.current && progressRef.current && effectiveDuration) {
         const rect = progressRef.current.getBoundingClientRect();
         const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
         if (videoRef.current) {
-          videoRef.current.currentTime = pct * duration;
-          setCurrentTime(pct * duration);
+          videoRef.current.currentTime = pct * effectiveDuration;
+          setCurrentTime(pct * effectiveDuration);
         }
       }
       // Timeline drag
-      if (isTimelineDragging.current && timelineRef.current && duration) {
+      if (isTimelineDragging.current && timelineRef.current && effectiveDuration) {
         const rect = timelineRef.current.getBoundingClientRect();
         const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
         if (videoRef.current) {
-          videoRef.current.currentTime = pct * duration;
-          setCurrentTime(pct * duration);
+          videoRef.current.currentTime = pct * effectiveDuration;
+          setCurrentTime(pct * effectiveDuration);
         }
       }
     };
@@ -636,9 +736,10 @@ export default function MediaPlayerPage() {
       uploadedBlobUrl.current = null;
     }
     setPlayingFile(file);
+    playingFileRef.current = file;
     setPlaying(false);
     setCurrentTime(0);
-    setDuration(0);
+    setDuration(file.duration_seconds || 0);
     setIsVideoLoading(true);
     setTimeout(() => {
       const v = videoRef.current;
@@ -646,12 +747,23 @@ export default function MediaPlayerPage() {
       v.crossOrigin = "anonymous";
       const cb = Date.now();
       const tk = getToken();
-      v.src = apiUrl("/recordings/play")
-        + `?camera_id=${encodeURIComponent(file.camera_id)}`
-        + `&date=${encodeURIComponent(file.date)}`
-        + `&start_time=${encodeURIComponent(file.start_time)}`
-        + `&_cb=${cb}`
-        + (tk ? `&token=${encodeURIComponent(tk)}` : "");
+      if (playbackSource === "nvr" || file.source === "nvr") {
+        v.src = apiUrl("/recordings/nvr/play")
+          + `?stream_key=${encodeURIComponent(file.camera_id)}`
+          + `&date=${encodeURIComponent(file.date)}`
+          + `&start_time=${encodeURIComponent(file.start_time)}`
+          + (file.end_time ? `&end_time=${encodeURIComponent(file.end_time)}` : "")
+          + (file.stream_type ? `&stream_type=${encodeURIComponent(file.stream_type)}` : "")
+          + `&_cb=${cb}`
+          + (tk ? `&token=${encodeURIComponent(tk)}` : "");
+      } else {
+        v.src = apiUrl("/recordings/play")
+          + `?camera_id=${encodeURIComponent(file.camera_id)}`
+          + `&date=${encodeURIComponent(file.date)}`
+          + `&start_time=${encodeURIComponent(file.start_time)}`
+          + `&_cb=${cb}`
+          + (tk ? `&token=${encodeURIComponent(tk)}` : "");
+      }
       v.load();
       v.play().catch(() => { });
     }, 50);
@@ -791,11 +903,11 @@ export default function MediaPlayerPage() {
   };
 
   const seek = (e) => {
-    if (!videoRef.current || !duration) return;
+    if (!videoRef.current || !effectiveDuration) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    videoRef.current.currentTime = pct * duration;
-    setCurrentTime(pct * duration);
+    videoRef.current.currentTime = pct * effectiveDuration;
+    setCurrentTime(pct * effectiveDuration);
   };
 
   const handleProgressMouseDown = (e) => {
@@ -805,7 +917,8 @@ export default function MediaPlayerPage() {
 
   const skip = (secs) => {
     if (!videoRef.current) return;
-    videoRef.current.currentTime = Math.max(0, Math.min(duration, currentTime + secs));
+    const maxDur = effectiveDuration || duration || 3600;
+    videoRef.current.currentTime = Math.max(0, Math.min(maxDur, currentTime + secs));
   };
 
   const toggleFullscreen = () => {
@@ -908,10 +1021,13 @@ export default function MediaPlayerPage() {
 
     setShowDownloadModal(false);
 
+    const camName = getCameraInfo(playingFile.camera_id).name || playingFile.camera_id;
+
     let url = apiUrl("/recordings/download")
       + `?camera_id=${encodeURIComponent(playingFile.camera_id)}`
       + `&date=${encodeURIComponent(playingFile.date)}`
-      + `&start_time=${encodeURIComponent(playingFile.start_time)}`;
+      + `&start_time=${encodeURIComponent(playingFile.start_time)}`
+      + `&camera_name=${encodeURIComponent(camName)}`;
 
     if (downloadTrimStart > 0 || (duration > 0 && downloadTrimEnd < duration)) {
       url += `&trim_start=${downloadTrimStart}&trim_end=${downloadTrimEnd}`;
@@ -919,6 +1035,10 @@ export default function MediaPlayerPage() {
 
     if (downloadFilename) {
       url += `&filename=${encodeURIComponent(downloadFilename)}`;
+    }
+
+    if (videoWatermark && videoWatermark.trim()) {
+      url += `&watermark=${encodeURIComponent(videoWatermark.trim())}&watermark_pos=${encodeURIComponent(videoWatermarkPos)}`;
     }
 
     try {
@@ -1006,6 +1126,9 @@ export default function MediaPlayerPage() {
       end_date: exportEndDate,
       start_time: exportStartTime,
       end_time: exportEndTime,
+      camera_name: selectedCamInfo.name || selectedCam.stream_key,
+      watermark: videoWatermark?.trim() || null,
+      watermark_pos: videoWatermarkPos || "center",
     };
     const directUrl = apiUrl("/recordings/export-zip");
     const filename = `recordings_${exportStartDate}_to_${exportEndDate}.zip`;
@@ -1092,35 +1215,35 @@ export default function MediaPlayerPage() {
 
   // ── Timeline ticks ─────────────────────────────────────────────
   const timelineTicks = useMemo(() => {
-    if (!duration || duration <= 0) return [];
+    if (!effectiveDuration || effectiveDuration <= 0) return [];
     // Determine a sensible tick interval based on video duration
     let interval;
-    if (duration <= 30) interval = 5;
-    else if (duration <= 60) interval = 10;
-    else if (duration <= 300) interval = 30;
-    else if (duration <= 900) interval = 60;
-    else if (duration <= 3600) interval = 300;
+    if (effectiveDuration <= 30) interval = 5;
+    else if (effectiveDuration <= 60) interval = 10;
+    else if (effectiveDuration <= 300) interval = 30;
+    else if (effectiveDuration <= 900) interval = 60;
+    else if (effectiveDuration <= 3600) interval = 300;
     else interval = 600;
 
     const ticks = [];
-    for (let t = 0; t <= duration; t += interval) {
+    for (let t = 0; t <= effectiveDuration; t += interval) {
       ticks.push(t);
     }
     // Always include the end
-    if (ticks[ticks.length - 1] < duration) ticks.push(duration);
+    if (ticks[ticks.length - 1] < effectiveDuration) ticks.push(effectiveDuration);
     return ticks;
-  }, [duration]);
+  }, [effectiveDuration]);
 
   const handleTimelineMouseDown = useCallback((e) => {
-    if (!timelineRef.current || !duration) return;
+    if (!timelineRef.current || !effectiveDuration) return;
     isTimelineDragging.current = true;
     const rect = timelineRef.current.getBoundingClientRect();
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     if (videoRef.current) {
-      videoRef.current.currentTime = pct * duration;
-      setCurrentTime(pct * duration);
+      videoRef.current.currentTime = pct * effectiveDuration;
+      setCurrentTime(pct * effectiveDuration);
     }
-  }, [duration]);
+  }, [effectiveDuration]);
 
   // ── Render ─────────────────────────────────────────────────────
   return (
@@ -1196,12 +1319,49 @@ export default function MediaPlayerPage() {
           <>
             {/* ── Left panel ── */}
             <div className="mp-left">
+              {/* ── Playback Source Toggle: VMS Storage vs NVR Direct ── */}
+              <div className="mp-source-toggle-wrap">
+                <button
+                  type="button"
+                  className={`mp-source-toggle-btn ${playbackSource === "vms" ? "active" : ""}`}
+                  onClick={() => {
+                    if (playbackSource !== "vms") {
+                      setPlaybackSource("vms");
+                    }
+                  }}
+                  title="Play recordings stored locally on VMS storage"
+                >
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="2" y="3" width="20" height="14" rx="2" />
+                    <line x1="8" y1="21" x2="16" y2="21" />
+                    <line x1="12" y1="17" x2="12" y2="21" />
+                  </svg>
+                  VMS Storage
+                </button>
+                <button
+                  type="button"
+                  className={`mp-source-toggle-btn ${playbackSource === "nvr" ? "active" : ""}`}
+                  onClick={() => {
+                    if (playbackSource !== "nvr") {
+                      setPlaybackSource("nvr");
+                    }
+                  }}
+                  title="Play recordings directly from NVR hard drives"
+                >
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="2" y="4" width="20" height="16" rx="2" />
+                    <path d="M6 12h.01M10 12h.01M14 12h.01M18 12h.01" />
+                  </svg>
+                  NVR Direct
+                </button>
+              </div>
+
               {/* ── Camera Dropdown ── */}
               <div className="mp-cam-dropdown-wrap" ref={camDropdownRef}>
                 <button
                   className={`mp-cam-select-btn ${camDropdownOpen ? "open" : ""}`}
                   onClick={() => setCamDropdownOpen((o) => !o)}
-                  disabled={filteredCameras.length === 0}
+                  disabled={activeCameraList.length === 0}
                 >
                   <div className="mp-cam-dot" />
                   <div className="mp-cam-select-val">
@@ -1217,7 +1377,11 @@ export default function MediaPlayerPage() {
                         )}
                       </div>
                     ) : (
-                      <span className="mp-cam-select-name">Select Camera</span>
+                      <span className="mp-cam-select-name">
+                        {activeCameraList.length === 0
+                          ? (playbackSource === "nvr" ? "No NVR Cameras" : "No Cameras")
+                          : "Select Camera"}
+                      </span>
                     )}
                   </div>
                   <svg
@@ -1239,14 +1403,14 @@ export default function MediaPlayerPage() {
                       <input
                         type="text"
                         className="mp-cam-search-input"
-                        placeholder="Search cameras..."
+                        placeholder={playbackSource === "nvr" ? "Search NVR channels..." : "Search cameras..."}
                         value={camSearchTerm}
                         onChange={(e) => setCamSearchTerm(e.target.value)}
                         onClick={(e) => e.stopPropagation()}
                         onKeyDown={(e) => e.stopPropagation()}
                       />
                     </div>
-                    {filteredCameras
+                    {activeCameraList
                       .filter(cam => {
                         if (!camSearchTerm) return true;
                         const term = camSearchTerm.toLowerCase();
@@ -1403,6 +1567,21 @@ export default function MediaPlayerPage() {
                                   Motion
                                 </span>
                               )}
+                              {file.source === "nvr" && (
+                                <span style={{
+                                  fontSize: "9px",
+                                  padding: "1px 5px",
+                                  background: "rgba(6, 182, 212, 0.15)",
+                                  color: "var(--brand, #06b6d4)",
+                                  border: "1px solid rgba(6, 182, 212, 0.35)",
+                                  borderRadius: "3px",
+                                  fontWeight: "700",
+                                  letterSpacing: "0.05em",
+                                  textTransform: "uppercase"
+                                }}>
+                                  NVR
+                                </span>
+                              )}
                             </div>
                             {file.size !== "—" && (
                               <div className="mp-file-meta">{formatBytes(file.size)}</div>
@@ -1477,6 +1656,11 @@ export default function MediaPlayerPage() {
                         transition: "filter 0.1s ease, transform 0.2s ease"
                       }}
                     />
+                    {videoWatermark && (
+                      <div className={`mp-watermark-overlay mp-watermark-${videoWatermarkPos}`}>
+                        {videoWatermark}
+                      </div>
+                    )}
                     {isVideoLoading && (
                       <div className="mp-loading-overlay">
                         <div className="mp-spinner"></div>
@@ -1499,14 +1683,14 @@ export default function MediaPlayerPage() {
                   >
                     <div
                       className="mp-progress-fill"
-                      style={{ width: duration ? `${(currentTime / duration) * 100}%` : "0%" }}
+                      style={{ width: effectiveDuration ? `${(currentTime / effectiveDuration) * 100}%` : "0%" }}
                     />
                     <div
                       className="mp-progress-thumb"
-                      style={{ left: duration ? `${(currentTime / duration) * 100}%` : "0%" }}
+                      style={{ left: effectiveDuration ? `${(currentTime / effectiveDuration) * 100}%` : "0%" }}
                     />
                   </div>
-                  <span className="mp-time">{fmt(duration)}</span>
+                  <span className="mp-time">{fmt(effectiveDuration)}</span>
                 </div>
 
                 <div className="mp-ctrl-row">
@@ -1649,7 +1833,7 @@ export default function MediaPlayerPage() {
               </div>
 
               {/* ── Timescale / Timeline ── */}
-              {playingFile && duration > 0 && (
+              {playingFile && effectiveDuration > 0 && (
                 <div className="mp-timescale">
                   <div className="mp-timescale-header">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="12" height="12">
@@ -1658,7 +1842,7 @@ export default function MediaPlayerPage() {
                     </svg>
                     <span className="mp-timescale-label">Timeline</span>
                     <span className="mp-timescale-range">
-                      {getAbsoluteTime(0) || fmt(0)} — {getAbsoluteTime(duration) || fmt(duration)}
+                      {getAbsoluteTime(0) || fmt(0)} — {getAbsoluteTime(effectiveDuration) || fmt(effectiveDuration)}
                     </span>
                   </div>
                   <div
@@ -1669,13 +1853,13 @@ export default function MediaPlayerPage() {
                     {/* Filled portion */}
                     <div
                       className="mp-timescale-fill"
-                      style={{ width: `${(currentTime / duration) * 100}%` }}
+                      style={{ width: `${(currentTime / effectiveDuration) * 100}%` }}
                     />
 
                     {/* Motion Ranges */}
                     {motionRanges.map((range, idx) => {
-                      const leftPct = (range.start / duration) * 100;
-                      const widthPct = Math.max(0.8, ((range.end - range.start) / duration) * 100);
+                      const leftPct = (range.start / effectiveDuration) * 100;
+                      const widthPct = Math.max(0.8, ((range.end - range.start) / effectiveDuration) * 100);
                       return (
                         <div
                           key={idx}
@@ -1691,10 +1875,10 @@ export default function MediaPlayerPage() {
 
                     {/* Tick marks and labels */}
                     {timelineTicks.map((t, i) => {
-                      const pct = (t / duration) * 100;
+                      const pct = (t / effectiveDuration) * 100;
                       const isFirst = i === 0;
                       const isLast = i === timelineTicks.length - 1;
-                      const isMajor = isFirst || isLast || t % (duration <= 300 ? 60 : 300) === 0;
+                      const isMajor = isFirst || isLast || t % (effectiveDuration <= 300 ? 60 : 300) === 0;
                       return (
                         <div
                           key={t}
@@ -1714,7 +1898,7 @@ export default function MediaPlayerPage() {
                     {/* Playhead */}
                     <div
                       className="mp-timescale-playhead"
-                      style={{ left: `${(currentTime / duration) * 100}%` }}
+                      style={{ left: `${(currentTime / effectiveDuration) * 100}%` }}
                     >
                       <div className="mp-timescale-playhead-flag">
                         {getAbsoluteTime(currentTime) || fmt(currentTime)}
@@ -1743,7 +1927,7 @@ export default function MediaPlayerPage() {
             </div>
 
             <div className="mp-trim-modal-body">
-              <div className="mp-trim-preview-container">
+              <div className="mp-trim-preview-container" style={{ position: 'relative' }}>
                 <video
                   className="mp-trim-preview-video"
                   src={(() => {
@@ -1763,6 +1947,11 @@ export default function MediaPlayerPage() {
                     }
                   }}
                 />
+                {videoWatermark && (
+                  <div className={`mp-watermark-overlay mp-watermark-${videoWatermarkPos}`}>
+                    {videoWatermark}
+                  </div>
+                )}
               </div>
 
               <div style={{ marginTop: '16px', marginBottom: '16px' }}>
@@ -1772,9 +1961,9 @@ export default function MediaPlayerPage() {
                     if (!s || s.startsWith('blob:')) return s;
                     return s.includes('?') ? `${s}&_clone=preview` : `${s}?_clone=preview`;
                   })()}
-                  duration={duration}
+                  duration={effectiveDuration}
                   trimStart={downloadTrimStart === '' ? 0 : downloadTrimStart}
-                  trimEnd={downloadTrimEnd === '' ? (duration || 0) : downloadTrimEnd}
+                  trimEnd={downloadTrimEnd === '' ? (effectiveDuration || 0) : downloadTrimEnd}
                   onTrimStartChange={(val) => {
                     setDownloadTrimStart(val);
                     const pv = document.querySelector('.mp-trim-preview-video');

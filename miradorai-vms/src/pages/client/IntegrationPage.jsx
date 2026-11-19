@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import Button from "../../components/shared/Button";
 import Toggle from "../../components/shared/Toggle";
-import Loader from "../../components/shared/Loader";
+import Loader from "../../components/shared/loader";
 
 import "./IntegrationPage.css";
 import { apiUrl } from "../../config/appConfig";

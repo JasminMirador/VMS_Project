@@ -1,6 +1,9 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import Toggle from "../../components/shared/Toggle";
 import Button from "../../components/shared/Button";
+import { useAuth } from "../../context/AuthContext";
+import useActivityLogger from "../../hooks/useActivityLogger";
+import { apiUrl } from "../../config/appConfig";
 import "./ClientSettingsPage.css";
 
 const LANGUAGES = [
@@ -134,9 +137,6 @@ function SettingRow({ label, hint, children }) {
   );
 }
 
-import { useAuth } from "../../context/AuthContext";
-import useActivityLogger from "../../hooks/useActivityLogger";
-
 export default function ClientSettingsPage() {
   const { user } = useAuth();
   const { logAction } = useActivityLogger();
@@ -164,10 +164,38 @@ export default function ClientSettingsPage() {
   const [flashCoverage,  setFlashCoverage]  = useState(true);
   const [language,       setLanguage]       = useState("English");
   const [shareAnonymous, setShareAnonymous] = useState(true);
+  const [watermarkText,  setWatermarkText]  = useState(() => localStorage.getItem("miradorai_video_watermark") || "");
+  const [watermarkPos,   setWatermarkPos]   = useState(() => localStorage.getItem("miradorai_video_watermark_pos") || "center");
+  const [saveStatus,     setSaveStatus]     = useState("");
 
   // Apply saved theme on mount
   useEffect(() => {
     applyTheme(theme);
+  }, []);
+
+  // Fetch watermark settings from backend on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token") || "";
+        const res = await fetch(apiUrl("/recordings/watermark-settings"), {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && typeof data.watermark === "string") {
+            if (!localStorage.getItem("miradorai_video_watermark") && data.watermark) {
+              setWatermarkText(data.watermark);
+              localStorage.setItem("miradorai_video_watermark", data.watermark);
+            }
+            if (!localStorage.getItem("miradorai_video_watermark_pos") && data.watermark_pos) {
+              setWatermarkPos(data.watermark_pos);
+              localStorage.setItem("miradorai_video_watermark_pos", data.watermark_pos);
+            }
+          }
+        }
+      } catch (_) {}
+    })();
   }, []);
 
   const handleThemeChange = (id) => {
@@ -279,14 +307,76 @@ export default function ClientSettingsPage() {
         </Section>
         */}
 
+        {/* ── Video Watermark ── */}
+        <Section title="Video Watermark (Overlay on Exports & Downloads)">
+          <SettingRow
+            label="Watermark Text"
+            hint="Watermark text burned into downloaded and exported videos across the system"
+          >
+            <input
+              type="text"
+              placeholder="e.g. CONFIDENTIAL or MIRADOR VMS"
+              value={watermarkText}
+              onChange={(e) => {
+                setWatermarkText(e.target.value);
+                localStorage.setItem("miradorai_video_watermark", e.target.value);
+              }}
+              className="cs-select"
+              style={{ width: "260px", padding: "8px 12px" }}
+            />
+          </SettingRow>
+          <SettingRow
+            label="Watermark Position"
+            hint="Placement of watermark on video frames"
+          >
+            <select
+              className="cs-select"
+              value={watermarkPos}
+              onChange={(e) => {
+                setWatermarkPos(e.target.value);
+                localStorage.setItem("miradorai_video_watermark_pos", e.target.value);
+              }}
+              style={{ width: "260px" }}
+            >
+              <option value="center">Center</option>
+              <option value="bottom-right">Bottom-Right</option>
+              <option value="bottom-center">Bottom-Center</option>
+              <option value="top-center">Top-Center</option>
+            </select>
+          </SettingRow>
+        </Section>
+
       </div>
 
       <div className="page-footer">
-        <span />
+        {saveStatus && (
+          <span style={{ color: "#10b981", fontSize: "14px", fontWeight: "500" }}>{saveStatus}</span>
+        )}
+        {!saveStatus && <span />}
         <div className="page-footer-right">
-          <Button label="Apply" variant="primary" onClick={() => {
+          <Button label="Apply" variant="primary" onClick={async () => {
             applyTheme(theme);
-            logAction("Updated Client Settings", "settings", { theme, language, showCamNames });
+            localStorage.setItem("miradorai_video_watermark", watermarkText);
+            localStorage.setItem("miradorai_video_watermark_pos", watermarkPos);
+
+            // Also persist to server database so all downloads, exports, and clients share it
+            try {
+              const token = localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token") || "";
+              await fetch(apiUrl("/recordings/watermark-settings"), {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify({ watermark: watermarkText, watermark_pos: watermarkPos }),
+              });
+            } catch (err) {
+              console.error("Failed to save watermark settings to backend:", err);
+            }
+
+            logAction("Updated Client Settings", "settings", { theme, language, showCamNames, watermarkText, watermarkPos });
+            setSaveStatus("Settings applied successfully!");
+            setTimeout(() => setSaveStatus(""), 3000);
           }} />
         </div>
       </div>

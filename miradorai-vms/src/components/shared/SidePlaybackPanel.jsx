@@ -694,10 +694,17 @@ export default function SidePlaybackPanel({ camera, onClose, alertSource = "buil
     const safeTime = playingFile.start_time.replace(/[:\/]/g, "-");
     const safeDate = playingFile.date.replace(/[:\/]/g, "-");
     const filename = `${playingFile.camera_id}_${safeDate}_${safeTime}.zip`;
-    const url = apiUrl('/recordings/download')
+    const camName = camera?.name || playingFile.camera_id;
+    const wmText = localStorage.getItem("miradorai_video_watermark") || "";
+    const wmPos = localStorage.getItem("miradorai_video_watermark_pos") || "center";
+    let url = apiUrl('/recordings/download')
       + `?camera_id=${encodeURIComponent(playingFile.camera_id)}`
       + `&date=${encodeURIComponent(playingFile.date)}`
-      + `&start_time=${encodeURIComponent(playingFile.start_time)}`;
+      + `&start_time=${encodeURIComponent(playingFile.start_time)}`
+      + `&camera_name=${encodeURIComponent(camName)}`;
+    if (wmText.trim()) {
+      url += `&watermark=${encodeURIComponent(wmText.trim())}&watermark_pos=${encodeURIComponent(wmPos)}`;
+    }
 
     try {
       const response = await fetch(url, { headers: getAuthHeaders() });

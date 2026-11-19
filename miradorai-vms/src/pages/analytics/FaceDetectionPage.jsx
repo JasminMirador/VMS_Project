@@ -3,8 +3,6 @@ import Hls from "hls.js";
 import "./VideoSynopsisPage.css";
 import { useCameras } from "../../context/CamerasContext";
 import DateTimePicker from "../../components/shared/DateTimePicker";
-import { synopsisBase, resolveSynopsisMediaUrl } from "../../config/appConfig";
-
 
 export default function FaceDetectionPage() {
   const { cameras } = useCameras();
@@ -82,12 +80,12 @@ export default function FaceDetectionPage() {
   };
   const [similarityThreshold, setSimilarityThreshold] = useState(65);
   const [previewImageModal, setPreviewImageModal] = useState(null);
-  const [faceStatusFilter, setFaceStatusFilter] = useState("all");
+  const [faceStatusFilter, setFaceStatusFilter] = useState("clear");
   const [isReidentifying, setIsReidentifying] = useState(false);
   const pollTimerRef = useRef(null);
   const isMountedRef = useRef(true);
 
-  const SYNOPSIS_API = synopsisBase();
+  const SYNOPSIS_API = window.__ENV__?.SYNOPSIS_BASE_URL ?? "";
 
   const handleReidentify = async () => {
     const activeJobId = currentJobDetails?.job_id || localStorage.getItem('vms_active_face_job_id') || (jobHistory[0]?.job_id);
@@ -655,7 +653,7 @@ export default function FaceDetectionPage() {
         throw new Error(`Failed to fetch raw video: ${res.statusText}`);
       }
       const data = await res.json();
-      setRawVideoUrl(resolveSynopsisMediaUrl(data.clipUrl));
+      setRawVideoUrl(data.clipUrl);
     } catch (err) {
       console.error(err);
       setRawVideoError(err.message || "Failed to load raw video clip.");
@@ -1143,6 +1141,21 @@ export default function FaceDetectionPage() {
                     >
                       ⚠ Suspended ({faces.filter(f => (f.status || (f.person_name && f.person_name !== 'Unknown' ? 'authorised' : 'unauthorised')).toLowerCase() === 'suspended').length})
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setFaceStatusFilter('clear')}
+                      title="Clear badge state and view detected faces without clearance badges"
+                      style={{
+                        padding: '5px 12px', borderRadius: '16px', fontSize: '0.78rem', fontWeight: 600,
+                        cursor: 'pointer', transition: 'all 0.18s ease',
+                        background: faceStatusFilter === 'clear' ? 'rgba(20, 184, 166, 0.2)' : 'var(--bg-elevated)',
+                        borderColor: faceStatusFilter === 'clear' ? 'var(--teal)' : 'var(--border)',
+                        color: faceStatusFilter === 'clear' ? 'var(--teal)' : 'var(--text-secondary)',
+                        borderWidth: '1px', borderStyle: 'solid'
+                      }}
+                    >
+                      Clear
+                    </button>
 
                     <button
                       type="button"
@@ -1181,7 +1194,7 @@ export default function FaceDetectionPage() {
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(175px, 1fr))', gap: '16px' }}>
                     {faces
                       .filter((face) => {
-                        if (faceStatusFilter === 'all') return true;
+                        if (faceStatusFilter === 'all' || faceStatusFilter === 'clear') return true;
                         const st = (face.status || (face.person_name && face.person_name !== 'Unknown' ? 'authorised' : 'unauthorised')).toLowerCase();
                         return st === faceStatusFilter;
                       })
@@ -1205,23 +1218,25 @@ export default function FaceDetectionPage() {
                             onClick={() => handleJumpToOriginal(face)}
                             style={{ minHeight: '235px', position: 'relative', overflow: 'hidden' }}
                           >
-                            {/* Clearance Status Badge (top-left) */}
-                            <div
-                              style={{
-                                position: 'absolute', top: '6px', left: '6px',
-                                zIndex: 3, display: 'flex', alignItems: 'center', gap: '4px',
-                                background: badgeBg, padding: '2px 7px',
-                                borderRadius: '4px', color: '#ffffff',
-                                fontSize: '0.67rem', fontWeight: 700,
-                                textTransform: 'uppercase', letterSpacing: '0.04em',
-                                boxShadow: '0 2px 4px rgba(0,0,0,0.4)',
-                                backdropFilter: 'blur(4px)'
-                              }}
-                              title={`Clearance: ${faceStatus.toUpperCase()}`}
-                            >
-                              <span className="material-icons-outlined" style={{ fontSize: '0.8rem' }}>{badgeIcon}</span>
-                              <span>{faceStatus}</span>
-                            </div>
+                            {/* Clearance Status Badge (top-left) - shown when a filter is chosen (all/authorised/unauthorised/suspended) */}
+                            {faceStatusFilter !== 'clear' && (
+                              <div
+                                style={{
+                                  position: 'absolute', top: '6px', left: '6px',
+                                  zIndex: 3, display: 'flex', alignItems: 'center', gap: '4px',
+                                  background: badgeBg, padding: '2px 7px',
+                                  borderRadius: '4px', color: '#ffffff',
+                                  fontSize: '0.67rem', fontWeight: 700,
+                                  textTransform: 'uppercase', letterSpacing: '0.04em',
+                                  boxShadow: '0 2px 4px rgba(0,0,0,0.4)',
+                                  backdropFilter: 'blur(4px)'
+                                }}
+                                title={`Clearance: ${faceStatus.toUpperCase()}`}
+                              >
+                                <span className="material-icons-outlined" style={{ fontSize: '0.8rem' }}>{badgeIcon}</span>
+                                <span>{faceStatus}</span>
+                              </div>
+                            )}
 
                             {/* Match score or Probe target (top-right) */}
                             {face.match_score !== undefined && face.match_score > 0 && (
@@ -1249,7 +1264,7 @@ export default function FaceDetectionPage() {
                                   setPreviewImageModal({ url: fullUrl, title: face.person_name ? `${face.person_name} (Angle #${(face.matched_angle_index ?? 0) + 1})` : `Matched Target Photo` });
                                 }}
                                 style={{
-                                  position: 'absolute', top: '30px', left: '6px',
+                                  position: 'absolute', top: faceStatusFilter !== 'clear' ? '30px' : '6px', left: '6px',
                                   zIndex: 2, display: 'flex', alignItems: 'center', gap: '4px',
                                   background: 'rgba(15, 23, 42, 0.88)', padding: '2px 6px',
                                   borderRadius: '12px', border: '1px solid var(--teal)', cursor: 'pointer',

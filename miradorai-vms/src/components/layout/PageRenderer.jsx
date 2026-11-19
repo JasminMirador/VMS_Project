@@ -50,10 +50,10 @@ import LogsPage from "../../pages/logs/LogsPage";
 
 // ✅ IMPORTANT PAGES
 import DashboardPage from "../../pages/Dashboard/DashboardPage";
-import MapViewPage from "../../pages/mapview/MapViewPage";
+import MapViewPage from "../../pages/MapView/MapViewPage";
 import TopologyPage from "../../pages/infrastructure/Topology";
 import NetworkHealthPage from "../../pages/diagnostics/NetworkHealthPage";
-import DesignerView from "../../pages/Mapview/DesignerView";
+import DesignerView from "../../pages/MapView/DesignerView";
 import MaskingPage from "../../pages/devices/MaskingPage";
 import ForensicSearchPage from "../../pages/forensic/ForensicSearchPage";
 import AiAnalyticsPage from "../../pages/analytics/AiAnalyticsPage";
@@ -87,6 +87,7 @@ const MAP = {
   "video-synopsis":VideoSynopsis,
   "face-detection": FaceDetectionPage,
   "ai-analytics": AiAnalyticsPage,
+  "integration/ai-analytics": AiAnalyticsPage,
 
   // ================= DEVICES =================
   "add-devices": AddDevicesPage,

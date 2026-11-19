@@ -44,6 +44,9 @@ function isAlertAllowed(alert) {
   });
 }
 
+let cachedActiveRecorders = [];
+let lastFetchTime = 0;
+
 /**
  * VirtualMapView
  * ─────────────────────────────────────────────────────────────────
@@ -67,7 +70,10 @@ function isAlertAllowed(alert) {
  *   expandedCamId string – which cam is currently expanded (null = none)
  *   onExpand      fn(id) – called when a thumbnail is clicked
  *   onClose       fn()   – called to close expanded view
- *   visible       bool   – show/hide whole layer
+ *   visible       bool   – show/hide whole layer (Virtual View mode)
+ *   hoveredCamMarker obj – { marker, index } if hovering a camera in normal mode
+ *   onThumbMouseEnter fn – callback when mouse enters hover thumbnail
+ *   onThumbMouseLeave fn – callback when mouse leaves hover thumbnail
  */
 export default function VirtualMapView({
   markers,
@@ -81,20 +87,31 @@ export default function VirtualMapView({
   visible,
   alertCounts = {},
   is3D = false,
+  hoveredCamMarker = null,
+  onThumbMouseEnter,
+  onThumbMouseLeave,
 }) {
   const [, forceUpdate] = useState(0);
   const rafRef = useRef(null);
-  const [activeRecorders, setActiveRecorders] = useState([]);
+  const [activeRecorders, setActiveRecorders] = useState(cachedActiveRecorders);
 
   useEffect(() => {
+    let mounted = true;
     const fetchRecordingStatus = async () => {
+      if (Date.now() - lastFetchTime < 6000 && cachedActiveRecorders.length > 0) {
+        if (mounted) setActiveRecorders(cachedActiveRecorders);
+        return;
+      }
       try {
         const res = await fetch(apiUrl("/recordings/status"), {
           headers: getAuthHeaders()
         });
         if (res.ok) {
           const data = await res.json();
-          setActiveRecorders(data.active_recorders || []);
+          const recs = data.active_recorders || [];
+          cachedActiveRecorders = recs;
+          lastFetchTime = Date.now();
+          if (mounted) setActiveRecorders(recs);
         }
       } catch (e) {
         console.error("[VirtualMapView] Recording status fetch failed:", e);
@@ -102,7 +119,10 @@ export default function VirtualMapView({
     };
     fetchRecordingStatus();
     const interval = setInterval(fetchRecordingStatus, 8000);
-    return () => clearInterval(interval);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   // Re-position thumbnails whenever map pans/zooms
@@ -119,7 +139,7 @@ export default function VirtualMapView({
     }
   }, [wrapRef, reposition]);
 
-  if (!visible || !markers.length) return null;
+  if (!visible && !hoveredCamMarker && !expandedCamId) return null;
 
   const wrap = wrapRef?.current;
   if (!wrap) return null;
@@ -127,10 +147,27 @@ export default function VirtualMapView({
   const scale  = scaleRef.current;
   const offset = offsetRef.current;
 
+  // In virtualMode (visible === true), display thumbnails for all placed cameras.
+  // In normal mode, display thumbnail for the hovered camera marker on mouseover.
+  const itemsToRender = visible
+    ? (markers || []).map((m, i) => ({ marker: m, index: i, isHover: false }))
+    : (hoveredCamMarker?.marker
+        ? [{
+            marker: hoveredCamMarker.marker,
+            index: hoveredCamMarker.index ?? (markers || []).findIndex(mk => mk.camId === hoveredCamMarker.marker.camId),
+            isHover: true
+          }]
+        : []);
+
   return (
     <>
-      {markers.map((m, i) => {
-        const cam = cameras.find(c => c.id === m.camId);
+      {itemsToRender.map(({ marker: m, index: i, isHover }) => {
+        const cam = cameras.find(c => c.id === m.camId) || (m.camName ? {
+          id: m.camId,
+          name: m.camName,
+          ip: m.camIp || "",
+          status: "offline",
+        } : null);
         if (!cam) return null;
 
         // Convert coordinates: If 3D projection available, use real-time 3D projected screen coordinates!
@@ -169,6 +206,9 @@ export default function VirtualMapView({
             onExpand={() => onExpand(cam.id)}
             onClose={onClose}
             wrap={wrap}
+            isHoverPreview={isHover}
+            onMouseEnter={isHover ? onThumbMouseEnter : undefined}
+            onMouseLeave={isHover ? onThumbMouseLeave : undefined}
           />
         );
       })}
@@ -191,13 +231,30 @@ export default function VirtualMapView({
 }
 
 // ── Single camera thumbnail pinned & fixable near camera position ──
-function CamThumbnail({ cam, marker, index, sx, sy, isExpanded, isOnline, isRecording, alertCount, onExpand, onClose, wrap }) {
-  const THUMB_W = 168;
-  const THUMB_H = 96;
+function CamThumbnail({
+  cam,
+  marker,
+  index,
+  sx,
+  sy,
+  isExpanded,
+  isOnline,
+  isRecording,
+  alertCount,
+  onExpand,
+  onClose,
+  wrap,
+  isHoverPreview = false,
+  onMouseEnter,
+  onMouseLeave,
+}) {
+  const THUMB_W = isHoverPreview ? 184 : 168;
+  const THUMB_H = isHoverPreview ? 114 : 96;
   const [thumbLive, setThumbLive] = useState(false);
   
   // Custom user-dragged offset relative to camera icon (persisted in localStorage)
   const [offset, setOffset] = useState(() => {
+    if (isHoverPreview) return { dx: 0, dy: 0 };
     try {
       const saved = JSON.parse(localStorage.getItem(`vt_thumb_offset_${cam.id}`) || "null");
       return saved && typeof saved.dx === "number" ? saved : { dx: 0, dy: 0 };
@@ -210,6 +267,7 @@ function CamThumbnail({ cam, marker, index, sx, sy, isExpanded, isOnline, isReco
   const dragStartRef = useRef({ startX: 0, startY: 0, initialDx: 0, initialDy: 0, moved: false });
 
   const handlePointerDown = (e) => {
+    if (isHoverPreview) return;
     if (e.target.closest(".vt-thumb__expand") || e.target.closest("button") || e.button !== 0) return;
     isDraggingRef.current = true;
     dragStartRef.current = {
@@ -224,7 +282,7 @@ function CamThumbnail({ cam, marker, index, sx, sy, isExpanded, isOnline, isReco
   };
 
   const handlePointerMove = (e) => {
-    if (!isDraggingRef.current) return;
+    if (!isDraggingRef.current || isHoverPreview) return;
     const deltaX = e.clientX - dragStartRef.current.startX;
     const deltaY = e.clientY - dragStartRef.current.startY;
     if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) {
@@ -238,6 +296,7 @@ function CamThumbnail({ cam, marker, index, sx, sy, isExpanded, isOnline, isReco
   };
 
   const handlePointerUp = (e) => {
+    if (isHoverPreview) return;
     if (!isDraggingRef.current) return;
     isDraggingRef.current = false;
     try {
@@ -255,25 +314,48 @@ function CamThumbnail({ cam, marker, index, sx, sy, isExpanded, isOnline, isReco
     }
   };
 
-  // Position thumbnail near camera icon + user offset
+  const handleClick = (e) => {
+    if (isHoverPreview) {
+      if (e.target.closest(".vt-thumb__expand") || e.target.closest("button")) return;
+      if (isExpanded) {
+        onClose();
+      } else {
+        onExpand();
+      }
+    }
+  };
+
+  // Position thumbnail near camera icon
   const wrapW = wrap ? wrap.clientWidth : 1000;
   const wrapH = wrap ? wrap.clientHeight : 1000;
 
-  // Default placement: centered horizontally, placed 12px above camera dot
-  const targetX = sx - THUMB_W / 2 + (offset.dx || 0);
-  const targetY = sy - THUMB_H - 12 + (offset.dy || 0);
-
-  const left = Math.max(8, Math.min(wrapW - THUMB_W - 8, targetX));
-  const top  = Math.max(8, Math.min(wrapH - THUMB_H - 8, targetY));
+  let left, top;
+  if (isHoverPreview) {
+    // Center horizontally on camera dot, placed 14px above dot
+    // Flip below camera dot if near top edge of canvas
+    const placeBelow = sy - THUMB_H - 14 < 8;
+    const targetX = sx - THUMB_W / 2;
+    const targetY = placeBelow ? sy + 18 : sy - THUMB_H - 14;
+    left = Math.max(8, Math.min(wrapW - THUMB_W - 8, targetX));
+    top  = Math.max(8, Math.min(wrapH - THUMB_H - 8, targetY));
+  } else {
+    const targetX = sx - THUMB_W / 2 + (offset.dx || 0);
+    const targetY = sy - THUMB_H - 12 + (offset.dy || 0);
+    left = Math.max(8, Math.min(wrapW - THUMB_W - 8, targetX));
+    top  = Math.max(8, Math.min(wrapH - THUMB_H - 8, targetY));
+  }
 
   return (
     <div
-      className={`vt-thumb ${isOnline ? "vt-thumb--online" : "vt-thumb--offline"} ${isExpanded ? "vt-thumb--expanded" : ""} ${localStorage.getItem("miradorai_show_event_ind") !== "false" && alertCount > 0 ? "vt-thumb--alert" : ""}`}
+      className={`vt-thumb ${isOnline ? "vt-thumb--online" : "vt-thumb--offline"} ${isExpanded ? "vt-thumb--expanded" : ""} ${localStorage.getItem("miradorai_show_event_ind") !== "false" && alertCount > 0 ? "vt-thumb--alert" : ""} ${isHoverPreview ? "vt-thumb--hover-preview" : ""}`}
       style={{ left, top, width: THUMB_W, height: THUMB_H, touchAction: "none" }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      title={`${cam.name} — Drag to reposition near camera, click to expand`}
+      onClick={handleClick}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      title={`${cam.name} — ${isHoverPreview ? "Click to expand live feed" : "Drag to reposition near camera, click to expand"}`}
     >
         {/* Alert Badge */}
         {alertCount > 0 && (
@@ -304,8 +386,8 @@ function CamThumbnail({ cam, marker, index, sx, sy, isExpanded, isOnline, isReco
         )}
 
         {/* Header bar */}
-        <div className="vt-thumb__bar" style={{ cursor: "grab" }}>
-          <span className={`vt-thumb__dot ${thumbLive ? "vt-thumb__dot--online" : "vt-thumb__dot--offline"}`} />
+        <div className="vt-thumb__bar" style={{ cursor: isHoverPreview ? "pointer" : "grab" }}>
+          <span className={`vt-thumb__dot ${!isOnline ? "vt-thumb__dot--offline" : (alertCount > 0 ? "vt-thumb__dot--alert" : "vt-thumb__dot--online")}`} />
           <span className="vt-thumb__name">{cam.name}</span>
           {thumbLive && localStorage.getItem("miradorai_show_rec_ind") !== "false" && isRecording && (
             <span className="vt-rec-dot" />

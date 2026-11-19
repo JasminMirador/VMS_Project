@@ -325,7 +325,7 @@ const ProcessHistoryPanel = () => {
             className="vms-proc-search-input" 
             value={selectedService} 
             onChange={(e) => setSelectedService(e.target.value)}
-            style={{ width: '180px', colorScheme: 'dark', background: 'var(--bg-base, #0b0f17)', border: '1px solid var(--border, #1e293b)', color: '#ffffff' }}
+            style={{ width: '180px', colorScheme: theme === 'light' ? 'light' : 'dark', background: 'var(--bg-base, #0b0f17)', border: '1px solid var(--border, #1e293b)', color: 'var(--text-primary, #ffffff)' }}
           >
             <option value="all">All Services</option>
             <option value="run_api.py">API Server (run_api.py)</option>
@@ -346,7 +346,7 @@ const ProcessHistoryPanel = () => {
             className="vms-proc-search-input" 
             value={selectedStatus} 
             onChange={(e) => setSelectedStatus(e.target.value)}
-            style={{ width: '140px', colorScheme: 'dark', background: 'var(--bg-base, #0b0f17)', border: '1px solid var(--border, #1e293b)', color: '#ffffff' }}
+            style={{ width: '140px', colorScheme: theme === 'light' ? 'light' : 'dark', background: 'var(--bg-base, #0b0f17)', border: '1px solid var(--border, #1e293b)', color: 'var(--text-primary, #ffffff)' }}
           >
             <option value="all">All Statuses</option>
             <option value="ACTIVE">ACTIVE (Running)</option>

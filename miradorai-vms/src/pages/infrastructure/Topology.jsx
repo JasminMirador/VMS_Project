@@ -31,9 +31,9 @@ const DEVICE_TIER = {
   'other':        4,
   'unknown':      4,
 };
-const TIER_Y = [60, 180, 300, 440, 580];
-const H_GAP  = 200;
-const V_GAP  = 160;
+const TIER_Y = [50, 165, 280, 395, 510];
+const H_GAP  = 140;
+const V_GAP  = 115;
 
 function autoLayout(nodes) {
   const needsLayout = nodes.filter(n => !n._hasPosition && (!n.position || typeof n.position.x !== 'number'));
@@ -50,16 +50,16 @@ function autoLayout(nodes) {
 
   Object.entries(byTier).forEach(([tierStr, tierNodes]) => {
     const tier = parseInt(tierStr, 10);
-    const baseY = TIER_Y[tier] ?? (580 + (tier - 4) * V_GAP);
+    const baseY = TIER_Y[tier] ?? (510 + (tier - 4) * V_GAP);
     const maxPerRow = 8;
     tierNodes.forEach((n, i) => {
       const row = Math.floor(i / maxPerRow);
       const col = i % maxPerRow;
       const countInRow = Math.min(tierNodes.length - row * maxPerRow, maxPerRow);
-      const startX = Math.max(120, 550 - ((countInRow - 1) * H_GAP) / 2);
+      const startX = Math.max(100, 500 - ((countInRow - 1) * H_GAP) / 2);
       const pos = {
         x: Math.round(startX + col * H_GAP),
-        y: Math.round(baseY + row * 130)
+        y: Math.round(baseY + row * 105)
       };
       positioned.set(n.id, { ...n, position: pos, _hasPosition: true });
     });
@@ -127,7 +127,7 @@ const Icon = ({ type, size = 20, model = '', subtype = '' }) => {
       );
     }
     case 'switch': return (
-      <svg viewBox="0 0 100 50" width={size} height={size} style={{ filter: 'drop-shadow(0px 8px 8px rgba(0,0,0,0.6))' }}>
+      <svg viewBox="0 0 100 50" width={size} height={Math.round(size * 0.55)} style={{ filter: 'drop-shadow(0px 8px 8px rgba(0,0,0,0.6))' }}>
         <defs>
           <linearGradient id="swTop" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#d1d5db"/><stop offset="50%" stopColor="#f3f4f6"/><stop offset="100%" stopColor="#9ca3af"/></linearGradient>
           <linearGradient id="swFront" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#cbd5e1"/><stop offset="100%" stopColor="#94a3b8"/></linearGradient>
@@ -162,7 +162,7 @@ const Icon = ({ type, size = 20, model = '', subtype = '' }) => {
       </svg>
     );
     case 'core-switch': return (
-      <svg viewBox="0 0 100 50" width={size} height={size} style={{ filter: 'drop-shadow(0px 8px 8px rgba(0,0,0,0.6))' }}>
+      <svg viewBox="0 0 100 50" width={size} height={Math.round(size * 0.55)} style={{ filter: 'drop-shadow(0px 8px 8px rgba(0,0,0,0.6))' }}>
         <defs>
           <linearGradient id="swTopCore" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#94a3b8"/><stop offset="50%" stopColor="#cbd5e1"/><stop offset="100%" stopColor="#64748b"/></linearGradient>
           <linearGradient id="swFrontCore" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#64748b"/><stop offset="100%" stopColor="#334155"/></linearGradient>
@@ -199,7 +199,7 @@ const Icon = ({ type, size = 20, model = '', subtype = '' }) => {
       </svg>
     );
     case 'poe-switch': return (
-      <svg viewBox="0 0 100 50" width={size} height={size} style={{ filter: 'drop-shadow(0px 8px 8px rgba(0,0,0,0.6))' }}>
+      <svg viewBox="0 0 100 50" width={size} height={Math.round(size * 0.55)} style={{ filter: 'drop-shadow(0px 8px 8px rgba(0,0,0,0.6))' }}>
         <defs>
           <linearGradient id="swTopPoe" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#d1d5db"/><stop offset="50%" stopColor="#f3f4f6"/><stop offset="100%" stopColor="#9ca3af"/></linearGradient>
           <linearGradient id="swFrontPoe" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#cbd5e1"/><stop offset="100%" stopColor="#94a3b8"/></linearGradient>
@@ -311,7 +311,7 @@ const Icon = ({ type, size = 20, model = '', subtype = '' }) => {
       </svg>
     );
     case 'router': return (
-      <svg viewBox="0 0 100 60" width={size} height={size} style={{ filter: 'drop-shadow(0px 8px 10px rgba(0,0,0,0.6))' }}>
+      <svg viewBox="0 0 100 60" width={size} height={Math.round(size * 0.65)} style={{ filter: 'drop-shadow(0px 8px 10px rgba(0,0,0,0.6))' }}>
         <defs>
           <linearGradient id="rtrTop" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#0284c7"/><stop offset="100%" stopColor="#0369a1"/></linearGradient>
           <linearGradient id="rtrFront" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0f172a"/><stop offset="100%" stopColor="#020617"/></linearGradient>
@@ -340,7 +340,7 @@ const Icon = ({ type, size = 20, model = '', subtype = '' }) => {
       </svg>
     );
     case 'workstation': return (
-      <svg viewBox="0 0 100 80" width={size} height={size} style={{ filter: 'drop-shadow(0px 8px 10px rgba(0,0,0,0.5))' }}>
+      <svg viewBox="0 0 100 80" width={size} height={Math.round(size * 0.8)} style={{ filter: 'drop-shadow(0px 8px 10px rgba(0,0,0,0.5))' }}>
         <rect x="10" y="8" width="55" height="38" rx="2" fill="#0f172a" stroke="#475569" strokeWidth="1.5"/>
         <rect x="13" y="11" width="49" height="32" rx="1" fill="#1e293b"/>
         <polygon points="20,25 35,15 45,28 35,33" fill="#38bdf8" opacity="0.3"/>
@@ -352,7 +352,7 @@ const Icon = ({ type, size = 20, model = '', subtype = '' }) => {
       </svg>
     );
     case 'printer': return (
-      <svg viewBox="0 0 100 80" width={size} height={size} style={{ filter: 'drop-shadow(0px 8px 10px rgba(0,0,0,0.5))' }}>
+      <svg viewBox="0 0 100 80" width={size} height={Math.round(size * 0.8)} style={{ filter: 'drop-shadow(0px 8px 10px rgba(0,0,0,0.5))' }}>
         <polygon points="28,5 72,5 70,22 30,22" fill="#f8fafc" stroke="#64748b" strokeWidth="1.5"/>
         <line x1="36" y1="12" x2="64" y2="12" stroke="#94a3b8" strokeWidth="1"/>
         <line x1="36" y1="16" x2="58" y2="16" stroke="#94a3b8" strokeWidth="1"/>
@@ -365,7 +365,7 @@ const Icon = ({ type, size = 20, model = '', subtype = '' }) => {
       </svg>
     );
     case 'nas': return (
-      <svg viewBox="0 0 100 80" width={size} height={size} style={{ filter: 'drop-shadow(0px 8px 10px rgba(0,0,0,0.5))' }}>
+      <svg viewBox="0 0 100 80" width={size} height={Math.round(size * 0.8)} style={{ filter: 'drop-shadow(0px 8px 10px rgba(0,0,0,0.5))' }}>
         <rect x="15" y="10" width="70" height="55" rx="3" fill="#1e293b" stroke="#475569" strokeWidth="1.5"/>
         {[22, 38, 54, 70].map(x => (
           <g key={`drive-${x}`}>
@@ -377,7 +377,7 @@ const Icon = ({ type, size = 20, model = '', subtype = '' }) => {
       </svg>
     );
     case 'iot': return (
-      <svg viewBox="0 0 100 80" width={size} height={size} style={{ filter: 'drop-shadow(0px 8px 10px rgba(0,0,0,0.5))' }}>
+      <svg viewBox="0 0 100 80" width={size} height={Math.round(size * 0.8)} style={{ filter: 'drop-shadow(0px 8px 10px rgba(0,0,0,0.5))' }}>
         <rect x="25" y="18" width="50" height="44" rx="4" fill="#0f172a" stroke="#059669" strokeWidth="1.5"/>
         <rect x="35" y="28" width="30" height="24" rx="2" fill="#064e3b" stroke="#10b981" strokeWidth="1"/>
         <circle cx="50" cy="40" r="4" fill="#34d399" filter="drop-shadow(0 0 3px #34d399)"/>
@@ -391,7 +391,7 @@ const Icon = ({ type, size = 20, model = '', subtype = '' }) => {
     );
     case 'unknown':
     case 'other': return (
-      <svg viewBox="0 0 100 80" width={size} height={size} style={{ filter: 'drop-shadow(0px 8px 10px rgba(0,0,0,0.5))' }}>
+      <svg viewBox="0 0 100 80" width={size} height={Math.round(size * 0.8)} style={{ filter: 'drop-shadow(0px 8px 10px rgba(0,0,0,0.5))' }}>
         <rect x="20" y="15" width="60" height="48" rx="4" fill="#1e293b" stroke="#64748b" strokeWidth="1.5"/>
         <circle cx="50" cy="38" r="14" fill="none" stroke="#94a3b8" strokeWidth="2" strokeDasharray="3 3"/>
         <circle cx="50" cy="38" r="4" fill="#94a3b8"/>
@@ -411,6 +411,7 @@ const Icon = ({ type, size = 20, model = '', subtype = '' }) => {
     case 'refresh':     return <svg {...s}><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>;
     case 'email':       return <svg {...s}><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>;
     case 'x':           return <svg {...s}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
+    case 'trash':       return <svg {...s}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>;
     case 'template':    return <svg {...s}><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M21 9H3M21 15H3M12 3v18"/></svg>;
     case 'copy':        return <svg {...s}><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>;
     default:            return <svg {...s}><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>;
@@ -462,31 +463,33 @@ const CustomNode = ({ data }) => {
               top: -5,
               right: -25,
               background: '#ef4444',
-              border: '1px solid #7f1d1d',
+              border: '1.5px solid rgba(255, 255, 255, 0.85)',
               color: '#fff',
               borderRadius: '50%',
               width: 18,
               height: 18,
-              fontSize: 14,
-              fontWeight: 700,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               cursor: 'pointer',
-              boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+              boxShadow: '0 2px 6px rgba(239, 68, 68, 0.45), 0 1px 3px rgba(0,0,0,0.3)',
               zIndex: 1000,
-              transition: 'all 0.1s'
+              padding: 0,
+              transition: 'all 0.15s ease'
             }}
             title="Remove from Canvas"
           >
-            ×
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
         )}
         <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
           <div className="topo-node__pulse" style={{ backgroundColor: statusColor(data.status), position: 'absolute', top: -10, right: -10, width: 14, height: 14, borderRadius: '50%', boxShadow: `0 0 10px ${statusColor(data.status)}`, zIndex: 10 }} />
           <Icon type={data.type} size={80} model={data.model} subtype={data.camera_type} />
         </div>
-        <div className="topo-node-badge" style={{ marginTop: 8, textAlign: 'center', padding: '2px 8px', borderRadius: 12, backdropFilter: 'blur(4px)' }}>
+        <div className="topo-node-badge" style={{ marginTop: 4, textAlign: 'center', padding: '2px 8px', borderRadius: 12, backdropFilter: 'blur(4px)' }}>
           <div className="topo-node-ip" style={{ fontSize: 13, fontWeight: 'bold' }}>{data.ip}</div>
           {cleanModel(data) && (
             <div className="topo-node-model" style={{ fontSize: 11, fontWeight: 600, color: '#e2e8f0', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={cleanModel(data)}>
@@ -517,24 +520,26 @@ const CustomNode = ({ data }) => {
             top: -7,
             right: -7,
             background: '#ef4444',
-            border: '1px solid #7f1d1d',
+            border: '1.5px solid rgba(255, 255, 255, 0.85)',
             color: '#fff',
             borderRadius: '50%',
-            width: 17,
-            height: 17,
-            fontSize: 14,
-            fontWeight: 700,
+            width: 18,
+            height: 18,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+            boxShadow: '0 2px 6px rgba(239, 68, 68, 0.45), 0 1px 3px rgba(0,0,0,0.3)',
             zIndex: 1000,
-            transition: 'all 0.1s'
+            padding: 0,
+            transition: 'all 0.15s ease'
           }}
           title="Remove from Canvas"
         >
-          ×
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
         </button>
       )}
 
@@ -1122,6 +1127,254 @@ const normalizeNodeType = (node) => {
   return node;
 };
 
+// ─── Autoconnect & Topology Healing Helpers ─────────────────────────────────
+const getNodeTier = (node) => {
+  const type = node?.data?.type || node?.type || 'unknown';
+  return DEVICE_TIER[type] ?? 4;
+};
+
+const pickBestParent = (candidates, child) => {
+  if (!candidates || candidates.length === 0) return null;
+  const childType = child?.data?.type || child?.type || 'unknown';
+
+  // 1. PoE Switch preferred for cameras
+  if (childType === 'camera') {
+    const poe = candidates.find(c => {
+      const t = c?.data?.type || c?.type;
+      return t === 'poe-switch';
+    });
+    if (poe) return poe;
+    const sw = candidates.find(c => {
+      const t = c?.data?.type || c?.type;
+      return t === 'switch' || t === 'core-switch';
+    });
+    if (sw) return sw;
+    const nvr = candidates.find(c => {
+      const t = c?.data?.type || c?.type;
+      return t === 'nvr';
+    });
+    if (nvr) return nvr;
+    const rtr = candidates.find(c => {
+      const t = c?.data?.type || c?.type;
+      return t === 'router';
+    });
+    if (rtr) return rtr;
+  }
+
+  // 2. AP or switch for workstations / printers
+  if (childType === 'workstation' || childType === 'printer') {
+    const ap = candidates.find(c => {
+      const t = c?.data?.type || c?.type;
+      return t === 'access_point';
+    });
+    if (ap) return ap;
+  }
+
+  // 3. Switches / core-switches / routers for infra and servers
+  const swOrRtr = candidates.find(c => {
+    const t = c?.data?.type || c?.type;
+    return t === 'switch' || t === 'poe-switch' || t === 'core-switch' || t === 'router';
+  });
+  if (swOrRtr) return swOrRtr;
+
+  // 4. Default: lowest tier (highest in network hierarchy)
+  const sorted = [...candidates].sort((a, b) => getNodeTier(a) - getNodeTier(b));
+  return sorted[0];
+};
+
+const createReactFlowEdge = (e, targetNode, idx = 0) => {
+  const targetType = targetNode?.data?.type || targetNode?.type;
+  let strokeColor = '#818cf8';
+  let strokeWidth = 2;
+  if (targetType === 'camera') {
+    strokeColor = '#10b981';
+  } else if (targetType === 'server' || targetType === 'nvr' || targetType === 'nas') {
+    strokeColor = '#3b82f6';
+    strokeWidth = 2.5;
+  } else if (targetType === 'switch' || targetType === 'poe-switch' || targetType === 'core-switch') {
+    strokeColor = '#f59e0b';
+    strokeWidth = 2.5;
+  } else if (targetType === 'router') {
+    strokeColor = '#0284c7';
+    strokeWidth = 2.5;
+  }
+
+  return {
+    id: e.id || `e-auto-${e.source}-${e.target}-${Date.now()}-${idx}`,
+    source: e.source,
+    target: e.target,
+    animated: true,
+    type: 'smoothstep',
+    style: {
+      stroke: strokeColor,
+      strokeWidth,
+      filter: `drop-shadow(0px 0px 3px ${strokeColor}66)`
+    },
+    markerEnd: { type: MarkerType.ArrowClosed, color: strokeColor },
+    data: {
+      source: e.source,
+      target: e.target,
+      type: e.data?.type || e.type || 'default',
+      inferred: true
+    }
+  };
+};
+
+function computeAutoconnectEdges(remainingNodes, currentEdges, removedNodeId, activeTemplate) {
+  if (!remainingNodes || remainingNodes.length < 2) {
+    return [];
+  }
+
+  const remainingNodeIds = new Set(remainingNodes.map(n => n.id));
+  const nodeMap = new Map(remainingNodes.map(n => [n.id, n]));
+
+  // If active template is 'star':
+  if (activeTemplate === 'star') {
+    const validEdges = currentEdges.filter(e =>
+      remainingNodeIds.has(e.source) && remainingNodeIds.has(e.target)
+    );
+    const degreeCount = {};
+    validEdges.forEach(e => {
+      degreeCount[e.source] = (degreeCount[e.source] || 0) + 1;
+    });
+    let hubId = Object.keys(degreeCount).find(id => degreeCount[id] > 0);
+    if (!hubId || !remainingNodeIds.has(hubId)) {
+      const sorted = [...remainingNodes].sort((a, b) => getNodeTier(a) - getNodeTier(b));
+      hubId = sorted[0].id;
+    }
+    const newEdges = [];
+    remainingNodes.forEach(n => {
+      if (n.id !== hubId) {
+        newEdges.push({ source: hubId, target: n.id, type: 'default', inferred: true });
+      }
+    });
+    return newEdges;
+  }
+
+  // Untouched edges between remaining nodes
+  const untouchedEdges = currentEdges.filter(e =>
+    remainingNodeIds.has(e.source) && remainingNodeIds.has(e.target)
+  );
+
+  const edgeKeySet = new Set(untouchedEdges.map(e => `${e.source}|${e.target}`));
+  const hasEdge = (src, tgt) => edgeKeySet.has(`${src}|${tgt}`) || edgeKeySet.has(`${tgt}|${src}`);
+
+  const newEdgePairs = [];
+  const addEdgeSafe = (src, tgt) => {
+    if (src && tgt && src !== tgt && remainingNodeIds.has(src) && remainingNodeIds.has(tgt) && !hasEdge(src, tgt)) {
+      edgeKeySet.add(`${src}|${tgt}`);
+      newEdgePairs.push({ source: src, target: tgt, type: 'default', inferred: true });
+    }
+  };
+
+  // Find connections of removed node
+  const incomingParents = currentEdges
+    .filter(e => e.target === removedNodeId && remainingNodeIds.has(e.source))
+    .map(e => e.source);
+
+  const outgoingChildren = currentEdges
+    .filter(e => e.source === removedNodeId && remainingNodeIds.has(e.target))
+    .map(e => e.target);
+
+  // 1. Bridge incoming parents to outgoing children
+  if (incomingParents.length > 0 && outgoingChildren.length > 0) {
+    incomingParents.forEach(p => {
+      outgoingChildren.forEach(c => {
+        addEdgeSafe(p, c);
+      });
+    });
+  } else if (incomingParents.length === 0 && outgoingChildren.length > 0) {
+    // Removed node was a root node with no parents
+    const childNodes = outgoingChildren.map(id => nodeMap.get(id)).filter(Boolean);
+    childNodes.sort((a, b) => getNodeTier(a) - getNodeTier(b));
+    const newParent = childNodes[0];
+    if (newParent) {
+      for (let i = 1; i < childNodes.length; i++) {
+        addEdgeSafe(newParent.id, childNodes[i].id);
+      }
+    }
+  }
+
+  // Combine untouched edges and new bridging edges
+  const allProposedEdges = [
+    ...untouchedEdges.map(e => ({
+      ...e,
+      source: e.source,
+      target: e.target,
+      type: e.data?.type || e.type || 'default',
+      inferred: e.data?.inferred ?? e.inferred ?? true
+    })),
+    ...newEdgePairs
+  ];
+
+  // 2. Connectivity check across all remaining nodes
+  const adj = new Map();
+  remainingNodes.forEach(n => adj.set(n.id, new Set()));
+  allProposedEdges.forEach(e => {
+    if (adj.has(e.source) && adj.has(e.target)) {
+      adj.get(e.source).add(e.target);
+      adj.get(e.target).add(e.source);
+    }
+  });
+
+  const visited = new Set();
+  const components = [];
+  remainingNodes.forEach(n => {
+    if (!visited.has(n.id)) {
+      const comp = [];
+      const queue = [n.id];
+      visited.add(n.id);
+      while (queue.length > 0) {
+        const cur = queue.shift();
+        comp.push(cur);
+        for (const neighbor of adj.get(cur) || []) {
+          if (!visited.has(neighbor)) {
+            visited.add(neighbor);
+            queue.push(neighbor);
+          }
+        }
+      }
+      components.push(comp);
+    }
+  });
+
+  // If there are multiple components or isolated nodes, autoconnect them
+  if (components.length > 1) {
+    components.sort((compA, compB) => {
+      const bestTierA = Math.min(...compA.map(id => getNodeTier(nodeMap.get(id))));
+      const bestTierB = Math.min(...compB.map(id => getNodeTier(nodeMap.get(id))));
+      if (bestTierA !== bestTierB) return bestTierA - bestTierB;
+      return compB.length - compA.length;
+    });
+
+    const primaryCompNodeIds = new Set(components[0]);
+
+    for (let i = 1; i < components.length; i++) {
+      const otherComp = components[i];
+      const otherNodes = otherComp.map(id => nodeMap.get(id)).filter(Boolean);
+      otherNodes.sort((a, b) => getNodeTier(a) - getNodeTier(b));
+      const childInOther = otherNodes[0];
+
+      const primaryCandidates = Array.from(primaryCompNodeIds).map(id => nodeMap.get(id)).filter(Boolean);
+      const parentInPrimary = pickBestParent(primaryCandidates, childInOther);
+
+      if (parentInPrimary && childInOther) {
+        const parentTier = getNodeTier(parentInPrimary);
+        const childTier = getNodeTier(childInOther);
+        const src = parentTier <= childTier ? parentInPrimary.id : childInOther.id;
+        const tgt = parentTier <= childTier ? childInOther.id : parentInPrimary.id;
+        if (!hasEdge(src, tgt)) {
+          allProposedEdges.push({ source: src, target: tgt, type: 'default', inferred: true });
+          edgeKeySet.add(`${src}|${tgt}`);
+        }
+        otherComp.forEach(id => primaryCompNodeIds.add(id));
+      }
+    }
+  }
+
+  return allProposedEdges;
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Topology() {
   const { theme } = useTheme();
@@ -1138,6 +1391,14 @@ export default function Topology() {
   const [sidebarOpen, setSidebarOpen]   = useState(false);
   const [confirmModal, setConfirmModal] = useState({ isOpen: false });
   const [activeTemplate, setActiveTemplate] = useState(null);
+
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+  const edgesRef = useRef(edges);
+  edgesRef.current = edges;
+  const activeTemplateRef = useRef(activeTemplate);
+  activeTemplateRef.current = activeTemplate;
+  const removeNodeFromCanvasRef = useRef();
   
   const memoizedNodeTypes = useMemo(() => nodeTypes, []);
   const memoizedEdgeTypes = useMemo(() => edgeTypes, []);
@@ -1270,30 +1531,72 @@ export default function Topology() {
     prevUptimes.current[nodeId] = newData.uptime;
   }, []);
 
-  // ─── Canvas Removal Action ────────────────────────────────────────────────
+  // ─── Canvas Removal Action with Auto-Connect ─────────────────────────────
   const removeNodeFromCanvas = useCallback(async (nodeId) => {
     try {
-      await fetch(`${API_BASE}/nodes/${nodeId}`, {
+      const currentNodes = nodesRef.current;
+      const currentEdges = edgesRef.current;
+      const remainingNodes = currentNodes.filter(n => n.id !== nodeId);
+
+      // Compute healed/autoconnected edges for remaining nodes
+      const nextEdgesData = computeAutoconnectEdges(
+        remainingNodes,
+        currentEdges,
+        nodeId,
+        activeTemplateRef.current
+      );
+
+      // Convert to ReactFlow edge objects, preserving existing edges' style where possible
+      const reactEdges = nextEdgesData.map((e, idx) => {
+        const existing = currentEdges.find(ce => ce.source === e.source && ce.target === e.target);
+        if (existing) {
+          return existing;
+        }
+        const targetNode = remainingNodes.find(n => n.id === e.target);
+        return createReactFlowEdge(e, targetNode, idx);
+      });
+
+      // Clear selection if removed node or edge was selected
+      if (selectedNode?.id === nodeId) {
+        setSelectedNode(null);
+        setSidebarOpen(false);
+      }
+      if (selectedEdge?.source === nodeId || selectedEdge?.target === nodeId) {
+        setSelectedEdge(null);
+      }
+
+      // Optimistically update UI
+      setNodes(remainingNodes);
+      setEdges(reactEdges);
+      setScannedNodes(snd => snd.map(n => n.id === nodeId ? { ...n, position: null } : n));
+
+      // Persist node position null to backend
+      fetch(`${API_BASE}/nodes/${nodeId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ position: null })
-      });
-      
-      // Clear connected edges
-      const connectedEdges = edges.filter(e => e.source === nodeId || e.target === nodeId);
-      await Promise.all(connectedEdges.map(e => 
-        fetch(`${API_BASE}/connections/${e.data?.id || e.id}`, {
-          method: 'DELETE'
-        }).catch(() => {})
-      ));
+      }).catch(err => console.error("Node removal patch error:", err));
 
-      setNodes(nds => nds.filter(n => n.id !== nodeId));
-      setEdges(eds => eds.filter(e => e.source !== nodeId && e.target !== nodeId));
-      setScannedNodes(snd => snd.map(n => n.id === nodeId ? { ...n, position: null } : n));
+      // Persist new edges layout to backend
+      const edgesPayload = nextEdgesData.map(e => ({
+        source: e.source,
+        target: e.target,
+        type: e.type || 'default',
+        inferred: e.inferred ?? true
+      }));
+
+      fetch(`${API_BASE}/topology/layout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ edges: edgesPayload })
+      }).catch(err => console.error("Edges persistence error:", err));
+
     } catch (err) {
       console.error("Failed to remove node from canvas:", err);
     }
-  }, [edges, setNodes, setEdges]);
+  }, [selectedNode, selectedEdge, setNodes, setEdges]);
+
+  removeNodeFromCanvasRef.current = removeNodeFromCanvas;
 
   const fetchTopology = useCallback(async () => {
     try {
@@ -1306,7 +1609,8 @@ export default function Topology() {
       const idAlias = {};
       data.nodes.forEach(n => {
         const norm = normalizeNodeType(n);
-        const key  = norm.ip || norm.mac || norm.id;
+        const normMac = norm.mac ? String(norm.mac).toLowerCase().replace(/-/g, ':') : null;
+        const key  = norm.ip || normMac || norm.id;
         const cur  = seen.get(key);
         const better = !cur
           || (!!norm.position && !cur.position)
@@ -1338,7 +1642,7 @@ export default function Topology() {
         position: n.position,
         data: { 
           ...n, 
-          onRemove: () => removeNodeFromCanvas(n.id)
+          onRemove: () => removeNodeFromCanvasRef.current?.(n.id)
         }
       }));
 
@@ -1555,26 +1859,66 @@ export default function Topology() {
   const onDragStart   = (e, nd) => { e.dataTransfer.setData('application/reactflow', JSON.stringify(nd)); e.dataTransfer.effectAllowed = 'move'; };
   const onDragOver    = useCallback((e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }, []);
   
-  const onDrop        = useCallback((e) => {
+  const onDrop = useCallback((e) => {
     e.preventDefault();
     const raw = e.dataTransfer.getData('application/reactflow');
     if (!raw) return;
     const nd = JSON.parse(raw);
-    if (nodes.find(n => n.id === nd.id)) return;
+    const currentNodes = nodesRef.current;
+    if (currentNodes.find(n => n.id === nd.id)) return;
     const bounds   = e.target.getBoundingClientRect();
-    const position = { x: e.clientX - bounds.left, y: e.clientY - bounds.top };
-    setNodes(nds => nds.concat({ 
+    const position = { x: Math.round(e.clientX - bounds.left), y: Math.round(e.clientY - bounds.top) };
+    const newNode = { 
       id: nd.id, 
       type: 'custom', 
       position, 
       data: { 
         ...nd, 
-        onRemove: () => removeNodeFromCanvas(nd.id) 
+        position,
+        onRemove: () => removeNodeFromCanvasRef.current?.(nd.id) 
       } 
-    }));
+    };
+
+    const nextNodes = currentNodes.concat(newNode);
+    setNodes(nextNodes);
     setScannedNodes(snd => snd.map(n => n.id === nd.id ? { ...n, position } : n));
-    fetch(`${API_BASE}/nodes/${nd.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ position }) });
-  }, [nodes, setNodes, removeNodeFromCanvas]);
+    fetch(`${API_BASE}/nodes/${nd.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ position }) }).catch(() => {});
+
+    // Autoconnect with existing devices on canvas
+    if (currentNodes.length > 0) {
+      const bestParent = pickBestParent(currentNodes, newNode);
+      if (bestParent) {
+        const parentTier = getNodeTier(bestParent);
+        const childTier = getNodeTier(newNode);
+        const source = parentTier <= childTier ? bestParent.id : newNode.id;
+        const target = parentTier <= childTier ? newNode.id : bestParent.id;
+        const targetNode = source === bestParent.id ? newNode : bestParent;
+
+        const currentEdges = edgesRef.current;
+        const edgeAlreadyExists = currentEdges.some(
+          ed => (ed.source === source && ed.target === target) || (ed.source === target && ed.target === source)
+        );
+
+        if (!edgeAlreadyExists) {
+          const newReactEdge = createReactFlowEdge({ source, target }, targetNode);
+          const nextEdges = [...currentEdges, newReactEdge];
+          setEdges(nextEdges);
+
+          const edgesPayload = nextEdges.map(ed => ({
+            source: ed.source,
+            target: ed.target,
+            type: ed.data?.type || ed.type || 'default',
+            inferred: true
+          }));
+          fetch(`${API_BASE}/topology/layout`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ edges: edgesPayload })
+          }).catch(() => {});
+        }
+      }
+    }
+  }, [setNodes, setEdges]);
 
   // ─── Topology Template Design Actions ─────────────────────────────────────
   const resetWorkspace = useCallback(() => {
@@ -1602,6 +1946,31 @@ export default function Topology() {
       onCancel: () => setConfirmModal(prev => ({ ...prev, isOpen: false }))
     });
   }, [fetchTopology, setNodes, setEdges]);
+
+  const purgeStaleNodes = useCallback(async () => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Purge Offline & Foreign Devices',
+      message: "Are you sure you want to purge offline and foreign network devices from the inventory database? Active network devices will remain safe.",
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        try {
+          const res = await fetch(`${API_BASE}/purge-stale`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ purge_all_offline: true })
+          });
+          const data = await res.json();
+          if (data.success) {
+            await fetchTopology();
+          }
+        } catch (err) {
+          console.error("Failed to purge stale nodes:", err);
+        }
+      },
+      onCancel: () => setConfirmModal(prev => ({ ...prev, isOpen: false }))
+    });
+  }, [fetchTopology]);
 
   const applyTopologyTemplate = useCallback(async (templateType, customNodes = null) => {
     // Target ONLY the nodes currently placed in the canvas (unless customNodes is explicitly passed, e.g. from Place All)
@@ -1639,52 +2008,57 @@ export default function Topology() {
       const infra = targetNodes.filter(n => (n.type === 'access_point' || n.type === 'server' || n.type === 'nvr' || n.type === 'nas') && n.id !== root.id && !switches.some(s => s.id === n.id));
       const endpoints = targetNodes.filter(n => n.id !== root.id && !switches.some(s => s.id === n.id) && !infra.some(inf => inf.id === n.id));
 
-      // 1. Root position
-      newPositions[root.id] = { x: 500, y: 70 };
+      // Dynamic compact Y calculation to ensure tight gaps without large jumps:
+      let currentY = 50;
+      newPositions[root.id] = { x: 500, y: currentY };
 
-      // 2. Switches position
-      const swY = 220;
       const swCount = switches.length;
-      switches.forEach((sw, i) => {
-        const startX = Math.max(120, 500 - ((swCount - 1) * 220) / 2);
-        newPositions[sw.id] = { x: Math.round(startX + i * 220), y: swY };
-        newEdges.push({ source: root.id, target: sw.id, type: 'default', inferred: true });
-      });
+      if (swCount > 0) {
+        currentY += 120;
+        switches.forEach((sw, i) => {
+          const startX = Math.max(100, 500 - ((swCount - 1) * 150) / 2);
+          newPositions[sw.id] = { x: Math.round(startX + i * 150), y: currentY };
+          newEdges.push({ source: root.id, target: sw.id, type: 'default', inferred: true });
+        });
+      }
 
-      // 3. Infrastructure (APs, Servers) position
-      const infY = 370;
       const infCount = infra.length;
-      infra.forEach((inf, i) => {
-        const startX = Math.max(120, 500 - ((infCount - 1) * 200) / 2);
-        newPositions[inf.id] = { x: Math.round(startX + i * 200), y: infY };
-        const parent = swCount > 0 ? switches[i % swCount] : root;
-        newEdges.push({ source: parent.id, target: inf.id, type: 'default', inferred: true });
-      });
+      if (infCount > 0) {
+        currentY += 120;
+        infra.forEach((inf, i) => {
+          const startX = Math.max(100, 500 - ((infCount - 1) * 140) / 2);
+          newPositions[inf.id] = { x: Math.round(startX + i * 140), y: currentY };
+          const parent = swCount > 0 ? switches[i % swCount] : root;
+          newEdges.push({ source: parent.id, target: inf.id, type: 'default', inferred: true });
+        });
+      }
 
-      // 4. Endpoints (Cameras, Workstations, Printers, IoT)
-      const epY = 530;
-      const maxPerRow = 8;
-      endpoints.forEach((ep, i) => {
-        const row = Math.floor(i / maxPerRow);
-        const col = i % maxPerRow;
-        const countInRow = Math.min(endpoints.length - row * maxPerRow, maxPerRow);
-        const startX = Math.max(80, 500 - ((countInRow - 1) * 180) / 2);
-        newPositions[ep.id] = { x: Math.round(startX + col * 180), y: Math.round(epY + row * 140) };
+      const epCount = endpoints.length;
+      if (epCount > 0) {
+        currentY += 120;
+        const maxPerRow = 8;
+        endpoints.forEach((ep, i) => {
+          const row = Math.floor(i / maxPerRow);
+          const col = i % maxPerRow;
+          const countInRow = Math.min(endpoints.length - row * maxPerRow, maxPerRow);
+          const startX = Math.max(70, 500 - ((countInRow - 1) * 130) / 2);
+          newPositions[ep.id] = { x: Math.round(startX + col * 130), y: Math.round(currentY + row * 105) };
 
-        let parent = null;
-        if (ep.type === 'camera') {
-          const poeSwitches = switches.filter(s => s.type === 'poe-switch');
-          parent = poeSwitches.length > 0 ? poeSwitches[i % poeSwitches.length] : (swCount > 0 ? switches[i % swCount] : root);
-        } else if (ep.type === 'workstation' || ep.type === 'printer') {
-          const apList = infra.filter(inf => inf.type === 'access_point');
-          parent = apList.length > 0 && i % 2 === 0 ? apList[i % apList.length] : (swCount > 0 ? switches[i % swCount] : root);
-        } else {
-          parent = swCount > 0 ? switches[i % swCount] : (infCount > 0 ? infra[i % infCount] : root);
-        }
-        if (parent) {
-          newEdges.push({ source: parent.id, target: ep.id, type: 'default', inferred: true });
-        }
-      });
+          let parent = null;
+          if (ep.type === 'camera') {
+            const poeSwitches = switches.filter(s => s.type === 'poe-switch');
+            parent = poeSwitches.length > 0 ? poeSwitches[i % poeSwitches.length] : (swCount > 0 ? switches[i % swCount] : root);
+          } else if (ep.type === 'workstation' || ep.type === 'printer') {
+            const apList = infra.filter(inf => inf.type === 'access_point');
+            parent = apList.length > 0 && i % 2 === 0 ? apList[i % apList.length] : (swCount > 0 ? switches[i % swCount] : root);
+          } else {
+            parent = swCount > 0 ? switches[i % swCount] : (infCount > 0 ? infra[i % infCount] : root);
+          }
+          if (parent) {
+            newEdges.push({ source: parent.id, target: ep.id, type: 'default', inferred: true });
+          }
+        });
+      }
     } else if (templateType === 'star') {
       // ── STAR TOPOLOGY ──
       const hub = targetNodes.find(n => n.type === 'core-switch') ||
@@ -1694,15 +2068,15 @@ export default function Topology() {
                   targetNodes[0];
 
       const hubId = hub.id;
-      const centerX = 550;
-      const centerY = 450;
+      const centerX = 500;
+      const centerY = 350;
       newPositions[hubId] = { x: centerX, y: centerY };
 
       const spokes = targetNodes.filter(n => n.id !== hubId);
       const numSpokes = spokes.length;
 
       if (numSpokes <= 16) {
-        const radius = Math.max(260, numSpokes * 22);
+        const radius = Math.max(140, Math.min(230, numSpokes * 15));
         spokes.forEach((spoke, idx) => {
           const angle = (idx * 2 * Math.PI) / numSpokes;
           newPositions[spoke.id] = {
@@ -1717,8 +2091,8 @@ export default function Topology() {
         const innerSpokes = spokes.slice(0, innerCount);
         const outerSpokes = spokes.slice(innerCount);
 
-        const rInner = 220;
-        const rOuter = Math.max(380, outerCount * 18);
+        const rInner = 125;
+        const rOuter = Math.max(210, outerCount * 12);
 
         innerSpokes.forEach((spoke, idx) => {
           const angle = (idx * 2 * Math.PI) / innerCount;
@@ -1740,9 +2114,9 @@ export default function Topology() {
       }
     } else if (templateType === 'ring') {
       // ── RING TOPOLOGY ──
-      const radius = Math.max(260, N * 22);
-      const centerX = 550;
-      const centerY = 450;
+      const radius = Math.max(140, Math.min(230, N * 15));
+      const centerX = 500;
+      const centerY = 350;
 
       targetNodes.forEach((node, idx) => {
         const angle = (idx * 2 * Math.PI) / N;
@@ -1757,13 +2131,13 @@ export default function Topology() {
       });
     } else if (templateType === 'bus') {
       // ── BUS TOPOLOGY ──
-      const gap = 160;
+      const gap = 110;
       const startX = 120;
       targetNodes.forEach((node, idx) => {
-        const offset = idx % 2 === 0 ? -90 : 90;
+        const offset = idx % 2 === 0 ? -55 : 55;
         newPositions[node.id] = {
           x: Math.round(startX + idx * gap),
-          y: Math.round(350 + offset)
+          y: Math.round(300 + offset)
         };
         if (idx < N - 1) {
           const nextNode = targetNodes[idx + 1];
@@ -1772,9 +2146,9 @@ export default function Topology() {
       });
     } else if (templateType === 'mesh') {
       // ── MESH TOPOLOGY ──
-      const radius = Math.max(260, N * 22);
-      const centerX = 550;
-      const centerY = 450;
+      const radius = Math.max(140, Math.min(230, N * 15));
+      const centerX = 500;
+      const centerY = 350;
 
       targetNodes.forEach((node, idx) => {
         const angle = (idx * 2 * Math.PI) / N;
@@ -1811,7 +2185,7 @@ export default function Topology() {
       data: {
         ...n,
         position: newPositions[n.id],
-        onRemove: () => removeNodeFromCanvas(n.id)
+        onRemove: () => removeNodeFromCanvasRef.current?.(n.id)
       }
     }));
 
@@ -1881,6 +2255,10 @@ export default function Topology() {
     acc[t].push(n);
     return acc;
   }, {});
+  const allDeviceTypes = useMemo(() => {
+    const extra = Object.keys(nodesByType).filter(t => !DEVICE_TYPES.includes(t));
+    return [...DEVICE_TYPES, ...extra];
+  }, [nodesByType]);
 
   const d = selectedNode
     ? (deviceLiveData ? { ...selectedNode.data, ...deviceLiveData } : selectedNode.data)
@@ -2100,7 +2478,7 @@ export default function Topology() {
 
                 <div className="type-filter-divider" />
 
-                {DEVICE_TYPES.map(type => {
+                {allDeviceTypes.map(type => {
                   const count = nodesByType[type]?.length || 0;
                   if (count === 0) return null;
                   const active = typeFilter === type;
@@ -2278,6 +2656,16 @@ export default function Topology() {
               </button>
               <button className="topo-btn topo-btn-clear" onClick={resetWorkspace} disabled={scanning}>
                 Clear Canvas
+              </button>
+              <button 
+                className="topo-btn topo-btn-clear" 
+                onClick={purgeStaleNodes} 
+                disabled={scanning}
+                title="Purge offline devices from previous/foreign networks"
+                style={{ display: 'flex', alignItems: 'center', gap: 5 }}
+              >
+                <Icon type="trash" size={13} />
+                <span>Purge Offline</span>
               </button>
               
               <div className="toolbar-divider" />
@@ -2649,21 +3037,61 @@ export default function Topology() {
                       }}
                       onClick={() => {
                         const defaultPos = { x: 300, y: 200 };
-                        setNodes(nds => nds.concat({
+                        const currentNodes = nodesRef.current;
+                        if (currentNodes.find(n => n.id === d.id)) return;
+                        const newNode = {
                           id: d.id,
                           type: 'custom',
                           position: defaultPos,
                           data: { 
                             ...d, 
-                            onRemove: () => removeNodeFromCanvas(d.id) 
+                            position: defaultPos,
+                            onRemove: () => removeNodeFromCanvasRef.current?.(d.id) 
                           }
-                        }));
+                        };
+                        const nextNodes = currentNodes.concat(newNode);
+                        setNodes(nextNodes);
                         setScannedNodes(snd => snd.map(n => n.id === d.id ? { ...n, position: defaultPos } : n));
                         fetch(`${API_BASE}/nodes/${d.id}`, {
                           method: 'PATCH',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ position: defaultPos })
-                        });
+                        }).catch(() => {});
+
+                        // Autoconnect with existing devices
+                        if (currentNodes.length > 0) {
+                          const bestParent = pickBestParent(currentNodes, newNode);
+                          if (bestParent) {
+                            const parentTier = getNodeTier(bestParent);
+                            const childTier = getNodeTier(newNode);
+                            const source = parentTier <= childTier ? bestParent.id : newNode.id;
+                            const target = parentTier <= childTier ? newNode.id : bestParent.id;
+                            const targetNode = source === bestParent.id ? newNode : bestParent;
+
+                            const currentEdges = edgesRef.current;
+                            const edgeAlreadyExists = currentEdges.some(
+                              ed => (ed.source === source && ed.target === target) || (ed.source === target && ed.target === source)
+                            );
+
+                            if (!edgeAlreadyExists) {
+                              const newReactEdge = createReactFlowEdge({ source, target }, targetNode);
+                              const nextEdges = [...currentEdges, newReactEdge];
+                              setEdges(nextEdges);
+
+                              const edgesPayload = nextEdges.map(ed => ({
+                                source: ed.source,
+                                target: ed.target,
+                                type: ed.data?.type || ed.type || 'default',
+                                inferred: true
+                              }));
+                              fetch(`${API_BASE}/topology/layout`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ edges: edgesPayload })
+                              }).catch(() => {});
+                            }
+                          }
+                        }
                       }}
                     >
                       <Icon type="check" size={12} /> Place on Canvas

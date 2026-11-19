@@ -14,7 +14,7 @@ import "./CamerasPage.css";
 import useActivityLogger from "../../hooks/useActivityLogger";
 import EdgeManualConfigModal from "./EdgeManualConfigModal";
 import Toast from "../../components/shared/Toast";
-import Loader from "../../components/shared/Loader";
+import Loader from "../../components/shared/loader";
 
 
 import EdgeDevicesSection, {
@@ -1514,11 +1514,11 @@ export default function AddDevicesPage({ onNavigate }) {
       if (video && video.readyState >= 2 && video.videoWidth > 0) {
         try {
           const canvas = document.createElement("canvas");
-          canvas.width = 160;
-          canvas.height = 117;
+          canvas.width = video.videoWidth || 1280;
+          canvas.height = video.videoHeight || 720;
           const ctx = canvas.getContext("2d");
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
 
           // Update devices state (thumbnail is updated in UI immediately and saved to DB below)
           setDevices((prev) =>
@@ -1811,6 +1811,9 @@ export default function AddDevicesPage({ onNavigate }) {
   const handleDiscoveredDevices = useCallback((discoveredDevices) => {
     if (!discoveredDevices || discoveredDevices.length === 0) return;
 
+    const validDiscovered = discoveredDevices.filter((d) => d.ws_url || d.stream_key);
+    if (validDiscovered.length === 0) return;
+
     const failed = discoveredDevices.filter((d) => !d.ws_url);
     if (failed.length > 0) {
       console.warn(
@@ -1825,7 +1828,7 @@ export default function AddDevicesPage({ onNavigate }) {
     setDevices((prev) => {
       let next = [...prev];
 
-      for (const d of discoveredDevices) {
+      for (const d of validDiscovered) {
         const streamKey = d.stream_key || d.stream_name ||
           `${d.ip.replace(/\./g, "_")}_cam${d.channel ?? 0}`;
 
@@ -1904,6 +1907,15 @@ export default function AddDevicesPage({ onNavigate }) {
   // ── handleEnroll — group_id comes from ManualSearchModal field ────────────
   const handleEnroll = async (device) => {
     setShowManualSearch(false);
+
+    if (device.rtspUrl) {
+      return handleAddStreamURLs({
+        urls: [device.rtspUrl],
+        cameraName: device.cameraName || device.label || "",
+        group_id: device.group_id || selectedGroupId,
+      });
+    }
+
     setEnrolling(true);
 
     const { ip, user, pass, discovered, cameraName, channels, channel, group_id, port } = device;
@@ -1945,6 +1957,13 @@ export default function AddDevicesPage({ onNavigate }) {
           }),
         });
         const probeData = probeRes.ok ? await probeRes.json() : null;
+
+        if (!probeRes.ok || !probeData?.success) {
+          hasError = true;
+          const errMsg = probeData?.error || probeData?.detail || (probeRes.ok ? "Probe failed" : `HTTP ${probeRes.status}`);
+          console.error(`[AddDevices] Failed to enroll ${ip} channel ${safeChannel}:`, errMsg);
+          continue;
+        }
 
         const streamKey =
           probeData?.stream_key ||
@@ -2009,14 +2028,23 @@ export default function AddDevicesPage({ onNavigate }) {
       setEnrollMsg("Camera enrolled successfully!");
       await new Promise(r => setTimeout(r, 350));
 
-      setSuccessEnrollData({
-        title: hasError ? "Partial Success / Failed" : (addedDevices.length > 1 ? `Successfully added ${addedDevices.length} Cameras` : "Camera Added Successfully"),
-        desc: hasError 
-          ? "Some or all cameras were probed, but failed to register streams with OME."
-          : "The selected cameras have been successfully registered and added to the system.",
-        isError: hasError,
-        devices: addedDevices
-      });
+      if (addedDevices.length === 0) {
+        setSuccessEnrollData({
+          title: "Enrollment Failed",
+          desc: "Could not enroll camera. Please verify IP address, port, and credentials.",
+          isError: true,
+          devices: []
+        });
+      } else {
+        setSuccessEnrollData({
+          title: hasError ? "Partial Success" : (addedDevices.length > 1 ? `Successfully added ${addedDevices.length} Cameras` : "Camera Added Successfully"),
+          desc: hasError 
+            ? "Some camera channels could not be enrolled."
+            : "The selected camera has been successfully registered and added to the system.",
+          isError: hasError,
+          devices: addedDevices
+        });
+      }
     } finally {
       setEnrolling(false);
       setEnrollMsg("");

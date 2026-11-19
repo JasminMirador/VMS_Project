@@ -3,9 +3,208 @@ import Hls from "hls.js";
 import "./VideoSynopsisPage.css";
 import { useCameras } from "../../context/CamerasContext";
 import DateTimePicker from "../../components/shared/DateTimePicker";
-import { synopsisBase, resolveSynopsisMediaUrl } from "../../config/appConfig";
+import { whepUrl, whepSessionUrl, apiUrl } from "../../config/appConfig";
 
-const SYNOPSIS_API = synopsisBase();
+// High-resolution frozen frame preview for the Direction filter canvas
+function CameraDirectionSnapshot({ cam, fallbackThumbnail }) {
+  const [snapshot, setSnapshot] = useState(fallbackThumbnail || cam?.thumbnail || null);
+  const [isEnhancing, setIsEnhancing] = useState(true);
+
+  useEffect(() => {
+    if (fallbackThumbnail && (!snapshot || snapshot === fallbackThumbnail)) {
+      setSnapshot(fallbackThumbnail);
+    }
+  }, [fallbackThumbnail]);
+
+  useEffect(() => {
+    const streamKey =
+      cam?.stream_key ||
+      cam?.streamKey ||
+      cam?.live_stream ||
+      cam?.camera_id ||
+      cam?.ip;
+
+    if (!streamKey) {
+      setIsEnhancing(false);
+      return;
+    }
+
+    let pc = null;
+    let whepLocation = null;
+    let isCleanedUp = false;
+    let timeoutId = null;
+    let videoEl = document.createElement("video");
+    videoEl.muted = true;
+    videoEl.playsInline = true;
+    videoEl.autoplay = true;
+
+    const cleanup = () => {
+      if (isCleanedUp) return;
+      isCleanedUp = true;
+      if (timeoutId) clearTimeout(timeoutId);
+      if (whepLocation && streamKey) {
+        try {
+          fetch(whepSessionUrl(whepLocation, streamKey), {
+            method: "DELETE",
+            keepalive: true,
+          }).catch(() => {});
+        } catch {
+          // ignore
+        }
+      }
+      if (pc) {
+        pc.ontrack = null;
+        pc.oniceconnectionstatechange = null;
+        pc.close();
+        pc = null;
+      }
+      if (videoEl) {
+        videoEl.onloadeddata = null;
+        videoEl.ontimeupdate = null;
+        videoEl.srcObject = null;
+        videoEl.remove();
+        videoEl = null;
+      }
+    };
+
+    const captureFrame = () => {
+      if (isCleanedUp || !videoEl) return;
+      if (videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = videoEl.videoWidth;
+          canvas.height = videoEl.videoHeight;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.88);
+          setSnapshot(dataUrl);
+          setIsEnhancing(false);
+
+          // Update saved thumbnail in background so it's sharp immediately next time
+          if (cam?.ip) {
+            const token = localStorage.getItem("miradorai_token") || localStorage.getItem("token");
+            if (token) {
+              fetch(apiUrl(`/cameras/by-ip/${cam.ip}`), {
+                method: "PUT",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({ thumbnail: dataUrl }),
+              }).catch(() => {});
+            }
+          }
+        } catch (err) {
+          console.warn("[VideoSynopsisPage] Frame capture error:", err);
+        }
+        cleanup();
+      }
+    };
+
+    videoEl.onloadeddata = () => {
+      setTimeout(captureFrame, 80);
+    };
+    videoEl.ontimeupdate = captureFrame;
+
+    // 4s timeout fallback to avoid hanging if camera stream is offline
+    timeoutId = setTimeout(() => {
+      setIsEnhancing(false);
+      cleanup();
+    }, 4000);
+
+    (async () => {
+      try {
+        pc = new RTCPeerConnection({
+          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+        });
+        pc.addTransceiver("video", { direction: "recvonly" });
+
+        pc.ontrack = (event) => {
+          if (videoEl && !isCleanedUp) {
+            videoEl.srcObject = event.streams[0];
+            videoEl.play().catch(() => {});
+          }
+        };
+
+        const offer = await pc.createOffer();
+        if (isCleanedUp) return;
+        await pc.setLocalDescription(offer);
+
+        const targetUrl = whepUrl(streamKey);
+        const res = await fetch(targetUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/sdp" },
+          body: offer.sdp,
+        });
+
+        if (!res.ok) {
+          throw new Error(`WHEP failed with status ${res.status}`);
+        }
+
+        const loc = res.headers.get("Location");
+        if (loc) whepLocation = loc;
+
+        const answer = await res.text();
+        if (!isCleanedUp && pc) {
+          await pc.setRemoteDescription({ type: "answer", sdp: answer });
+        }
+      } catch (err) {
+        console.warn(`[VideoSynopsisPage] High-res capture fallback on stream ${streamKey}:`, err?.message || err);
+        setIsEnhancing(false);
+        cleanup();
+      }
+    })();
+
+    return () => {
+      cleanup();
+    };
+  }, [cam]);
+
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      {snapshot ? (
+        <img
+          src={snapshot}
+          alt={cam?.name || "camera"}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "contain",
+            display: "block",
+            transition: "filter 0.3s ease",
+          }}
+        />
+      ) : (
+        <div style={{ width: "100%", height: "100%", background: "#111" }} />
+      )}
+      {isEnhancing && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: "8px",
+            right: "8px",
+            background: "rgba(0,0,0,0.65)",
+            backdropFilter: "blur(4px)",
+            padding: "3px 8px",
+            borderRadius: "4px",
+            fontSize: "0.7rem",
+            color: "var(--teal)",
+            display: "flex",
+            alignItems: "center",
+            gap: "5px",
+            pointerEvents: "none",
+            zIndex: 2,
+          }}
+        >
+          <span className="material-icons-outlined" style={{ fontSize: "0.85rem" }}>
+            sync
+          </span>
+          Fetching HD Preview...
+        </div>
+      )}
+    </div>
+  );
+}
 
 
 const VideoThumbnail = ({ src }) => {
@@ -166,6 +365,7 @@ const VideoFrameCrop = ({ src, timeSeconds, bbox }) => {
 
 
 export default function VideoSynopsisPage() {
+  const SYNOPSIS_HOST = window.__ENV__?.SYNOPSIS_BASE_URL ?? "";
   const { cameras } = useCameras();
   const [selectedCameras, setSelectedCameras] = useState([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -227,10 +427,8 @@ export default function VideoSynopsisPage() {
   const drawArrow = (ctx, fromx, fromy, tox, toy) => {
     const dx = tox - fromx;
     const dy = toy - fromy;
-    
-    // Control point for a gentle curve
-    const ctrlX = fromx + dx * 0.5 + dy * 0.2;
-    const ctrlY = fromy + dy * 0.5 - dx * 0.2;
+    const distance = Math.hypot(dx, dy);
+    if (distance < 5) return;
 
     // Shadow for realistic 3D overlay look
     ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
@@ -238,24 +436,31 @@ export default function VideoSynopsisPage() {
     ctx.shadowOffsetX = 4;
     ctx.shadowOffsetY = 6;
 
-    // Draw the curved path
+    const angle = Math.atan2(dy, dx);
+    const headlen = Math.min(26, Math.max(16, distance * 0.25));
+
+    // Draw straight arrow shaft
     ctx.beginPath();
     ctx.moveTo(fromx, fromy);
-    ctx.quadraticCurveTo(ctrlX, ctrlY, tox, toy);
+    const shaftEndX = tox - (headlen * 0.5) * Math.cos(angle);
+    const shaftEndY = toy - (headlen * 0.5) * Math.sin(angle);
+    ctx.lineTo(shaftEndX, shaftEndY);
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 7;
     ctx.lineCap = 'round';
     ctx.stroke();
 
-    // Calculate tangent angle at the tip for the arrowhead
-    const tipAngle = Math.atan2(toy - ctrlY, tox - ctrlX);
-    const headlen = 24;
-
-    // Draw filled arrowhead
+    // Draw filled arrowhead pointing straight along the direction
     ctx.beginPath();
     ctx.moveTo(tox, toy);
-    ctx.lineTo(tox - headlen * Math.cos(tipAngle - Math.PI / 7), toy - headlen * Math.sin(tipAngle - Math.PI / 7));
-    ctx.lineTo(tox - headlen * Math.cos(tipAngle + Math.PI / 7), toy - headlen * Math.sin(tipAngle + Math.PI / 7));
+    ctx.lineTo(
+      tox - headlen * Math.cos(angle - Math.PI / 6),
+      toy - headlen * Math.sin(angle - Math.PI / 6)
+    );
+    ctx.lineTo(
+      tox - headlen * Math.cos(angle + Math.PI / 6),
+      toy - headlen * Math.sin(angle + Math.PI / 6)
+    );
     ctx.closePath();
     
     ctx.fillStyle = '#ffffff';
@@ -276,12 +481,21 @@ export default function VideoSynopsisPage() {
     }
   };
 
-  const handleMouseDown = (e) => {
+  const getEventCoords = (e) => {
+    if (!canvasRef.current) return { x: 0, y: 0 };
     const rect = canvasRef.current.getBoundingClientRect();
     const scaleX = canvasRef.current.width / rect.width;
     const scaleY = canvasRef.current.height / rect.height;
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
+    const clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches && e.touches.length > 0 ? e.touches[0].clientY : e.clientY;
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY
+    };
+  };
+
+  const handleMouseDown = (e) => {
+    const { x, y } = getEventCoords(e);
     setStartPoint({ x, y });
     setEndPoint({ x, y });
     setIsDrawing(true);
@@ -289,11 +503,7 @@ export default function VideoSynopsisPage() {
 
   const handleMouseMove = (e) => {
     if (!isDrawing) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const scaleX = canvasRef.current.width / rect.width;
-    const scaleY = canvasRef.current.height / rect.height;
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
+    const { x, y } = getEventCoords(e);
     setEndPoint({ x, y });
     redrawCanvas(startPoint, { x, y });
   };
@@ -308,6 +518,7 @@ export default function VideoSynopsisPage() {
       if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
         const angle = Math.atan2(dy, dx) * (180 / Math.PI);
         setDirectionAngle(angle);
+        redrawCanvas(startPoint, endPoint);
       } else {
         setDirectionAngle(null);
         redrawCanvas(null, null);
@@ -429,6 +640,7 @@ export default function VideoSynopsisPage() {
   const [multicamGroup, setMulticamGroup] = useState([]);
   const [activeCamVideoId, setActiveCamVideoId] = useState(null);
   const [allMulticamMetadata, setAllMulticamMetadata] = useState([]); // merged detections from all cameras
+  const allRawMulticamItemsRef = useRef([]);
 
   // Right-hand filter panel (BriefCam-style). Source + Time Range work off data the
   // sidecar already has; the rest are UI-only until the backend emits those fields.
@@ -513,7 +725,7 @@ export default function VideoSynopsisPage() {
           multicamGroup.map(async (job) => {
             if (!job.metadata_sidecar_url) return [];
             try {
-              const res = await fetch(`${SYNOPSIS_API}${job.metadata_sidecar_url}`);
+              const res = await fetch(`${SYNOPSIS_HOST}${job.metadata_sidecar_url}`);
               const data = await res.json();
               const cId = Array.isArray(job.camera_id) ? job.camera_id[0] : job.camera_id;
               const camInfo = cameras?.find(c => (c.id || c._id) === cId);
@@ -529,11 +741,13 @@ export default function VideoSynopsisPage() {
         );
         if (!cancelled) {
           const merged = results.flat();
+          allRawMulticamItemsRef.current = merged;
 
           // De-duplicate by track_id — keep ONE representative frame per unique person/object.
           // Pick the frame with the largest bbox area (= person closest to camera = best thumbnail).
           const trackMap = new Map();
           const trackDurationMap = new Map();
+          const framesByTrack = new Map();
           merged.forEach(item => {
             const key = item.track_id || `${item.camera_id}_${item.original_timestamp}`;
             
@@ -542,6 +756,11 @@ export default function VideoSynopsisPage() {
             } else {
               trackDurationMap.set(key, trackDurationMap.get(key) + 1);
             }
+
+            if (!framesByTrack.has(key)) {
+              framesByTrack.set(key, []);
+            }
+            framesByTrack.get(key).push(item);
 
             if (!trackMap.has(key)) {
               trackMap.set(key, item);
@@ -556,6 +775,21 @@ export default function VideoSynopsisPage() {
           const deduped = Array.from(trackMap.values()).map(item => {
             const key = item.track_id || `${item.camera_id}_${item.original_timestamp}`;
             item._dwellTimeSec = trackDurationMap.get(key) / 25.0; // Assuming 25 FPS
+
+            // Pre-calculate trajectory centered at 3.0s in the 10-second instant playback clip
+            const trackFrames = framesByTrack.get(key) || [];
+            const repTs = item.synopsis_timestamp_s ?? (trackFrames[0]?.synopsis_timestamp_s ?? 0);
+            const traj = trackFrames.map(f => {
+              const t = 3.0 + ((f.synopsis_timestamp_s ?? 0) - repTs);
+              return {
+                t: Math.round(t * 100) / 100,
+                bbox: f.bbox,
+                face_bbox: f.face_bbox
+              };
+            }).filter(pt => pt.t >= 0 && pt.t <= 10.0)
+              .sort((a, b) => a.t - b.t);
+
+            item.trajectory = traj;
             return item;
           });
           // Sort chronologically by original_timestamp
@@ -576,7 +810,7 @@ export default function VideoSynopsisPage() {
 
   const fetchJobHistory = async () => {
     try {
-      const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/jobs?_t=${Date.now()}`);
+      const res = await fetch(`${SYNOPSIS_HOST}/a1/v1/synopsis/jobs?_t=${Date.now()}`);
       const data = await res.json();
       setJobHistory(prev => {
         const prevStatusMap = new Map(prev.map(j => [j.job_id, j.status]));
@@ -659,7 +893,7 @@ export default function VideoSynopsisPage() {
   // the same request), pulls every job in that group and merges them so
   // the breakdown shows all cameras, not just this one.
   const fetchGroupedJobDetails = async (job) => {
-    const base = `${SYNOPSIS_API}/a1/v1/synopsis`;
+    const base = `${SYNOPSIS_HOST}/a1/v1/synopsis`;
     if (job.group_id) {
       const res = await fetch(`${base}/jobs?group_id=${encodeURIComponent(job.group_id)}`);
       if (!res.ok) throw new Error("Failed to load job group");
@@ -675,7 +909,7 @@ export default function VideoSynopsisPage() {
     const job = activeJobs[activeViewIndex];
     if (!job) return;
     try {
-      const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/jobs/${job.job_id}`, {
+      const res = await fetch(`${SYNOPSIS_HOST}/a1/v1/synopsis/jobs/${job.job_id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ job_name: editNameValue })
@@ -763,7 +997,7 @@ export default function VideoSynopsisPage() {
         payload.direction_angle = Math.atan2(dy, dx) * (180 / Math.PI);
       }
 
-      const response = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/jobs`, {
+      const response = await fetch(`${SYNOPSIS_HOST}/a1/v1/synopsis/jobs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -806,7 +1040,7 @@ export default function VideoSynopsisPage() {
     pollIntervalRef.current = setInterval(async () => {
       try {
         const updatedJobs = await Promise.all(jobIds.map(async (id) => {
-          const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/jobs/${id}`);
+          const res = await fetch(`${SYNOPSIS_HOST}/a1/v1/synopsis/jobs/${id}`);
           return await res.json();
         }));
 
@@ -833,7 +1067,7 @@ export default function VideoSynopsisPage() {
   // Fetch Metadata Sidecar JSON for interactive click-to-jump overlays
   const fetchMetadataSidecar = async (metaUrl) => {
     try {
-      const fullUrl = `${SYNOPSIS_API}${metaUrl}`;
+      const fullUrl = `${SYNOPSIS_HOST}${metaUrl}`;
       const res = await fetch(fullUrl);
       const data = await res.json();
       setMetadataItems(data.items || []);
@@ -887,6 +1121,9 @@ export default function VideoSynopsisPage() {
   const [rawVideoUrl, setRawVideoUrl] = useState(null);
   const [rawVideoLoading, setRawVideoLoading] = useState(false);
   const [rawVideoError, setRawVideoError] = useState(null);
+  // const [showTargetBox, setShowTargetBox] = useState(true);
+  // const [boxMode, setBoxMode] = useState('face'); // 'face' or 'body'
+  // const overlayCanvasRef = useRef(null);
   const rawVideoRef = useRef(null);
   
   const API = import.meta.env.VITE_API_URL || "";
@@ -924,8 +1161,249 @@ export default function VideoSynopsisPage() {
     };
   }, [rawVideoUrl, API]);
 
+  /*
+  // Hardware-synchronised frame rendering loop (via requestVideoFrameCallback) for Instant Playback bounding box
+  useEffect(() => {
+    if (!rawModal.isOpen || !rawVideoUrl || !rawVideoRef.current || !overlayCanvasRef.current) return;
+    const video = rawVideoRef.current;
+    const canvas = overlayCanvasRef.current;
+    const ctx = canvas.getContext('2d');
+    let callbackHandle = null;
+    let animHandle = null;
+    let isCancelled = false;
+
+    const resizeCanvas = () => {
+      if (canvas && video) {
+        if (canvas.width !== video.clientWidth || canvas.height !== video.clientHeight) {
+          canvas.width = video.clientWidth;
+          canvas.height = video.clientHeight;
+        }
+      }
+    };
+    resizeCanvas();
+    const ro = new ResizeObserver(resizeCanvas);
+    ro.observe(video);
+
+    const item = rawModal.item;
+    const trajectory = item?.trajectory || [];
+    const itemStatus = (item?.status || (item?.person_name && item?.person_name !== "Unknown" ? "authorised" : (item?.track_id ? "target" : "unauthorised"))).toLowerCase();
+    const boxColor = itemStatus === 'authorised' ? '#10b981' : itemStatus === 'suspended' ? '#f59e0b' : itemStatus === 'unauthorised' ? '#ef4444' : '#10b981';
+    const personName = item?.person_name && item.person_name !== 'Unknown' ? item.person_name : 'Target Person';
+    const labelText = item?.person_name && item.person_name !== 'Unknown'
+      ? `${itemStatus === 'authorised' ? '[Authorised] ' : itemStatus === 'suspended' ? '[Suspended] ' : '[Unauthorised] '}${personName}${item?.match_score ? ` (${item.match_score}%)` : ''}`
+      : `Target Person`;
+
+    const renderOverlay = (mediaTime) => {
+      if (isCancelled || !canvas || !ctx || !video) return;
+      resizeCanvas();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (!showTargetBox || !item) return;
+
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      const cw = canvas.width;
+      const ch = canvas.height;
+      if (!vw || !vh || !cw || !ch) return;
+
+      let rawBox = null;
+
+      if (trajectory && trajectory.length > 1) {
+        const firstT = trajectory[0].t;
+        const lastT = trajectory[trajectory.length - 1].t;
+
+        // If person has exited the frame or not yet entered, don't draw anything!
+        if (mediaTime >= firstT - 0.1 && mediaTime <= lastT + 0.15) {
+          // Find adjacent points for linear interpolation
+          let p1 = trajectory[0];
+          let p2 = trajectory[trajectory.length - 1];
+
+          for (let i = 0; i < trajectory.length - 1; i++) {
+            if (trajectory[i].t <= mediaTime && trajectory[i + 1].t >= mediaTime) {
+              p1 = trajectory[i];
+              p2 = trajectory[i + 1];
+              break;
+            }
+          }
+
+          const dt = p2.t - p1.t;
+          const alpha = dt > 0.001 ? Math.max(0, Math.min(1, (mediaTime - p1.t) / dt)) : 0;
+          const b1 = boxMode === 'body' && p1.bbox ? p1.bbox : (p1.face_bbox || p1.bbox);
+          const b2 = boxMode === 'body' && p2.bbox ? p2.bbox : (p2.face_bbox || p2.bbox);
+
+          if (b1 && b2 && b1.length === 4 && b2.length === 4) {
+            rawBox = [
+              b1[0] + alpha * (b2[0] - b1[0]),
+              b1[1] + alpha * (b2[1] - b1[1]),
+              b1[2] + alpha * (b2[2] - b1[2]),
+              b1[3] + alpha * (b2[3] - b1[3]),
+            ];
+          }
+        }
+      } else {
+        // Fallback for single-frame items or items without trajectory: show around detection moment
+        if (mediaTime >= 1.5 && mediaTime <= 4.5) {
+          const pt = (trajectory && trajectory.length === 1) ? trajectory[0] : item;
+          rawBox = boxMode === 'body' && pt.bbox ? pt.bbox : (pt.face_bbox || pt.bbox);
+        }
+      }
+
+      if (rawBox && rawBox.length === 4) {
+        const [bx, by, bw, bh] = rawBox;
+        // Letterbox projection
+        const videoRatio = vw / vh;
+        const clientRatio = cw / ch;
+        let renderW, renderH, offsetX, offsetY;
+
+        if (clientRatio > videoRatio) {
+          renderH = ch;
+          renderW = ch * videoRatio;
+          offsetX = (cw - renderW) / 2;
+          offsetY = 0;
+        } else {
+          renderW = cw;
+          renderH = cw / videoRatio;
+          offsetX = 0;
+          offsetY = (ch - renderH) / 2;
+        }
+
+        const scale = renderW / vw;
+        const x = offsetX + bx * scale;
+        const y = offsetY + by * scale;
+        const w = bw * scale;
+        const h = bh * scale;
+
+        ctx.save();
+        ctx.strokeStyle = boxColor;
+        ctx.lineWidth = 2.5;
+        ctx.shadowColor = boxColor;
+        ctx.shadowBlur = 8;
+        ctx.strokeRect(x, y, w, h);
+
+        // Tech corner brackets
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3;
+        ctx.shadowBlur = 0;
+        const clen = Math.max(6, Math.min(14, Math.min(w, h) * 0.25));
+
+        ctx.beginPath();
+        ctx.moveTo(x - 2, y + clen);
+        ctx.lineTo(x - 2, y - 2);
+        ctx.lineTo(x + clen, y - 2);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(x + w - clen, y - 2);
+        ctx.lineTo(x + w + 2, y - 2);
+        ctx.lineTo(x + w + 2, y + clen);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(x - 2, y + h - clen);
+        ctx.lineTo(x - 2, y + h + 2);
+        ctx.lineTo(x + clen, y + h + 2);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(x + w - clen, y + h + 2);
+        ctx.lineTo(x + w + 2, y + h + 2);
+        ctx.lineTo(x + w + 2, y + h - clen);
+        ctx.stroke();
+
+        // Target badge pill
+        ctx.font = 'bold 12px Inter, sans-serif';
+        const textMetrics = ctx.measureText(labelText);
+        const pillW = textMetrics.width + 18;
+        const pillH = 22;
+        const pillX = x + (w - pillW) / 2;
+        const pillY = Math.max(8, y - pillH - 6);
+
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
+        ctx.strokeStyle = boxColor;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        if (typeof ctx.roundRect === 'function') {
+          ctx.roundRect(pillX, pillY, pillW, pillH, 11);
+        } else {
+          ctx.rect(pillX, pillY, pillW, pillH);
+        }
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(labelText, pillX + 9, pillY + pillH / 2);
+
+        ctx.restore();
+      }
+    };
+
+    const onFrame = (now, metadata) => {
+      if (isCancelled) return;
+      const mediaTime = metadata?.mediaTime !== undefined ? metadata.mediaTime : video.currentTime;
+      renderOverlay(mediaTime);
+
+      if ('requestVideoFrameCallback' in video) {
+        callbackHandle = video.requestVideoFrameCallback(onFrame);
+      } else {
+        animHandle = requestAnimationFrame(() => onFrame(performance.now(), { mediaTime: video.currentTime }));
+      }
+    };
+
+    if ('requestVideoFrameCallback' in video) {
+      callbackHandle = video.requestVideoFrameCallback(onFrame);
+    } else {
+      animHandle = requestAnimationFrame(() => onFrame(performance.now(), { mediaTime: video.currentTime }));
+    }
+
+    const onSeeked = () => renderOverlay(video.currentTime);
+    video.addEventListener('seeked', onSeeked);
+    video.addEventListener('play', onSeeked);
+
+    return () => {
+      isCancelled = true;
+      ro.disconnect();
+      video.removeEventListener('seeked', onSeeked);
+      video.removeEventListener('play', onSeeked);
+      if (callbackHandle !== null && 'cancelVideoFrameCallback' in video) {
+        video.cancelVideoFrameCallback(callbackHandle);
+      }
+      if (animHandle !== null) {
+        cancelAnimationFrame(animHandle);
+      }
+    };
+  }, [rawModal.isOpen, rawVideoUrl, showTargetBox, boxMode]);
+  */
+
   const handleJumpToOriginal = async (item) => {
-    setRawModal({ isOpen: true, item });
+    let itemWithTraj = { ...item };
+    if (!itemWithTraj.trajectory || itemWithTraj.trajectory.length === 0) {
+      const tid = item.track_id;
+      if (tid) {
+        let trackFrames = (metadataItems || []).filter(m => m.track_id === tid);
+        if (trackFrames.length === 0 && allRawMulticamItemsRef.current) {
+          trackFrames = allRawMulticamItemsRef.current.filter(m => m.track_id === tid);
+        }
+        if (trackFrames.length > 0) {
+          const repTs = item.synopsis_timestamp_s ?? (trackFrames[0]?.synopsis_timestamp_s ?? 0);
+          const traj = trackFrames.map(f => {
+            const t = 3.0 + ((f.synopsis_timestamp_s ?? 0) - repTs);
+            return {
+              t: Math.round(t * 100) / 100,
+              bbox: f.bbox,
+              face_bbox: f.face_bbox
+            };
+          }).filter(pt => pt.t >= 0 && pt.t <= 10.0)
+            .sort((a, b) => a.t - b.t);
+
+          if (traj.length > 0) {
+            itemWithTraj.trajectory = traj;
+          }
+        }
+      }
+    }
+
+    setRawModal({ isOpen: true, item: itemWithTraj });
     setRawVideoUrl(null);
     setRawVideoLoading(true);
     setRawVideoError(null);
@@ -935,7 +1413,7 @@ export default function VideoSynopsisPage() {
       const time = item.original_timestamp; // "YYYY-MM-DD HH:MM:SS"
       const formattedTime = time.replace(" ", "T");
       
-      const url = `${SYNOPSIS_API}/a1/v1/synopsis/event-playback?camera_id=${encodeURIComponent(item.camera_id)}&timestamp=${encodeURIComponent(formattedTime)}`;
+      const url = `${SYNOPSIS_HOST}/a1/v1/synopsis/event-playback?camera_id=${encodeURIComponent(item.camera_id)}&timestamp=${encodeURIComponent(formattedTime)}`;
       // Assuming authorization headers if available in standard flow. If none, just fetch.
       let token = localStorage.getItem('token');
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -945,7 +1423,7 @@ export default function VideoSynopsisPage() {
         throw new Error(`Failed to fetch raw video: ${res.statusText}`);
       }
       const data = await res.json();
-      setRawVideoUrl(resolveSynopsisMediaUrl(data.clipUrl));
+      setRawVideoUrl(data.clipUrl);
     } catch (err) {
       console.error(err);
       setRawVideoError(err.message || "Failed to load raw video clip.");
@@ -1324,7 +1802,7 @@ export default function VideoSynopsisPage() {
                     )}
                     {groupStatus === 'completed' ? (
                       <img 
-                        src={`${SYNOPSIS_API}/static/synopsis/backgrounds/${completedJob.camera_id}_${(() => { const hr = new Date(completedJob.range_start || completedJob.created_at).getHours(); if(hr >= 5 && hr < 12) return 'morning'; if(hr >= 12 && hr < 17) return 'afternoon'; if(hr >= 17 && hr < 20) return 'evening'; return 'night'; })()}_bg.png`} 
+                        src={`${SYNOPSIS_HOST}/static/synopsis/backgrounds/${completedJob.camera_id}_${(() => { const hr = new Date(completedJob.range_start || completedJob.created_at).getHours(); if(hr >= 5 && hr < 12) return 'morning'; if(hr >= 12 && hr < 17) return 'afternoon'; if(hr >= 17 && hr < 20) return 'evening'; return 'night'; })()}_bg.png`} 
                         onError={(e) => { 
                           e.target.onerror = null; 
                           const cId = Array.isArray(completedJob.camera_id) ? completedJob.camera_id[0] : completedJob.camera_id;
@@ -1332,7 +1810,7 @@ export default function VideoSynopsisPage() {
                           if (camInfo?.thumbnail) {
                             e.target.src = camInfo.thumbnail;
                           } else if (completedJob.heatmap_url) {
-                            e.target.src = `${SYNOPSIS_API}${completedJob.heatmap_url}`;
+                            e.target.src = `${SYNOPSIS_HOST}${completedJob.heatmap_url}`;
                           }
                         }}
                         alt="cover" 
@@ -1353,7 +1831,7 @@ export default function VideoSynopsisPage() {
                        return (
                          <div key={idx} style={{ width: '40px', height: '24px', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: '2px', overflow: 'hidden' }}>
                            {completedJob.output_video_url && groupStatus === 'completed' && (
-                             <VideoThumbnail src={`${SYNOPSIS_API}${completedJob.output_video_url}#t=${t}`} />
+                             <VideoThumbnail src={`${SYNOPSIS_HOST}${completedJob.output_video_url}#t=${t}`} />
                            )}
                          </div>
                        );
@@ -1379,7 +1857,7 @@ export default function VideoSynopsisPage() {
                               }));
                               const backendGroup = group.filter(j => j.job_id && !j.job_id.startsWith('local-'));
                               if (backendGroup.length > 0) {
-                                await Promise.all(backendGroup.map(j => fetch(`${SYNOPSIS_API}/a1/v1/synopsis/jobs/${j.job_id}`, {
+                                await Promise.all(backendGroup.map(j => fetch(`${SYNOPSIS_HOST}/a1/v1/synopsis/jobs/${j.job_id}`, {
                                   method: 'PATCH',
                                   headers: { 'Content-Type': 'application/json' },
                                   body: JSON.stringify({ job_name: editJobName.trim() })
@@ -1468,7 +1946,7 @@ export default function VideoSynopsisPage() {
                             setJobHistory(prev => prev.filter(j => !idsToDelete.includes(j.job_id)));
                             if (backendIds.length > 0) {
                               await Promise.all(backendIds.map(id =>
-                                fetch(`${SYNOPSIS_API}/a1/v1/synopsis/jobs/${id}`, { method: 'DELETE' }).catch(e => console.error(e))
+                                fetch(`${SYNOPSIS_HOST}/a1/v1/synopsis/jobs/${id}`, { method: 'DELETE' }).catch(e => console.error(e))
                               ));
                               fetchJobHistory();
                             }
@@ -1484,7 +1962,7 @@ export default function VideoSynopsisPage() {
                           setShareModalGroup(group);
                         } else {
                           if (completedJob.output_video_url) {
-                            const url = `${SYNOPSIS_API}${completedJob.output_video_url}`;
+                            const url = `${SYNOPSIS_HOST}${completedJob.output_video_url}`;
                             navigator.clipboard.writeText(url).then(() => setToastMessage("Video URL copied to clipboard!")).catch(() => setToastMessage("Failed to copy URL"));
                           } else {
                             setToastMessage("Video not available yet.");
@@ -1612,7 +2090,7 @@ export default function VideoSynopsisPage() {
                     >
                       <div style={{ width: '100%', aspectRatio: '16/9', background: '#000', marginBottom: '8px', borderRadius: '4px', overflow: 'hidden' }}>
                         {job.output_video_url ? (
-                          <VideoThumbnail src={`${SYNOPSIS_API}${job.output_video_url}#t=0.5`} />
+                          <VideoThumbnail src={`${SYNOPSIS_HOST}${job.output_video_url}#t=0.5`} />
                         ) : (
                           <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <span className="material-icons-outlined" style={{ color: 'var(--text-muted)', fontSize: '2rem' }}>videocam</span>
@@ -1716,7 +2194,7 @@ export default function VideoSynopsisPage() {
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '8px' }}>
                               {items.map((item, idx) => {
                                 const baseVideoUrl = item._outputVideoUrl
-                                  ? `${SYNOPSIS_API}${item._outputVideoUrl}`
+                                  ? `${SYNOPSIS_HOST}${item._outputVideoUrl}`
                                   : null;
                                 const frameTime = item.synopsis_timestamp_s ?? 1;
                                 const toISTDate = (ts) => {
@@ -1790,7 +2268,7 @@ export default function VideoSynopsisPage() {
                     });
                     const camInfo = cameras?.find(c => (c.id || c._id) === activeCamVideoId);
                     const videoSrc = activeJob?.output_video_url
-                      ? `${SYNOPSIS_API}${activeJob.output_video_url}`
+                      ? `${SYNOPSIS_HOST}${activeJob.output_video_url}`
                       : null;
 
                     return (
@@ -1904,7 +2382,7 @@ export default function VideoSynopsisPage() {
                               />
                               {/* Heatmap overlay */}
                               {showHeatmap && activeJob?.heatmap_url && (
-                                <img src={`${SYNOPSIS_API}${activeJob.heatmap_url}`} className="heatmap-overlay" alt="Activity Heatmap" />
+                                <img src={`${SYNOPSIS_HOST}${activeJob.heatmap_url}`} className="heatmap-overlay" alt="Activity Heatmap" />
                               )}
                               {/* Bounding box overlays — click to jump to raw recording */}
                               {videoDimensions.width > 0 && currentActiveObjects.map((obj, idx) => {
@@ -2245,7 +2723,7 @@ export default function VideoSynopsisPage() {
                       onClick={async () => {
                         try {
                           const jobsData = await Promise.all(activeJobs.map(async j => {
-                            const res = await fetch(`${SYNOPSIS_API}/a1/v1/synopsis/jobs/${j.job_id}`);
+                            const res = await fetch(`${SYNOPSIS_HOST}/a1/v1/synopsis/jobs/${j.job_id}`);
                             return res.json();
                           }));
                           setCurrentJobDetails(aggregateJobDetails(jobsData));
@@ -2301,7 +2779,7 @@ export default function VideoSynopsisPage() {
                     <div style={{ position: 'relative', width: '100%', flexGrow: 1, minHeight: 0 }}>
                       <video
                         ref={videoRef}
-                        src={`${SYNOPSIS_API}${activeJobs[activeViewIndex].output_video_url}`}
+                        src={`${SYNOPSIS_HOST}${activeJobs[activeViewIndex].output_video_url}`}
                         controls
                         autoPlay
                         muted
@@ -2311,7 +2789,7 @@ export default function VideoSynopsisPage() {
                         style={{ width: '100%', height: '100%', maxHeight: '100%', borderRadius: '8px', display: 'block', objectFit: 'contain', background: '#000' }}
                       />
                       {showHeatmap && activeJobs[activeViewIndex]?.heatmap_url && (
-                        <img src={`${SYNOPSIS_API}${activeJobs[activeViewIndex].heatmap_url}`} className="heatmap-overlay" alt="Activity Heatmap" />
+                        <img src={`${SYNOPSIS_HOST}${activeJobs[activeViewIndex].heatmap_url}`} className="heatmap-overlay" alt="Activity Heatmap" />
                       )}
                       {videoDimensions.width > 0 && currentActiveObjects.map((obj, idx) => {
                         const scaled = getScaledBBox(obj.bbox);
@@ -2758,34 +3236,118 @@ export default function VideoSynopsisPage() {
                     <span className="material-icons-outlined" style={{ fontSize: '0.95rem', color: 'var(--text-muted)' }}>schedule</span>
                     {rawModal.item.original_timestamp}
                   </span>
+
+                  {/* Target Person Info Badge in Modal Toolbar */}
+                  {(rawModal.item.matched_probe_url || rawModal.item.match_score !== undefined) && (
+                    <span style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '6px',
+                      background: 'rgba(56, 189, 248, 0.1)', border: '1px solid var(--teal)',
+                      padding: '3px 10px', borderRadius: 'var(--radius-sm)',
+                      fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)'
+                    }}>
+                      {rawModal.item.matched_probe_url && (
+                        <img
+                          src={`${SYNOPSIS_HOST}/a1/v1/synopsis${rawModal.item.matched_probe_url.startsWith('/') ? '' : '/'}${rawModal.item.matched_probe_url}`}
+                          alt="Target"
+                          style={{ width: '18px', height: '18px', borderRadius: '50%', objectFit: 'cover' }}
+                        />
+                      )}
+                      <span>
+                        {rawModal.item.matched_probe_index !== undefined ? `Target #${rawModal.item.matched_probe_index + 1}` : 'Target'}
+                      </span>
+                      {rawModal.item.match_score !== undefined && (
+                        <span style={{ color: (rawModal.item.match_score >= 80) ? '#10b981' : '#f59e0b' }}>
+                          ({rawModal.item.match_score}% Match)
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </div>
 
-                {rawVideoUrl && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  {/* Bounding Box Controls (commented out for now) */}
+                  {/*
                   <button
-                    onClick={handleDownloadRawClip}
-                    disabled={downloadingRawClip}
+                    type="button"
+                    onClick={() => setShowTargetBox(!showTargetBox)}
                     style={{
                       display: 'inline-flex', alignItems: 'center', gap: '6px',
-                      background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                      background: showTargetBox ? 'var(--teal-subtle)' : 'var(--bg-elevated)',
+                      border: `1px solid ${showTargetBox ? 'var(--teal)' : 'var(--border)'}`,
                       padding: '5px 12px', borderRadius: 'var(--radius-sm)',
-                      fontSize: '0.8rem', fontWeight: 600, color: 'var(--teal)',
-                      cursor: downloadingRawClip ? 'not-allowed' : 'pointer',
-                      opacity: downloadingRawClip ? 0.7 : 1,
-                      transition: 'all 0.15s ease'
+                      fontSize: '0.8rem', fontWeight: 600,
+                      color: showTargetBox ? 'var(--teal)' : 'var(--text-secondary)',
+                      cursor: 'pointer', transition: 'all 0.15s ease'
                     }}
-                    onMouseEnter={e => { if (!downloadingRawClip) { e.currentTarget.style.background = 'var(--teal)'; e.currentTarget.style.color = '#fff'; } }}
-                    onMouseLeave={e => { if (!downloadingRawClip) { e.currentTarget.style.background = 'var(--bg-elevated)'; e.currentTarget.style.color = 'var(--teal)'; } }}
+                    title="Toggle Target Person Bounding Box"
                   >
-                    <span className="material-icons-outlined" style={{ fontSize: '1rem' }}>
-                      {downloadingRawClip ? 'hourglass_top' : 'download'}
+                    <span className="material-icons-outlined" style={{ fontSize: '1.05rem' }}>
+                      {showTargetBox ? "center_focus_strong" : "filter_center_focus"}
                     </span>
-                    {downloadingRawClip ? 'Downloading...' : 'Download Clip'}
+                    Box: {showTargetBox ? "ON" : "OFF"}
                   </button>
-                )}
+
+                  {showTargetBox && (
+                    <div style={{
+                      display: 'inline-flex', background: 'var(--bg-elevated)',
+                      borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)',
+                      overflow: 'hidden', padding: '2px'
+                    }}>
+                      <button
+                        type="button"
+                        onClick={() => setBoxMode('face')}
+                        style={{
+                          background: boxMode === 'face' ? 'var(--teal)' : 'transparent',
+                          color: boxMode === 'face' ? '#000000' : 'var(--text-secondary)',
+                          border: 'none', padding: '4px 10px', fontSize: '0.75rem', fontWeight: 700,
+                          borderRadius: '3px', cursor: 'pointer'
+                        }}
+                      >
+                        Face
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBoxMode('body')}
+                        style={{
+                          background: boxMode === 'body' ? 'var(--teal)' : 'transparent',
+                          color: boxMode === 'body' ? '#000000' : 'var(--text-secondary)',
+                          border: 'none', padding: '4px 10px', fontSize: '0.75rem', fontWeight: 700,
+                          borderRadius: '3px', cursor: 'pointer'
+                        }}
+                      >
+                        Body
+                      </button>
+                    </div>
+                  )}
+                  */}
+
+                  {rawVideoUrl && (
+                    <button
+                      onClick={handleDownloadRawClip}
+                      disabled={downloadingRawClip}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '6px',
+                        background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                        padding: '5px 12px', borderRadius: 'var(--radius-sm)',
+                        fontSize: '0.8rem', fontWeight: 600, color: 'var(--teal)',
+                        cursor: downloadingRawClip ? 'not-allowed' : 'pointer',
+                        opacity: downloadingRawClip ? 0.7 : 1,
+                        transition: 'all 0.15s ease'
+                      }}
+                      onMouseEnter={e => { if (!downloadingRawClip) { e.currentTarget.style.background = 'var(--teal)'; e.currentTarget.style.color = '#fff'; } }}
+                      onMouseLeave={e => { if (!downloadingRawClip) { e.currentTarget.style.background = 'var(--bg-elevated)'; e.currentTarget.style.color = 'var(--teal)'; } }}
+                    >
+                      <span className="material-icons-outlined" style={{ fontSize: '1rem' }}>
+                        {downloadingRawClip ? 'hourglass_top' : 'download'}
+                      </span>
+                      {downloadingRawClip ? 'Downloading...' : 'Download Clip'}
+                    </button>
+                  )}
+                </div>
               </div>
               
               {/* Video Player */}
-              <div className="raw-video-player" style={{ marginTop: '4px' }}>
+              <div className="raw-video-player" style={{ marginTop: '8px' }}>
                 {rawVideoLoading ? (
                   <div style={{
                     display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
@@ -2808,7 +3370,7 @@ export default function VideoSynopsisPage() {
                   <div style={{
                     borderRadius: 'var(--radius-md)', overflow: 'hidden',
                     border: '1px solid var(--border)', background: '#000',
-                    boxShadow: 'var(--shadow-md)'
+                    boxShadow: 'var(--shadow-md)', position: 'relative'
                   }}>
                     <video
                       ref={rawVideoRef}
@@ -2821,6 +3383,17 @@ export default function VideoSynopsisPage() {
                     >
                       Your browser does not support the video tag.
                     </video>
+                    {/* Bounding Box Overlay Canvas (commented out for now) */}
+                    {/*
+                    <canvas
+                      ref={overlayCanvasRef}
+                      style={{
+                        position: 'absolute', top: 0, left: 0,
+                        width: '100%', height: '100%',
+                        pointerEvents: 'none', zIndex: 5
+                      }}
+                    />
+                    */}
                   </div>
                 ) : (
                   <div style={{ height: '360px', background: 'var(--bg-base)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}></div>
@@ -2848,7 +3421,7 @@ export default function VideoSynopsisPage() {
                 const cId = Array.isArray(j.camera_id) ? j.camera_id[0] : j.camera_id;
                 const camInfo = cameras?.find(c => (c.id || c._id) === cId);
                 const camName = camInfo?.name || cId;
-                const url = j.output_video_url ? `${SYNOPSIS_API}${j.output_video_url}` : null;
+                const url = j.output_video_url ? `${SYNOPSIS_HOST}${j.output_video_url}` : null;
                 return (
                   <div key={j.job_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'var(--bg-base)', borderRadius: '6px', border: '1px solid var(--border)' }}>
                     <span style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '200px' }}>{camName}</span>
@@ -2929,18 +3502,18 @@ export default function VideoSynopsisPage() {
                     <label>FROM</label>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                       <input type="date" value={addVideoFromDate} onChange={e => setAddVideoFromDate(e.target.value)}
-                        className="synopsis-date-input" style={{ minWidth: '130px' }} />
+                        className="synopsis-date-input" style={{ width: '145px', minWidth: '145px' }} />
                       <input type="time" value={addVideoFromTime} onChange={e => setAddVideoFromTime(e.target.value)}
-                        className="synopsis-date-input" style={{ width: '90px' }} />
+                        className="synopsis-date-input" style={{ width: '125px', minWidth: '125px' }} />
                     </div>
                   </div>
                   <div className="synopsis-field">
                     <label>TO</label>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                       <input type="date" value={addVideoToDate} onChange={e => setAddVideoToDate(e.target.value)}
-                        className="synopsis-date-input" style={{ minWidth: '130px' }} />
+                        className="synopsis-date-input" style={{ width: '145px', minWidth: '145px' }} />
                       <input type="time" value={addVideoToTime} onChange={e => setAddVideoToTime(e.target.value)}
-                        className="synopsis-date-input" style={{ width: '90px' }} />
+                        className="synopsis-date-input" style={{ width: '125px', minWidth: '125px' }} />
                     </div>
                   </div>
                 </div>
@@ -2957,7 +3530,7 @@ export default function VideoSynopsisPage() {
                   <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
                     <div style={{ width: '130px', borderRight: '1px solid var(--border)', padding: '12px 0', flexShrink: 0, background: 'var(--bg-base)' }}>
                       <p style={{ margin: '0 0 8px 12px', fontSize: '0.65rem', color: 'var(--text-secondary)', letterSpacing: '0.08em', fontWeight: 600 }}>DIRECTORY</p>
-                      <div style={{ padding: '6px 12px', fontSize: '0.82rem', color: 'var(--teal)', background: 'var(--teal-subtle)', fontWeight: 500 }}>{window.location.hostname}</div>
+                      <div style={{ padding: '6px 12px', fontSize: '0.82rem', color: 'var(--teal)', background: 'var(--teal-subtle)', fontWeight: 500 }}>{import.meta.env.VITE_API_HOST}</div>
                     </div>
                     <div style={{ flex: 1, overflow: 'auto', padding: '12px 0' }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px 8px' }}>
@@ -3053,31 +3626,29 @@ export default function VideoSynopsisPage() {
 
                   <div style={{ flex: 1, minHeight: 0, position: 'relative', width: '100%', backgroundColor: '#000', border: directionAngle !== null ? '2px solid var(--teal)' : '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden', boxShadow: directionAngle !== null ? '0 0 0 2px var(--teal-glow)' : 'none', transition: 'all 0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div style={{ position: 'absolute', inset: 0, zIndex: 1, display: 'grid', gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(addVideoSelectedCams.length || 1))}, 1fr)`, gap: '2px', background: '#000' }}>
-                      {addVideoSelectedCams.map(camId => (
-                        addVideoLiveSnapshots[camId] && (
-                          <img 
-                            key={camId} 
-                            src={addVideoLiveSnapshots[camId]} 
-                            alt="cam" 
-                            style={{ 
-                              width: '100%', 
-                              height: '100%', 
-                              objectFit: 'contain', 
-                              display: 'block' 
-                            }} 
+                      {addVideoSelectedCams.map(camId => {
+                        const cam = cameras?.find(c => String(c.id || c._id) === String(camId));
+                        return (
+                          <CameraDirectionSnapshot
+                            key={camId}
+                            cam={cam}
+                            fallbackThumbnail={addVideoLiveSnapshots[camId] || cam?.thumbnail}
                           />
-                        )
-                      ))}
+                        );
+                      })}
                     </div>
                     <canvas
                       ref={canvasRef}
                       width={1280}
                       height={720}
-                      style={{ width: '100%', height: '100%', cursor: 'crosshair', display: 'block', zIndex: 10, position: 'relative', objectFit: 'contain' }}
+                      style={{ width: '100%', height: '100%', cursor: 'crosshair', display: 'block', zIndex: 10, position: 'relative', objectFit: 'contain', touchAction: 'none' }}
                       onMouseDown={handleMouseDown}
                       onMouseMove={handleMouseMove}
                       onMouseUp={handleMouseUp}
                       onMouseLeave={handleMouseUp}
+                      onTouchStart={handleMouseDown}
+                      onTouchMove={handleMouseMove}
+                      onTouchEnd={handleMouseUp}
                     />
                     {!directionAngle && !isDrawing && (
                       <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', pointerEvents: 'none', color: '#fff', background: 'rgba(0, 0, 0, 0.72)', backdropFilter: 'blur(4px)', padding: '8px 16px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.18)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', zIndex: 12 }}>

@@ -78,7 +78,14 @@ export default function Sidebar({ userRole,language = 'en' }) {
   const [
     integrationConnections,
     setIntegrationConnections,
-  ] = useState([]);
+  ] = useState(() => {
+    try {
+      const saved = localStorage.getItem("miradorai_integrations");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -87,16 +94,15 @@ export default function Sidebar({ userRole,language = 'en' }) {
       async () => {
         try {
           const token =
-            localStorage.getItem("token");
+            localStorage.getItem("token") ||
+            localStorage.getItem("miradorai_token") ||
+            sessionStorage.getItem("miradorai_token");
 
           const headers = {
             Authorization: token
               ? `Bearer ${token}`
               : "",
           };
-
-
-
 
           const res = await fetch(
             apiUrl("/integrations"),
@@ -110,11 +116,11 @@ export default function Sidebar({ userRole,language = 'en' }) {
               await res.json();
 
             if (!cancelled) {
-              setIntegrationConnections(
-                Array.isArray(data)
-                  ? data
-                  : []
-              );
+              const list = Array.isArray(data) ? data : [];
+              setIntegrationConnections(list);
+              try {
+                localStorage.setItem("miradorai_integrations", JSON.stringify(list));
+              } catch {}
             }
           }
         } catch (e) {
@@ -123,9 +129,11 @@ export default function Sidebar({ userRole,language = 'en' }) {
       };
 
     fetchIntegrationConnections();
+    window.addEventListener("integrationsUpdated", fetchIntegrationConnections);
 
     return () => {
       cancelled = true;
+      window.removeEventListener("integrationsUpdated", fetchIntegrationConnections);
     };
   }, [location.pathname]);
 
@@ -148,20 +156,29 @@ export default function Sidebar({ userRole,language = 'en' }) {
 
         items:
           integrationConnections.map(
-            (conn) => ({
-              label:
-                conn.serverName ||
-                conn.type ||
-                "Unknown Connection",
+            (conn) => {
+              const isAi =
+                (conn.type && conn.type.toLowerCase().includes("mirador")) ||
+                (conn.serverName && conn.serverName.toLowerCase().includes("mirador")) ||
+                (conn.type && conn.type.toLowerCase().includes("ai")) ||
+                (conn.serverName && conn.serverName.toLowerCase().includes("ai"));
 
-              page:
-                `integration/${
-                  conn.id ||
-                  conn._id
-                }`,
+              return {
+                label:
+                  conn.serverName ||
+                  conn.type ||
+                  "Unknown Connection",
 
-              icon: entry.icon,
-            })
+                page: isAi
+                  ? "ai-analytics"
+                  : `integration/${
+                      conn.id ||
+                      conn._id
+                    }`,
+
+                icon: entry.icon,
+              };
+            }
           ),
       };
     });

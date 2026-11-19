@@ -5,7 +5,7 @@ import { Volume2, VolumeX } from "lucide-react";
 import { useImageConfig } from "../../hooks/useImageConfig";
 import LiveSpinner from "./LiveSpinner";
 
-function HlsPlayer({ streamKey, streamUrl, muted = true, autoplay = true, className = "", onConnectChange, objectFit = "contain" }) {
+function HlsPlayer({ streamKey, streamUrl, muted = true, autoplay = true, className = "", onConnectChange, onError, objectFit = "contain" }) {
   const videoRef = useRef(null);
   const containerRef = useRef(null);
   const hlsRef = useRef(null);
@@ -73,6 +73,7 @@ function HlsPlayer({ streamKey, streamUrl, muted = true, autoplay = true, classN
               setIsVideoPlaying(false);
               setErrorMsg("Stream failed");
               onConnectChange?.(false);
+              onError?.(data);
               break;
           }
         }
@@ -90,6 +91,7 @@ function HlsPlayer({ streamKey, streamUrl, muted = true, autoplay = true, classN
         setIsVideoPlaying(false);
         setErrorMsg("Stream failed");
         onConnectChange?.(false);
+        onError?.(new Error("Native HLS playback error"));
       });
     } else {
       setStatus("failed");
@@ -105,7 +107,7 @@ function HlsPlayer({ streamKey, streamUrl, muted = true, autoplay = true, classN
       }
       onConnectChange?.(false);
     };
-  }, [streamKey, streamUrl, autoplay, HLS_BASE_URL, onConnectChange]);
+  }, [streamKey, streamUrl, autoplay, HLS_BASE_URL, onConnectChange, onError]);
 
   const wrapStyle = {
     position: "relative",

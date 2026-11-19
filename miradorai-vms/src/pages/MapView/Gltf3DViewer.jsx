@@ -519,7 +519,7 @@ const Gltf3DViewer = forwardRef(function Gltf3DViewer({
     localMarkersRef.current.forEach((marker, idx) => {
       const cam = cameras.find(c => c.id === marker.camId);
       const isOnline = cam?.status === "online";
-      const colorHex = isOnline ? 0x1D9E75 : 0x666666;
+      const colorHex = isOnline ? 0x1D9E75 : 0xE24B4A;
 
       const dx = marker.x - imgW / 2;
       const dy = marker.y - imgH / 2;

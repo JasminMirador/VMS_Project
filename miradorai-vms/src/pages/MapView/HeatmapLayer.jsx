@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import "./HeatmapLayer.css";
+import "./Heatmaplayer.css";
 import { drawHeatmapToContext } from "./HeatMapLogic";
  
 /**

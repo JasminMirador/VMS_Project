@@ -51,10 +51,15 @@ function getEffectiveSpecs(cam) {
   };
 }
 
-export default function CameraItem({ cam, isPlaced, isActive, onSelect, onDragStart, marker = null, calibration = null }) {
+export default function CameraItem({ cam, isPlaced, isActive, onSelect, onDragStart, marker = null, calibration = null, alertCount = 0 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const specs = getEffectiveSpecs(cam);
   const showSpecs = isActive || isExpanded;
+  const isOnline = cam.status === "online";
+  const hasAlert = alertCount > 0;
+  const dotClass = !isOnline
+    ? "mv-cam-dot--offline"
+    : (hasAlert ? "mv-cam-dot--alert" : "mv-cam-dot--online");
 
   const handleClick = (e) => {
     setIsExpanded(prev => !prev);
@@ -85,16 +90,30 @@ export default function CameraItem({ cam, isPlaced, isActive, onSelect, onDragSt
       draggable={!isPlaced}
       onDragStart={() => onDragStart?.(cam)}
       onClick={handleClick}
-      title={`${cam.name} — ${cam.ip} — ${cam.status}`}
+      title={`${cam.name} — ${cam.ip} — ${cam.status}${hasAlert ? ` (${alertCount} active alert${alertCount !== 1 ? "s" : ""})` : ""}`}
     >
       <div style={{ display: "flex", alignItems: "center", width: "100%", gap: "8px" }}>
-        <span className={`mv-cam-dot mv-cam-dot--${cam.status}`} />
+        <span className={`mv-cam-dot ${dotClass}`} />
         <div className="mv-cam-info" style={{ flex: 1, minWidth: 0 }}>
           <span className="mv-cam-name" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {cam.name}
           </span>
           <span className="mv-cam-ip">{cam.ip}</span>
         </div>
+        {hasAlert && isOnline && (
+          <span style={{
+            fontSize: "9.5px",
+            fontWeight: "700",
+            color: "#d97706",
+            background: "rgba(245, 158, 11, 0.15)",
+            padding: "1px 5px",
+            borderRadius: "99px",
+            border: "1px solid rgba(245, 158, 11, 0.3)",
+            flexShrink: 0
+          }}>
+            {alertCount > 99 ? "99+" : alertCount} alert{alertCount !== 1 ? "s" : ""}
+          </span>
+        )}
         {isPlaced && <span className="mv-cam-badge">placed</span>}
         <button
           type="button"

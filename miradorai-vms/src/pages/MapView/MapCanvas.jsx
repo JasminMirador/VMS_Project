@@ -348,9 +348,9 @@ const MapCanvas = forwardRef(function MapCanvas(
 
           if (showHeatmap) {
             if (!online) {
-              grad.addColorStop(0, "rgba(100, 116, 139, 0.45)");
-              grad.addColorStop(0.65, "rgba(100, 116, 139, 0.25)");
-              grad.addColorStop(1, "rgba(100, 116, 139, 0.05)");
+              grad.addColorStop(0, "rgba(226, 75, 74, 0.45)");
+              grad.addColorStop(0.65, "rgba(226, 75, 74, 0.25)");
+              grad.addColorStop(1, "rgba(226, 75, 74, 0.05)");
             } else {
               // Intense emerald green coverage highlight on heatmap
               grad.addColorStop(0, "rgba(16, 185, 129, 0.65)");
@@ -360,9 +360,9 @@ const MapCanvas = forwardRef(function MapCanvas(
             }
           } else {
             if (!online) {
-              grad.addColorStop(0, "rgba(110, 110, 110, 0.55)");
-              grad.addColorStop(0.7, "rgba(110, 110, 110, 0.32)");
-              grad.addColorStop(1, "rgba(110, 110, 110, 0.08)");
+              grad.addColorStop(0, "rgba(226, 75, 74, 0.45)");
+              grad.addColorStop(0.7, "rgba(226, 75, 74, 0.22)");
+              grad.addColorStop(1, "rgba(226, 75, 74, 0.05)");
             } else {
               grad.addColorStop(0, `rgba(${rgb}, 0.76)`);
               grad.addColorStop(0.45, `rgba(${rgb}, 0.54)`);
@@ -441,9 +441,11 @@ const MapCanvas = forwardRef(function MapCanvas(
         name: m.camName || m.camId, ip: m.camIp || "", status: "offline",
       };
       const online = cam.status === "online";
+      const isUnavailable = !online || cam.status === "disabled" || cam.status === "unavailable" || cam.status === "offline";
       const hasAlert = localStorage.getItem("miradorai_show_event_ind") !== "false" && alertCounts && alertCounts[cam.ip] > 0;
       const isHighlit = m.camId === highlightedCamId || i === selectedIdx;
-      const col = hasAlert ? "#E24B4A" : (online ? (isHighlit ? "#5aabf0" : "#1D9E75") : "#555");
+      // Online: Green (#1D9E75), Alerts: Amber (#f59e0b), Disabled / Unavailable: Red (#E24B4A)
+      const col = isUnavailable ? "#E24B4A" : (hasAlert ? "#f59e0b" : (isHighlit ? "#5aabf0" : "#1D9E75"));
       const R = 8;   // glow / hit radius
       const hov = i === hoveredIdxRef.current;
       const isLight = document.documentElement.getAttribute("data-theme") === "light";
@@ -837,21 +839,21 @@ const MapCanvas = forwardRef(function MapCanvas(
       // Outer accent ring
       ctx.beginPath();
       ctx.arc(0, 0, 4.5, 0, Math.PI * 2);
-      ctx.strokeStyle = (online ? col : "#666") + "66";
+      ctx.strokeStyle = (online ? col : "#E24B4A") + "66";
       ctx.lineWidth = 1;
       ctx.stroke();
 
       // Primary accent ring
       ctx.beginPath();
       ctx.arc(0, 0, 3, 0, Math.PI * 2);
-      ctx.strokeStyle = online ? col : "#666";
+      ctx.strokeStyle = online ? col : "#E24B4A";
       ctx.lineWidth = 1.4;
       ctx.stroke();
 
       // Inner solid grip core dot
       ctx.beginPath();
       ctx.arc(0, 0, 1.5, 0, Math.PI * 2);
-      ctx.fillStyle = online ? col : "#666";
+      ctx.fillStyle = online ? col : "#E24B4A";
       ctx.fill();
 
       ctx.restore();

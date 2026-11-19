@@ -514,8 +514,7 @@ const LoginPage = () => {
 
   const [signUpSuccess, setSignUpSuccess] = useState("");
 
-// const [signUpMethod, setSignUpMethod] = useState("password"); // "password" | "otp"
-  const [signUpMethod, setSignUpMethod] = useState("otp"); // password sign-up hidden for now
+  const [signUpMethod, setSignUpMethod] = useState("password"); // "password" | "otp"
   const [signUpPassword, setSignUpPassword] = useState("");
 
   const [signUpConfirm, setSignUpConfirm] = useState("");
@@ -593,6 +592,8 @@ const LoginPage = () => {
   const handleSignIn = async (e) => {
 
     e.preventDefault();
+
+    if (isLoading) return;
 
     setSignInError("");
 
@@ -882,6 +883,8 @@ const LoginPage = () => {
 
           setActiveForm("signin");
 
+          setActiveSessionWarning(null);
+
           setSignInEmail(createdEmail);
 
           setSignInPassword("");
@@ -1058,6 +1061,8 @@ const LoginPage = () => {
 
         setActiveForm("signin");
 
+        setActiveSessionWarning(null);
+
         setSignInEmail(emailToVerify);
 
         setSignUpEmail("");
@@ -1180,6 +1185,8 @@ const LoginPage = () => {
 
         setActiveForm("signin");
 
+        setActiveSessionWarning(null);
+
         setForgotSuccess("");
 
       }, 2000);
@@ -1298,7 +1305,24 @@ const LoginPage = () => {
 
                     <div className="warning-message-actions">
 
-                      <button type="button" className="btn-ghost-sm" onClick={() => setActiveSessionWarning(null)}>Cancel</button>
+                      <button
+                        type="button"
+                        className="btn-ghost-sm"
+                        onClick={async () => {
+                          const tokenToCancel = activeSessionWarning?.token;
+                          setActiveSessionWarning(null);
+                          if (tokenToCancel) {
+                            try {
+                              await fetch(apiUrl('/auth/logout'), {
+                                method: 'POST',
+                                headers: { 'Authorization': `Bearer ${tokenToCancel}` }
+                              });
+                            } catch (_) {}
+                          }
+                        }}
+                      >
+                        Cancel
+                      </button>
 
                       <button
 
@@ -1366,7 +1390,24 @@ const LoginPage = () => {
 
                     <div className="warning-message-actions">
 
-                      <button type="button" className="btn-ghost-sm" onClick={() => setActiveSessionWarning(null)}>Cancel</button>
+                      <button
+                        type="button"
+                        className="btn-ghost-sm"
+                        onClick={async () => {
+                          const tokenToCancel = activeSessionWarning?.token;
+                          setActiveSessionWarning(null);
+                          if (tokenToCancel) {
+                            try {
+                              await fetch(apiUrl('/auth/logout'), {
+                                method: 'POST',
+                                headers: { 'Authorization': `Bearer ${tokenToCancel}` }
+                              });
+                            } catch (_) {}
+                          }
+                        }}
+                      >
+                        Cancel
+                      </button>
 
                       <button
 
@@ -1422,11 +1463,11 @@ const LoginPage = () => {
 
                   <div className="role-options">
 
-                    <button type="button" className={`role-option ${role === "admin" ? "active" : ""}`} onClick={() => setRole("admin")}>Admin</button>
+                    <button type="button" className={`role-option ${role === "admin" ? "active" : ""}`} onClick={() => { setRole("admin"); setActiveSessionWarning(null); }}>Admin</button>
 
-                    <button type="button" className={`role-option ${role === "client" ? "active" : ""}`} onClick={() => setRole("client")}>Client</button>
+                    <button type="button" className={`role-option ${role === "client" ? "active" : ""}`} onClick={() => { setRole("client"); setActiveSessionWarning(null); }}>Client</button>
 
-                    <button type="button" className={`role-option ${role === "operator" ? "active" : ""}`} onClick={() => setRole("operator")}>Operator</button>
+                    <button type="button" className={`role-option ${role === "operator" ? "active" : ""}`} onClick={() => { setRole("operator"); setActiveSessionWarning(null); }}>Operator</button>
 
                   </div>
 
@@ -1460,6 +1501,8 @@ const LoginPage = () => {
 
                         if (signInSuccess) setSignInSuccess("");
 
+                        if (activeSessionWarning) setActiveSessionWarning(null);
+
                       }}
 
                       disabled={isLoading}
@@ -1489,6 +1532,8 @@ const LoginPage = () => {
                   onClick={(e) => {
 
                     e.preventDefault();
+
+                    setActiveSessionWarning(null);
 
                     setActiveForm("forgot");
 
@@ -1531,6 +1576,8 @@ const LoginPage = () => {
                     if (signInError) setSignInError("");
 
                     if (signInSuccess) setSignInSuccess("");
+
+                    if (activeSessionWarning) setActiveSessionWarning(null);
 
                   }}
 
@@ -1578,7 +1625,24 @@ const LoginPage = () => {
 
                     <div className="warning-message-actions">
 
-                      <button type="button" className="btn-ghost-sm" onClick={() => setActiveSessionWarning(null)}>Cancel</button>
+                      <button
+                        type="button"
+                        className="btn-ghost-sm"
+                        onClick={async () => {
+                          const tokenToCancel = activeSessionWarning?.token;
+                          setActiveSessionWarning(null);
+                          if (tokenToCancel) {
+                            try {
+                              await fetch(apiUrl('/auth/logout'), {
+                                method: 'POST',
+                                headers: { 'Authorization': `Bearer ${tokenToCancel}` }
+                              });
+                            } catch (_) {}
+                          }
+                        }}
+                      >
+                        Cancel
+                      </button>
 
                       <button
 
@@ -2362,7 +2426,7 @@ const LoginPage = () => {
 
 
 
-            {/* <div className="auth-switch-line">
+            <div className="auth-switch-line">
 
               <a
 
@@ -2388,7 +2452,7 @@ const LoginPage = () => {
 
               </a>
 
-            </div> */}
+            </div>
 
 
 

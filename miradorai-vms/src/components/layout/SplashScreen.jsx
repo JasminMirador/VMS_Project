@@ -7,6 +7,7 @@ export default function SplashScreen({
   title,
   subtitle,
   language = localStorage.getItem("mirador_language") || "en",
+  embedded = false,
 }) {
   const [phase, setPhase] = useState("idle");
 
@@ -39,25 +40,27 @@ export default function SplashScreen({
   // =========================================================
 
   useEffect(() => {
+    const speed = embedded ? 0.65 : 1.0;
+
     const t1 = setTimeout(() => {
       setPhase("logo");
-    }, 100);
+    }, Math.round(100 * speed));
 
     const t2 = setTimeout(() => {
       setPhase("text");
-    }, 900);
+    }, Math.round(800 * speed));
 
     const t3 = setTimeout(() => {
       setPhase("line");
-    }, 1800);
+    }, Math.round(1550 * speed));
 
     const t4 = setTimeout(() => {
       setPhase("exit");
-    }, 3000);
+    }, Math.round(2300 * speed));
 
     const t5 = setTimeout(() => {
       onDone?.();
-    }, 3900);
+    }, Math.round(3000 * speed));
 
     return () => {
       clearTimeout(t1);
@@ -66,7 +69,7 @@ export default function SplashScreen({
       clearTimeout(t4);
       clearTimeout(t5);
     };
-  }, [onDone]);
+  }, [onDone, embedded]);
 
   // =========================================================
   // RENDER
@@ -74,7 +77,7 @@ export default function SplashScreen({
 
   return (
     <div
-      className={`splash ${
+      className={`splash ${embedded ? "splash--embedded" : ""} ${
         phase === "exit" ? "splash--exit" : ""
       }`}
       dir={isArabic ? "rtl" : "ltr"}

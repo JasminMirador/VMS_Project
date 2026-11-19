@@ -1,6 +1,6 @@
 import React, { memo } from "react";
 import PropTypes from "prop-types";
-import "./Loader.css";
+import "./loader.css";
  
 /**
  * Universal Loader Component for Mirador VMS

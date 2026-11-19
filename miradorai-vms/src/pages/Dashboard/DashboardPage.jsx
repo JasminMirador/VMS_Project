@@ -48,7 +48,8 @@ import {
   LineChart,
   Line
 } from "recharts";
-const API_BASE = import.meta.env.VITE_API_URL || "";
+import { apiUrl } from "../../config/appConfig";
+
 
 const getAuthHeaders = () => {
   const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token"));
@@ -1948,8 +1949,8 @@ const DashboardPage = () => {
     const fetchIntegrations = async () => {
       try {
         const token = (localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token")) || localStorage.getItem('token');
-        const API_BASE = import.meta.env.VITE_API_URL || "";
-        const res = await fetch(API_BASE + "/api/integrations", {
+        
+        const res = await fetch(apiUrl("/integrations"), {
           headers: token ? { Authorization: 'Bearer ' + token } : {},
         });
         if (res.ok) {
@@ -2185,7 +2186,7 @@ const DashboardPage = () => {
 
       if (reportType === "alerts") {
         // Query recent alerts and filter by date range
-        const res = await fetch(`${API_BASE}/api/infrastructure/alerts?limit=5000&from_date=${fromIso}&to_date=${toIso}`, {
+        const res = await fetch(apiUrl(`/infrastructure/alerts?limit=5000&from_date=${fromIso}&to_date=${toIso}`), {
           headers: getAuthHeaders()
         });
         const alertsData = await res.json();
@@ -2224,7 +2225,7 @@ const DashboardPage = () => {
           source: reportAnalyticsSource,
           status: reportAnalyticsStatus
         });
-        const res = await fetch(`${API_BASE}/api/alerts?${queryParams.toString()}`, {
+        const res = await fetch(apiUrl(`/alerts?${queryParams.toString()}`), {
           headers: getAuthHeaders()
         });
         const alertsRes = await res.json();
@@ -2272,7 +2273,7 @@ const DashboardPage = () => {
         }
       } else if (reportType === "health") {
         // Query topology nodes for health status
-        const res = await fetch(`${API_BASE}/api/infrastructure/topology`, {
+        const res = await fetch(apiUrl("/infrastructure/topology"), {
           headers: getAuthHeaders()
         });
         const topoData = await res.json();
@@ -2306,7 +2307,7 @@ const DashboardPage = () => {
         // Query the new reports_router history endpoint
         const fromIso = new Date(fromTime).toISOString();
         const toIso = new Date(toTime).toISOString();
-        const res = await fetch(`${API_BASE}/api/reports/history?from_date=${fromIso}&to_date=${toIso}&live_only=${reportLiveOnly}`, {
+        const res = await fetch(apiUrl(`/reports/history?from_date=${fromIso}&to_date=${toIso}&live_only=${reportLiveOnly}`), {
           headers: getAuthHeaders()
         });
         const historyData = await res.json();
@@ -2627,8 +2628,8 @@ const DashboardPage = () => {
   const fetchRecentEvents = async () => {
     try {
       const [logsRes, alertsRes] = await Promise.all([
-        fetch(`${API_BASE}/api/logs/ui?limit=50`, { headers: getAuthHeaders() }),
-        fetch(`${API_BASE}/api/infrastructure/alerts?limit=50`, { headers: getAuthHeaders() })
+        fetch(apiUrl("/logs/ui?limit=50"), { headers: getAuthHeaders() }),
+        fetch(apiUrl("/infrastructure/alerts?limit=50"), { headers: getAuthHeaders() })
       ]);
       const logsJson = await logsRes.json();
       const alertsJson = await alertsRes.json();
@@ -2661,9 +2662,9 @@ const DashboardPage = () => {
   const fetchDiagnostics = async () => {
     try {
       const [storageRes, bitrateRes, bandwidthRes] = await Promise.all([
-        fetch(`${API_BASE}/api/storage/diagnostics`, { headers: getAuthHeaders() }),
-        fetch(`${API_BASE}/api/bitrate/diagnostics?filter_type=${bitrateFilter}`, { headers: getAuthHeaders() }),
-        fetch(`${API_BASE}/api/cameras/bandwidth`, { headers: getAuthHeaders() })
+        fetch(apiUrl("/storage/diagnostics"), { headers: getAuthHeaders() }),
+        fetch(apiUrl(`/bitrate/diagnostics?filter_type=${bitrateFilter}`), { headers: getAuthHeaders() }),
+        fetch(apiUrl("/cameras/bandwidth"), { headers: getAuthHeaders() })
       ]);
 
       if (storageRes.ok) {
@@ -2697,15 +2698,15 @@ const DashboardPage = () => {
     const fetchInitialData = async () => {
       try {
         const [sumRes, storRes, eventRes, camRes, statusRes, healthRes, metricsRes, camHealthRes] = await Promise.all([
-          fetch(`${API_BASE}/api/dashboard/summary`, { headers: getAuthHeaders() }),
-          fetch(`${API_BASE}/api/storage/management`, { headers: getAuthHeaders() }),
-          fetch(`${API_BASE}/api/dashboard/events`, { headers: getAuthHeaders() }),
-          fetch(`${API_BASE}/api/cameras`, { headers: getAuthHeaders() }),
-          fetch(`${API_BASE}/api/recordings/status`, { headers: getAuthHeaders() }).catch(() => null),
-          fetch(`${API_BASE}/api/health`, { headers: getAuthHeaders() }).catch(() => null),
-          fetch(`${API_BASE}/api/infrastructure/metrics`, { headers: getAuthHeaders() }).catch(() => null),
-          fetch(`${API_BASE}/api/camera-health`, { headers: getAuthHeaders() }).catch(() => null),
-          fetch(`${API_BASE}/api/storage/schedules`, { headers: getAuthHeaders() }).catch(() => null)
+          fetch(apiUrl("/dashboard/summary"), { headers: getAuthHeaders() }),
+          fetch(apiUrl("/storage/management"), { headers: getAuthHeaders() }),
+          fetch(apiUrl("/dashboard/events"), { headers: getAuthHeaders() }),
+          fetch(apiUrl("/cameras"), { headers: getAuthHeaders() }),
+          fetch(apiUrl("/recordings/status"), { headers: getAuthHeaders() }).catch(() => null),
+          fetch(apiUrl("/health"), { headers: getAuthHeaders() }).catch(() => null),
+          fetch(apiUrl("/infrastructure/metrics"), { headers: getAuthHeaders() }).catch(() => null),
+          fetch(apiUrl("/camera-health"), { headers: getAuthHeaders() }).catch(() => null),
+          fetch(apiUrl("/storage/schedules"), { headers: getAuthHeaders() }).catch(() => null)
         ]);
 
         const sumData = sumRes.ok ? await sumRes.json() : {};
@@ -2744,7 +2745,7 @@ const DashboardPage = () => {
         setCameras(Array.isArray(camData) ? camData : []);
 
         try {
-          const schedRes = await fetch(`${API_BASE}/api/storage/schedules`, { headers: getAuthHeaders() });
+          const schedRes = await fetch(apiUrl("/storage/schedules"), { headers: getAuthHeaders() });
           if (schedRes.ok) {
             const schedData = await schedRes.json();
             setRecordingSchedules(Array.isArray(schedData) ? schedData : []);
@@ -3816,7 +3817,7 @@ const DashboardPage = () => {
                     // otherwise the backend will just remain idle after restart
                     if (cam.assigned_schedule_id && String(cam.assigned_schedule_id).toLowerCase() === "never") {
                       try {
-                        await fetch(`${API_BASE}/api/recordings/assign-schedule`, {
+                        await fetch(apiUrl("/recordings/assign-schedule"), {
                           method: "POST",
                           headers,
                           body: JSON.stringify({
@@ -3831,9 +3832,9 @@ const DashboardPage = () => {
                     }
 
                     // Disable then Enable to simulate a full restart
-                    await fetch(`${API_BASE}/api/cameras/by-ip/${ip}/disable`, { method: "POST", headers });
+                    await fetch(apiUrl(`/cameras/by-ip/${ip}/disable`), { method: "POST", headers });
                     await new Promise(resolve => setTimeout(resolve, 1500));
-                    await fetch(`${API_BASE}/api/cameras/by-ip/${ip}/enable`, { method: "POST", headers });
+                    await fetch(apiUrl(`/cameras/by-ip/${ip}/enable`), { method: "POST", headers });
                     alert(`Restart sequence sent for ${cam.name || cam.ip}`);
                     
                     // Immediately fetch updated statuses

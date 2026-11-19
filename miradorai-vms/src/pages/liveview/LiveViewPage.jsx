@@ -7,6 +7,7 @@ import { jsPDF } from "jspdf";
 import { useDigitalZoom } from "../../hooks/useDigitalZoom";
 import SidePlaybackPanel from "../../components/shared/SidePlaybackPanel";
 import PTZControls from "../../components/shared/PTZControls";
+import { useJoystick } from "../../context/JoystickContext";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useNotifications } from "../../context/NotificationContext";
@@ -14,6 +15,7 @@ import "./LiveViewPage.css";
 import { EditDeviceModal } from "../devices/AddDevicesPage";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import useGroups from "../../hooks/useGroups";
+import useSequences from "../../hooks/useSequences";
 import * as rrweb from "rrweb";
 import { wsEventsUrl, externalAiUrl, apiUrl, getEnv } from "../../config/appConfig";
 
@@ -32,6 +34,28 @@ function loadDevices() {
   } catch {
     return [];
   }
+}
+
+export function isMotionAlert(alert) {
+  if (!alert) return false;
+  const raw = alert.rawData || alert.raw || {};
+  const values = [
+    alert.type,
+    alert.event,
+    alert.scenario,
+    alert.scenario_name,
+    alert.category,
+    alert.feature,
+    alert.description,
+    alert.topic,
+    alert.alertType,
+    raw.type,
+    raw.feature,
+    raw.scenario,
+    raw.category,
+    raw.description,
+  ].filter(Boolean).join(" ").toLowerCase();
+  return values.includes("motion") || values.includes("tns1:videosource/motionalarm");
 }
 
 function getCameraNameByIpOrSerial(ipOrSerial) {
@@ -134,6 +158,68 @@ function isAlertAllowed(alert) {
       return type.includes("intrusion") || scenario.includes("intrusion");
     return true;
   });
+}
+
+// ── Severity ────────────────────────────────────────────────────────────
+const SEVERITY_LEVELS = [
+  { id: "high", label: "High" },
+  { id: "medium", label: "Medium" },
+  { id: "low", label: "Low" },
+  { id: "none", label: "None" },
+];
+const SEVERITY_RANK = { high: 0, medium: 1, low: 2, none: 3 };
+const SEVERITY_STORAGE_KEY = "miradorai_alert_severity";
+
+const sevKey = (t) => String(t || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+function loadSeverityMap() {
+  try {
+    return JSON.parse(localStorage.getItem(SEVERITY_STORAGE_KEY) || "{}") || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSeverityMap(map) {
+  try {
+    localStorage.setItem(SEVERITY_STORAGE_KEY, JSON.stringify(map));
+  } catch {}
+  window.dispatchEvent(new Event("alertSeverityUpdated"));
+}
+
+// Sensible defaults until the operator configures something
+function defaultSeverityFor(type) {
+  const t = sevKey(type);
+  if (/(intrusion|tamper|fire|weapon|unauthori|loiter)/.test(t)) return "high";
+  if (/(linecrossing|crossing|objectinarea|enteringfield|leavingfield|face)/.test(t)) return "medium";
+  return "low";
+}
+
+function getSeverityFor(map, ip, type) {
+  const ipKey = String(ip || "").replace(/_/g, ".");
+  const v = map?.[ipKey]?.[sevKey(type)];
+  return SEVERITY_RANK[v] !== undefined ? v : defaultSeverityFor(type);
+}
+
+function getAlertSeverity(alert, map) {
+  const raw = alert?.rawData || alert?.raw || {};
+  const ip = String(alert?.ip || alert?.serial || raw.readerIp || "").replace(/_/g, ".");
+  const candidates = [alert?.type, raw.type, raw.feature, alert?.scenario, raw.subType].filter(Boolean);
+  for (const c of candidates) {
+    const v = map?.[ip]?.[sevKey(c)];
+    if (SEVERITY_RANK[v] !== undefined) return v;
+  }
+  return defaultSeverityFor(candidates[0]);
+}
+
+function SeverityBadge({ level }) {
+  if (level === "none") return null;
+  const lvl = SEVERITY_RANK[level] !== undefined ? level : "low";
+  return (
+    <span className={`lv-sev-badge lv-sev-badge--${lvl}`} title={`${lvl} severity`}>
+      {lvl === "medium" ? "Med" : lvl}
+    </span>
+  );
 }
 
 export function formatEventName(name) {
@@ -569,14 +655,33 @@ export function AlertPopup({ ip, alerts, onClose }) {
   );
 }
 // ── CameraAnalyticsSettingsModal ────────────────────────────────────────
+function SeveritySelector({ value, onChange, disabled }) {
+  return (
+    <div className={`cas-sev ${disabled ? "is-disabled" : ""}`} role="radiogroup" aria-label="Severity">
+      {SEVERITY_LEVELS.map((l) => (
+        <button
+          key={l.id}
+          type="button"
+          role="radio"
+          aria-checked={value === l.id}
+          className={`cas-sev__btn cas-sev__btn--${l.id} ${value === l.id ? "is-active" : ""}`}
+          onClick={() => onChange(l.id)}
+        >
+          {l.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function CameraAnalyticsSettingsModal({ devices, preferences, onClose, onSave }) {
   const [localPrefs, setLocalPrefs] = useState(preferences || {});
+  const [localSeverity, setLocalSeverity] = useState(() => loadSeverityMap());
   const [availableAnalytics, setAvailableAnalytics] = useState({});
   const [isSaving, setIsSaving] = useState(false);
   const { showToast } = useNotifications();
 
   useEffect(() => {
-    // Fetch available analytics for each camera
     devices.forEach(async (d) => {
       const ip = (d.ip || "").replace(/_/g, ".");
       if (!ip) return;
@@ -584,11 +689,11 @@ function CameraAnalyticsSettingsModal({ devices, preferences, onClose, onSave })
         const res = await fetch(apiUrl(`/camera-analytics/${ip}`));
         if (res.ok) {
           const data = await res.json();
-          const filteredAnalytics = (data.analytics || []).filter(a => {
+          const filtered = (data.analytics || []).filter((a) => {
             const typeKey = (a.type || "").toLowerCase();
             return !typeKey.includes("motion") && !typeKey.includes("counter");
           });
-          setAvailableAnalytics(prev => ({ ...prev, [ip]: filteredAnalytics }));
+          setAvailableAnalytics((prev) => ({ ...prev, [ip]: filtered }));
         }
       } catch (e) {
         console.error("Failed to fetch analytics for", ip, e);
@@ -597,26 +702,37 @@ function CameraAnalyticsSettingsModal({ devices, preferences, onClose, onSave })
   }, [devices]);
 
   const toggleAnalytic = (ip, analyticType) => {
-    setLocalPrefs(prev => {
+    setLocalPrefs((prev) => {
       const current = prev[ip] || [];
-      if (current.includes(analyticType)) {
-        return { ...prev, [ip]: current.filter(t => t !== analyticType) };
-      } else {
-        return { ...prev, [ip]: [...current, analyticType] };
-      }
+      return current.includes(analyticType)
+        ? { ...prev, [ip]: current.filter((t) => t !== analyticType) }
+        : { ...prev, [ip]: [...current, analyticType] };
     });
+  };
+
+  const setSeverity = (ip, analyticType, level) => {
+    setLocalSeverity((prev) => ({
+      ...prev,
+      [ip]: { ...(prev[ip] || {}), [sevKey(analyticType)]: level },
+    }));
   };
 
   const handleSave = async () => {
     setIsSaving(true);
     let errorOccurred = false;
-    // Save to backend
+
+    // Persist severity first so the alerts panel updates immediately
+    saveSeverityMap(localSeverity);
+
     for (const ip of Object.keys(localPrefs)) {
       try {
         await fetch(apiUrl(`/camera-analytics/${ip}/preferences`), {
           method: "PUT",
           headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-          body: JSON.stringify({ enabled: localPrefs[ip] })
+          body: JSON.stringify({
+            enabled: localPrefs[ip],
+            severity: localSeverity[ip] || {},
+          }),
         });
       } catch (e) {
         console.error("Failed to save pref for", ip, e);
@@ -624,61 +740,69 @@ function CameraAnalyticsSettingsModal({ devices, preferences, onClose, onSave })
       }
     }
     setIsSaving(false);
-    if (!errorOccurred) {
-      showToast({
-        title: "Settings Saved",
-        body: "Successfully saved analytics configurations!",
-        variant: "success"
-      });
-    } else {
-      showToast({
-        title: "Partial Save",
-        body: "Saved with some errors. Check console for details.",
-        variant: "error"
-      });
-    }
+    showToast(
+      errorOccurred
+        ? { title: "Partial Save", body: "Saved with some errors. Check console for details.", variant: "error" }
+        : { title: "Settings Saved", body: "Successfully saved analytics configurations!", variant: "success" },
+    );
     onSave(localPrefs);
   };
 
+  const visibleDevices = devices.filter((d) => {
+    const ip = (d.ip || "").replace(/_/g, ".");
+    return ip && (availableAnalytics[ip] || []).length > 0;
+  });
+
   return (
     <div className="alp-overlay" onClick={onClose}>
-      <div className="alp-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+      <div className="alp-modal cas-modal" onClick={(e) => e.stopPropagation()}>
         <div className="alp-header">
           <span className="alp-title">Camera Analytics Settings</span>
           <button className="alp-close-btn" onClick={onClose}>✕</button>
         </div>
-        <div className="alp-list" style={{ padding: '16px', maxHeight: '60vh', overflowY: 'auto' }}>
-          {devices.map(d => {
+
+        <div className="cas-body">
+          <p className="cas-hint">
+            Enable the analytics you want alerts for and assign a severity. Alerts are tagged and can be sorted by severity.
+          </p>
+
+          {visibleDevices.length === 0 && <div className="cas-empty">No analytics available for your cameras.</div>}
+
+          {visibleDevices.map((d) => {
             const ip = (d.ip || "").replace(/_/g, ".");
-            if (!ip) return null;
             const analytics = availableAnalytics[ip] || [];
-            if (analytics.length === 0) return null; // Only show cameras with analytics
-            
             return (
-              <div key={ip} style={{ marginBottom: '16px', background: '#1e293b', padding: '12px', borderRadius: '8px' }}>
-                <h3 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#fff' }}>{d.name} ({ip})</h3>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                  {analytics.map(a => {
-                    const isEnabled = (localPrefs[ip] || []).includes(a.type);
-                    return (
-                      <label key={a.type} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', background: 'rgba(255,255,255,0.1)', padding: '4px 8px', borderRadius: '4px' }}>
-                        <input 
-                          type="checkbox" 
-                          checked={isEnabled} 
-                          onChange={() => toggleAnalytic(ip, a.type)} 
-                        />
-                        {formatEventName(a.type)}
-                      </label>
-                    );
-                  })}
+              <div key={ip} className="cas-cam">
+                <div className="cas-cam__title">
+                  <span className="cas-cam__name">{d.name || "Camera"}</span>
+                  <span className="cas-cam__ip notranslate">{ip}</span>
                 </div>
+
+                {analytics.map((a) => {
+                  const isEnabled = (localPrefs[ip] || []).includes(a.type);
+                  const sev = getSeverityFor(localSeverity, ip, a.type);
+                  return (
+                    <div key={a.type} className={`cas-row ${isEnabled ? "is-enabled" : ""}`}>
+                      <label className="cas-row__label">
+                        <input type="checkbox" checked={isEnabled} onChange={() => toggleAnalytic(ip, a.type)} />
+                        <span>{formatEventName(a.type)}</span>
+                      </label>
+                      <SeveritySelector
+                        value={sev}
+                        disabled={false}
+                        onChange={(lvl) => setSeverity(ip, a.type, lvl)}
+                      />
+                    </div>
+                  );
+                })}
               </div>
             );
           })}
         </div>
-        <div style={{ padding: '16px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-          <button onClick={onClose} disabled={isSaving} style={{ padding: '8px 16px', background: 'transparent', border: '1px solid #475569', borderRadius: '6px', color: '#fff', cursor: isSaving ? 'not-allowed' : 'pointer', opacity: isSaving ? 0.5 : 1 }}>Cancel</button>
-          <button onClick={handleSave} disabled={isSaving} style={{ padding: '8px 16px', background: '#10b981', border: 'none', borderRadius: '6px', color: '#fff', cursor: isSaving ? 'not-allowed' : 'pointer', fontWeight: 'bold', opacity: isSaving ? 0.5 : 1 }}>
+
+        <div className="cas-footer">
+          <button className="cas-btn" onClick={onClose} disabled={isSaving}>Cancel</button>
+          <button className="cas-btn cas-btn--primary" onClick={handleSave} disabled={isSaving}>
             {isSaving ? "Saving..." : "Save Changes"}
           </button>
         </div>
@@ -774,6 +898,18 @@ function AlertsPanel({
   const [isTypeDropdownOpen, setIsTypeDropdownOpen] = useState(false);
   const [isCameraDropdownOpen, setIsCameraDropdownOpen] = useState(false);
   const [isSourceDropdownOpen, setIsSourceDropdownOpen] = useState(false);
+  const [severityMap, setSeverityMap] = useState(() => loadSeverityMap());
+  const [severitySort, setSeveritySort] = useState("time");
+
+  useEffect(() => {
+    const sync = () => setSeverityMap(loadSeverityMap());
+    window.addEventListener("alertSeverityUpdated", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("alertSeverityUpdated", sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
     const fetchPreferences = useCallback(async () => {
     try {
       const res = await fetch(apiUrl('/camera-analytics-preferences'), {
@@ -817,6 +953,7 @@ function AlertsPanel({
   const availableTypes = useMemo(() => {
     const types = new Set();
     alerts.forEach((a) => {
+      if (isMotionAlert(a)) return;
       const isAi = a.isExternal === true || a.source === "external_ai" || a.source === "AI_WEBHOOK";
       if (alertSource === "builtin" && isAi) return;
       if (alertSource === "mqtt_ai" && !isAi) return;
@@ -828,6 +965,7 @@ function AlertsPanel({
   const availableCameras = useMemo(() => {
     const cams = new Set();
     alerts.forEach((a) => {
+      if (isMotionAlert(a)) return;
       const isAi = a.isExternal === true || a.source === "external_ai" || a.source === "AI_WEBHOOK";
       if (alertSource === "builtin" && isAi) return;
       if (alertSource === "mqtt_ai" && !isAi) return;
@@ -838,7 +976,8 @@ function AlertsPanel({
 
   const filteredAlerts = useMemo(() => {
     const now = new Date().getTime();
-    return alerts.filter((a) => {
+    const list = alerts.filter((a) => {
+      if (isMotionAlert(a)) return false;
       // Source filter
       const isAi = a.isExternal === true || a.source === "external_ai" || a.source === "AI_WEBHOOK";
       if (alertSource === "builtin" && isAi) return false;
@@ -889,6 +1028,20 @@ function AlertsPanel({
 
       return typeMatch && camMatch && searchMatch && timeMatch;
     });
+
+    if (severitySort === "severity") {
+      const t = (a) => new Date(a.time || a.received_at).getTime() || 0;
+      const isAi = (a) =>
+        a.isExternal === true || a.source === "external_ai" || a.source === "AI_WEBHOOK";
+      const rank = (a) =>
+        isAi(a) ? SEVERITY_RANK.none : SEVERITY_RANK[getAlertSeverity(a, severityMap)];
+      return [...list].sort((a, b) => {
+        const ra = rank(a);
+        const rb = rank(b);
+        return ra !== rb ? ra - rb : t(b) - t(a);
+      });
+    }
+    return list;
   }, [
     alerts,
     alertSource,
@@ -898,6 +1051,8 @@ function AlertsPanel({
     timeFilter,
     getDisplayType,
     getDisplayCamera,
+    severitySort,
+    severityMap,
   ]);
 
   // Reset filters when source changes
@@ -906,6 +1061,7 @@ function AlertsPanel({
     setCameraFilter("All");
     setSearchQuery("");
     setTimeFilter("all");
+    setSeveritySort("time");
   }, [alertSource]);
 
   useEffect(() => {
@@ -1015,7 +1171,7 @@ function AlertsPanel({
                 t !== "unknown" &&
                 t !== "" &&
                 !t.includes("tns1:") &&
-                !t.includes("motion")
+                !isMotionAlert(a)
               );
             })
           .filter(a => {
@@ -1049,7 +1205,9 @@ function AlertsPanel({
           });
           if (dbRes.ok) {
             const dbData = await dbRes.json();
-            const dbAlerts = (dbData.alerts || []).map((item) => {
+            const dbAlerts = (dbData.alerts || [])
+              .filter((item) => !isMotionAlert(item))
+              .map((item) => {
               const raw = item.raw || item.rawData || item;
               const locKey = Object.keys(raw || {}).find(k => k.toLowerCase().replace(/_/g, '') === 'imagelocation' || k.toLowerCase().replace(/_/g, '') === 'imglocation' || k.toLowerCase().replace(/_/g, '') === 'imgelocation');
               const locVal = locKey ? raw[locKey] : (item.imageLocation || item.image_location);
@@ -1107,7 +1265,9 @@ function AlertsPanel({
 
           const existingIds = new Set(combinedAlerts.map(a => String(a.id || a._id)));
           const mapped = responses.flatMap((extData) =>
-            (extData.data || []).map((item) => {
+            (extData.data || [])
+              .filter((item) => !isMotionAlert(item))
+              .map((item) => {
               const locKey = Object.keys(item).find(k => k.toLowerCase().replace(/_/g, '') === 'imagelocation' || k.toLowerCase().replace(/_/g, '') === 'imglocation' || k.toLowerCase().replace(/_/g, '') === 'imgelocation');
               const locVal = locKey ? item[locKey] : null;
               const imagePath = locVal ? (
@@ -1247,9 +1407,8 @@ function AlertsPanel({
       return;
     }
 
-    // Skip motion alerts from built-in feed
-    const wsType = (payload.type || "").toLowerCase();
-    if (!isAi && (wsType.includes("motion") || wsType.includes("tns1:"))) {
+    // Skip motion alerts completely from all feeds
+    if (isMotionAlert(payload)) {
       return;
     }
 
@@ -1353,8 +1512,7 @@ function AlertsPanel({
 
         <div className="lv-alerts-panel__filters">
           <div
-            className={`lv-select-wrapper lv-dropdown-container ${alertTypeFilter !== "All" ? "is-active" : ""}`}
-          >
+            className={`lv-select-wrapper lv-dropdown-container ${alertTypeFilter !== "All" || severitySort === "severity" ? "is-active" : ""}`}              >
             <svg
               className="lv-select-icon"
               viewBox="0 0 24 24"
@@ -1386,7 +1544,12 @@ function AlertsPanel({
                   paddingRight: "10px",
                 }}
               >
-                {alertTypeFilter === "All" ? "Event Type" : alertTypeFilter}
+                {alertTypeFilter !== "All"
+                  ? alertTypeFilter
+                  : severitySort === "severity"
+                    ? "Severity: High → Low"
+                    : "Event Type"}
+
               </span>
             </div>
             <svg
@@ -1404,6 +1567,28 @@ function AlertsPanel({
                 className="lv-filter-dropdown"
                 style={{ width: "100%", maxHeight: "300px", overflowY: "auto" }}
               >
+                <div className="lv-dd-section">Sort by</div>
+                <button
+                  className={`lv-filter-dropdown-item ${severitySort === "time" ? "selected" : ""}`}
+                  onClick={() => {
+                    setSeveritySort("time");
+                    setIsTypeDropdownOpen(false);
+                  }}
+                >
+                  Most recent
+                </button>
+                <button
+                  className={`lv-filter-dropdown-item ${severitySort === "severity" ? "selected" : ""}`}
+                  onClick={() => {
+                    setSeveritySort("severity");
+                    setIsTypeDropdownOpen(false);
+                  }}
+                >
+                  Highest severity
+                </button>
+
+                <div className="lv-dd-divider" />
+                <div className="lv-dd-section">Event type</div>
                 <button
                   className={`lv-filter-dropdown-item ${alertTypeFilter === "All" ? "selected" : ""}`}
                   onClick={() => {
@@ -1411,7 +1596,7 @@ function AlertsPanel({
                     setIsTypeDropdownOpen(false);
                   }}
                 >
-                  Event Type
+                  All events
                 </button>
                 {availableTypes
                   .filter((t) => t !== "All")
@@ -1519,7 +1704,6 @@ function AlertsPanel({
             )}
           </div>
         </div>
-
         <div className="lv-alerts-time-filters">
           <button
             className={`lv-time-btn ${timeFilter === "1h" ? "active" : ""}`}
@@ -1577,6 +1761,7 @@ function AlertsPanel({
         </div>
 
         {(searchQuery ||
+          severitySort !== "time" ||
           alertTypeFilter !== "All" ||
           cameraFilter !== "All" ||
           timeFilter !== "all") && (
@@ -1584,6 +1769,7 @@ function AlertsPanel({
             className="lv-alerts-clear-btn"
             onClick={() => {
               setSearchQuery("");
+              setSeveritySort("time");
               setAlertTypeFilter("All");
               setCameraFilter("All");
               setTimeFilter("all");
@@ -1623,6 +1809,11 @@ function AlertsPanel({
         ) : (
           filteredAlerts.map((alert, i) => {
             const isActive = alert.status === "Active";
+            const isExternalAiCard =
+              alert.isExternal === true ||
+              alert.source === "external_ai" ||
+              alert.source === "AI_WEBHOOK";
+            const severity = isExternalAiCard ? "none" : getAlertSeverity(alert, severityMap);
             const ipStr = alert.ip || alert.serial || "";
             let typeClass = "lv-alert-card--other";
             if (ipStr.includes("235")) typeClass = "lv-alert-card--cam235";
@@ -1646,7 +1837,7 @@ function AlertsPanel({
             return (
               <div
                 key={i}
-                className={`lv-alert-card ${typeClass} ${isActive ? "lv-alert-card--active" : ""}`}
+                className={`lv-alert-card ${typeClass} ${isExternalAiCard ? "" : `lv-alert-card--sev-${severity}`} ${isActive && !isExternalAiCard ? "lv-alert-card--active" : ""}`}
                 onClick={() => {
                   const isExternalAi =
                     alert.isExternal === true ||
@@ -1673,6 +1864,7 @@ function AlertsPanel({
                             ? `${cameraName} (${displayId})`
                             : displayId}
                         </span>
+                        <SeverityBadge level={severity} />
                       </div>
                     )}
 
@@ -1770,7 +1962,7 @@ function AlertsPanel({
                                 <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
                                 <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
                               </svg>{" "}
-                              {alert.human ?? alert.total ?? "â€”"}
+                              {alert.human ?? alert.total ?? "—"}
                             </span>
                           </div>
                         )}
@@ -1875,8 +2067,6 @@ function AlertsPanel({
                           alert.source === "external_ai" ||
                           alert.source === "AI_WEBHOOK";
 
-                        // AI thumbnail must open the SAME large AI alert modal,
-                        // never the old image-only zoom window.
                         if (isExternalAi) {
                           setSelectedAiAlert(alert);
                         } else {
@@ -1885,18 +2075,18 @@ function AlertsPanel({
                       }}
                     >
                       <img
-  key={thumbnailUrl}
-  src={thumbnailUrl}
-  alt="Alert snapshot"
-  className="lv-alert-card__thumbnail"
-  style={{ width: "100%", height: "100%", objectFit: "cover", transition: "opacity 0.2s" }}
-  onLoad={(e) => {
-    e.currentTarget.style.opacity = "1";
-  }}
-  onError={(e) => {
-    e.currentTarget.style.opacity = "0";
-  }}
-/>
+                        key={thumbnailUrl}
+                        src={thumbnailUrl}
+                        alt="Alert snapshot"
+                        className="lv-alert-card__thumbnail"
+                        style={{ width: "100%", height: "100%", objectFit: "cover", transition: "opacity 0.2s" }}
+                        onLoad={(e) => {
+                          e.currentTarget.style.opacity = "1";
+                        }}
+                        onError={(e) => {
+                          e.currentTarget.style.opacity = "0";
+                        }}
+                      />
                     </div>
                   )}
                 </div>
@@ -2004,10 +2194,19 @@ function CameraCell({
     device.stream_key ||
     device.live_stream ||
     (device.ip ? device.ip.replace(/\./g, "_") : "");
-  const baseStreamKey =
-  device.source === "edge"
-    ? (device.stream_key || device.live_stream || mainStreamKey)
-    : (device.sub_stream_key || mainStreamKey);
+  const preferredSubKey =
+    device.source === "edge"
+      ? null
+      : (device.sub_stream_key || null);
+
+  // If sub stream fails or is disabled at the camera level, fall back to main stream
+  const [useMainFallback, setUseMainFallback] = useState(false);
+  const baseStreamKey = (!useMainFallback && preferredSubKey) ? preferredSubKey : mainStreamKey;
+
+  // Reset fallback if device/sub_stream_key changes
+  useEffect(() => {
+    setUseMainFallback(false);
+  }, [device.sub_stream_key, device.stream_key, device.ip]);
   const activeCodec = String(
     device.live_codec || device.codec || "",
   ).toUpperCase();
@@ -2035,11 +2234,24 @@ function CameraCell({
   }, [device.ip, isLive, onLiveChange]);
 
   // When WebRTC is unsupported by the browser or fails for this specific stream (e.g. H.265),
-  // automatically fall back this individual camera to HLS without touching any other cameras.
+  // automatically fall back this individual camera to HLS or to the Main Stream if the sub stream is disabled.
   const handleWebRTCError = useCallback((err) => {
-    console.warn(`[LiveView] WebRTC stream error on camera ${device.ip || baseStreamKey}. Auto-switching this camera to HLS:`, err);
+    console.warn(`[LiveView] WebRTC stream error on camera ${device.ip || baseStreamKey}.`, err);
+    if (!useMainFallback && preferredSubKey && mainStreamKey && baseStreamKey === preferredSubKey) {
+      console.warn(`[LiveView] Sub-stream unavailable/disabled on camera ${device.ip || device.name}. Falling back to main stream.`);
+      setUseMainFallback(true);
+      return;
+    }
     setLocalStreamMode("hls");
-  }, [device.ip, baseStreamKey]);
+  }, [device.ip, device.name, baseStreamKey, useMainFallback, preferredSubKey, mainStreamKey]);
+
+  const handleHlsError = useCallback((err) => {
+    console.warn(`[LiveView] HLS stream error on camera ${device.ip || baseStreamKey}.`, err);
+    if (!useMainFallback && preferredSubKey && mainStreamKey && baseStreamKey === preferredSubKey) {
+      console.warn(`[LiveView] Sub-stream HLS unavailable/disabled on camera ${device.ip || device.name}. Falling back to main stream.`);
+      setUseMainFallback(true);
+    }
+  }, [device.ip, device.name, baseStreamKey, useMainFallback, preferredSubKey, mainStreamKey]);
 
   // Use raw stream directly (no transcoding / no _h264 suffix)
   const streamKeyToUse = baseStreamKey;
@@ -2228,6 +2440,7 @@ console.log("[GRID STREAM DEBUG]", {
                 key={`hls-${streamKeyToUse}`}
                 streamKey={streamKeyToUse}
                 onConnectChange={setIsLive}
+                onError={handleHlsError}
                 muted={isMuted}
                 objectFit={objectFit}
               />
@@ -2473,6 +2686,7 @@ function ContextMenu({ x, y, onEdit, onStreamProfiles, onClose }) {
 export default function LiveViewPage({ onNavigate }) {
   const { user } = useAuth();
   const { theme } = useTheme();
+  const { setActiveCamera, registerActions, showOSD, setActiveMode } = useJoystick();
   
   const [stationDetails] = useState(getOrCreateStationDetails);
   
@@ -2545,14 +2759,12 @@ export default function LiveViewPage({ onNavigate }) {
   const [dwellTime, setDwellTime] = useState(() => {
     return parseInt(localStorage.getItem("miradorai_dwell_time") || "10", 10);
   });
-  const [sequences, setSequences] = useState(() => {
-    try {
-      const saved = localStorage.getItem("miradorai_camera_sequences");
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const {
+    sequences,
+    createSequence,
+    updateSequence,
+    deleteSequence,
+  } = useSequences();
   const [activeSequenceId, setActiveSequenceId] = useState("all");
   const [showSequenceModal, setShowSequenceModal] = useState(false);
 
@@ -3383,6 +3595,106 @@ export default function LiveViewPage({ onNavigate }) {
 
 
 
+  // ── Joystick Integration ──────────────────────────
+  useEffect(() => {
+    if (fsDevice) {
+      setActiveCamera(fsDevice);
+    } else if (selectedCamId) {
+      const cam = pageCams.find((c) => c && c.id === selectedCamId);
+      setActiveCamera(cam || null);
+    } else if (pageCams && pageCams.length > 0 && pageCams[0]) {
+      setActiveCamera(pageCams[0]);
+    }
+  }, [fsDevice, selectedCamId, pageCams, setActiveCamera]);
+
+  useEffect(() => {
+    const unregister = registerActions("LiveView", {
+      onNavigateGrid: (dX, dY) => {
+        if (fsDevice) {
+          const curIdx = sortedActiveCams.findIndex((c) => c.id === fsDevice.id);
+          if (curIdx !== -1) {
+            const nextIdx = (curIdx + (dX !== 0 ? dX : dY) + sortedActiveCams.length) % sortedActiveCams.length;
+            setFsDevice(sortedActiveCams[nextIdx]);
+            showOSD("Camera Selected", sortedActiveCams[nextIdx].name || sortedActiveCams[nextIdx].ip, "📹");
+          }
+          return;
+        }
+        const curCellIdx = pageCams.findIndex((c) => c && c.id === selectedCamId);
+        let nextCell = curCellIdx === -1 ? 0 : curCellIdx;
+        if (dX !== 0) {
+          nextCell = (nextCell + dX + gridSize) % gridSize;
+        }
+        if (dY !== 0) {
+          nextCell = (nextCell + dY * cols + gridSize) % gridSize;
+        }
+        const targetCam = pageCams[nextCell];
+        if (targetCam) {
+          setSelectedCamId(targetCam.id);
+          setActiveCamera(targetCam);
+          showOSD("Camera Focused", targetCam.name || targetCam.ip, "📹");
+        } else {
+          setSelectedCamId(`empty-${nextCell}`);
+          setActiveCamera(null);
+        }
+      },
+      onCycleLayout: () => {
+        const LAYOUT_CYCLE = ["2x2", "3x3", "4x4", "2x3"];
+        const curIdx = LAYOUT_CYCLE.indexOf(layout);
+        const next = LAYOUT_CYCLE[(curIdx + 1) % LAYOUT_CYCLE.length];
+        setLayout(next);
+        setCurrentPage(1);
+        showOSD(`Layout: ${next}`, "", "📐");
+      },
+      onToggleFullscreen: () => {
+        if (fsDevice) {
+          exitFullscreen();
+          showOSD("Exited Fullscreen", "", "🔲");
+        } else {
+          const cam = pageCams.find((c) => c && c.id === selectedCamId) || pageCams[0];
+          if (cam) {
+            setFsDevice(cam);
+            showOSD("Fullscreen Active", cam.name || cam.ip, "🔳");
+          }
+        }
+      },
+      onExitFullscreen: () => {
+        if (fsDevice) exitFullscreen();
+      },
+      onGotoPreset: (num) => {
+        const cam = fsDevice || pageCams.find((c) => c && c.id === selectedCamId);
+        if (!cam) return;
+        showOSD(`Preset ${num}`, cam.name || cam.ip, "📍");
+        fetch(apiUrl("/camera/ptz/preset/goto"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+          body: JSON.stringify({
+            ip: cam.ip || cam.address || "",
+            port: cam.port || getNumber("CAMERA_DEFAULT_PORT", 80),
+            username: cam.username || "admin",
+            password: cam.password || "",
+            preset_token: String(num),
+          }),
+        }).catch((err) => console.error(err));
+      },
+    });
+
+    return unregister;
+  }, [
+    fsDevice,
+    selectedCamId,
+    pageCams,
+    sortedActiveCams,
+    gridSize,
+    cols,
+    layout,
+    registerActions,
+    setActiveCamera,
+    showOSD,
+    setLayout,
+    setCurrentPage,
+    exitFullscreen,
+  ]);
+
   useEffect(() => {
     const sendHeartbeat = async () => {
       try {
@@ -3849,7 +4161,15 @@ export default function LiveViewPage({ onNavigate }) {
                 </div>
 
                 <div className="lv-filter-divider" />
-
+                {sequences.length > 0 && (
+                  <div className="lv-filter-item" onClick={(e) => e.stopPropagation()}>
+                    <SequenceDropdown
+                      value={activeSequenceId}
+                      onChange={setActiveSequenceId}
+                      sequences={sequences}
+                    />
+                  </div>
+                )}
                 <div
                   className="lv-filter-item lv-dropdown-container"
                   onClick={(e) => {
@@ -4342,13 +4662,9 @@ export default function LiveViewPage({ onNavigate }) {
       {showSequenceModal && (
           <SequenceManagerModal
             sequences={sequences}
-            setSequences={(next) => {
-              setSequences(next);
-              localStorage.setItem(
-                "miradorai_camera_sequences",
-                JSON.stringify(next),
-              );
-            }}
+            onCreateSequence={createSequence}
+            onUpdateSequence={updateSequence}
+            onDeleteSequence={deleteSequence}
             activeCams={activeCams}
             onClose={() => setShowSequenceModal(false)}
           />
@@ -4381,11 +4697,14 @@ import { useState as useModalState } from "react";
 
 function SequenceManagerModal({
   sequences,
-  setSequences,
+  onCreateSequence,
+  onUpdateSequence,
+  onDeleteSequence,
   activeCams,
   onClose,
 }) {
   const [editingSeq, setEditingSeq] = useModalState(null); // Sequence object or "new"
+  const [isSubmitting, setIsSubmitting] = useModalState(false);
   const [form, setForm] = useModalState({
     name: "",
     dwellTime: 10,
@@ -4415,7 +4734,7 @@ function SequenceManagerModal({
     });
   };
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
     if (!form.name || form.name.trim() === "") return;
     if (form.cameraIds.length === 0) {
@@ -4423,34 +4742,39 @@ function SequenceManagerModal({
       return;
     }
 
-    if (editingSeq === "new") {
-      const newSeq = {
-        id: "seq-" + Math.random().toString(36).substring(2, 9),
-        name: form.name.trim(),
-        dwellTime: form.dwellTime,
-        cameraIds: form.cameraIds,
-      };
-      setSequences([...sequences, newSeq]);
-    } else {
-      const updated = sequences.map((s) =>
-        s.id === editingSeq.id
-          ? {
-              ...s,
-              name: form.name.trim(),
-              dwellTime: form.dwellTime,
-              cameraIds: form.cameraIds,
-            }
-          : s,
-      );
-      setSequences(updated);
+    setIsSubmitting(true);
+    try {
+      if (editingSeq === "new") {
+        await onCreateSequence({
+          name: form.name.trim(),
+          dwellTime: form.dwellTime,
+          cameraIds: form.cameraIds,
+        });
+      } else {
+        await onUpdateSequence(editingSeq.id, {
+          name: form.name.trim(),
+          dwellTime: form.dwellTime,
+          cameraIds: form.cameraIds,
+        });
+      }
+      setEditingSeq(null);
+    } catch (err) {
+      console.error("Failed to save sequence:", err);
+      alert("Failed to save sequence. Please try again.");
+    } finally {
+      setIsSubmitting(false);
     }
-    setEditingSeq(null);
   };
 
-  const handleDelete = (seqId) => {
+  const handleDelete = async (seqId) => {
     if (!window.confirm("Are you sure you want to delete this sequence?"))
       return;
-    setSequences(sequences.filter((s) => s.id !== seqId));
+    try {
+      await onDeleteSequence(seqId);
+    } catch (err) {
+      console.error("Failed to delete sequence:", err);
+      alert("Failed to delete sequence. Please try again.");
+    }
   };
 
   return (
@@ -4596,8 +4920,8 @@ function SequenceManagerModal({
               </div>
             </div>
             <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button type="submit" className="btn-primary">
-                Save Sequence
+              <button type="submit" className="btn-primary" disabled={isSubmitting}>
+                {isSubmitting ? "Saving..." : "Save Sequence"}
               </button>
             </div>
           </form>

@@ -5,7 +5,7 @@ const INITIAL_ALARMS = [
   { id: 1, time: "17-03-2026 06:39:11", category: "System alarm",     description: "Windows Time service has encountered an error: The computer did not resync because no time data was available.", read: false },
   { id: 2, time: "17-03-2026 04:12:34", category: "System alarm",     description: "Windows Time service has encountered an error: The computer did not resync because no time data was available.", read: false },
   { id: 3, time: "17-03-2026 04:01:11", category: "System alarm",     description: "Windows Time service has encountered an error: The computer did not resync because no time data was available.", read: false },
-  { id: 4, time: "16-03-2026 23:45:00", category: "Motion detection", description: "Motion detected on Station PTZ Orientation A.", read: true },
+  { id: 4, time: "16-03-2026 23:45:00", category: "Device alarm",     description: "Video signal restored on Station PTZ Orientation A.", read: true },
   { id: 5, time: "16-03-2026 22:10:05", category: "Device alarm",     description: "Camera Station Entrance Multisensor went offline.", read: true },
   { id: 6, time: "16-03-2026 20:33:18", category: "Recording",        description: "Recording storage is above 90% capacity.", read: true },
 ];
@@ -33,7 +33,12 @@ export default function AlarmsPanel({ open, onClose }) {
   const [tab,    setTab]    = useState("alarms");
   const [alarms, setAlarms] = useState(loadAlarms);
 
-  const displayAlarms = alarms.filter((a) => !a.category.toLowerCase().includes("motion"));
+  const displayAlarms = alarms.filter((a) => {
+    const cat = String(a.category || "").toLowerCase();
+    const desc = String(a.description || "").toLowerCase();
+    const typ = String(a.type || "").toLowerCase();
+    return !cat.includes("motion") && !desc.includes("motion") && !typ.includes("motion");
+  });
   const unread = displayAlarms.filter((a) => !a.read).length;
 
   const persist = (updated) => {

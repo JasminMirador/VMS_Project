@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import Toggle from "../../components/shared/Toggle";
 import { useUserSettings } from "../../context/UserSettingsContext";
 import ServerFolderPicker from "../../components/shared/ServerFolderPicker";
-import "./UserSettingsPage.css";
+import "./Usersettingspage.css";
 import { apiUrl } from "../../config/appConfig";
 
 export default function UserSettingsPage() {
@@ -10,8 +10,64 @@ export default function UserSettingsPage() {
   const [draft, setDraft] = useState(settings);
   const [toastMsg, setToastMsg] = useState("");
   const [isPickerOpen, setIsPickerOpen] = useState(false);
-  const [activePromoTab, setActivePromoTab] = useState(0);
   const [currentTime, setCurrentTime] = useState(() => new Date().toLocaleTimeString());
+  const [watermarkText, setWatermarkText] = useState(() => localStorage.getItem("miradorai_video_watermark") || "");
+  const [watermarkPos, setWatermarkPos] = useState(() => localStorage.getItem("miradorai_video_watermark_pos") || "center");
+
+  // Fetch watermark settings from backend on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token") || localStorage.getItem("token") || "";
+        const res = await fetch(apiUrl("/recordings/watermark-settings"), {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && typeof data.watermark === "string") {
+            if (!localStorage.getItem("miradorai_video_watermark") && data.watermark) {
+              setWatermarkText(data.watermark);
+              localStorage.setItem("miradorai_video_watermark", data.watermark);
+            }
+            if (!localStorage.getItem("miradorai_video_watermark_pos") && data.watermark_pos) {
+              setWatermarkPos(data.watermark_pos);
+              localStorage.setItem("miradorai_video_watermark_pos", data.watermark_pos);
+            }
+          }
+        }
+      } catch (_) {}
+    })();
+  }, []);
+
+  const saveWatermarkToBackend = useCallback(async (text, pos) => {
+    try {
+      const token = localStorage.getItem("miradorai_token") || sessionStorage.getItem("miradorai_token") || localStorage.getItem("token") || "";
+      await fetch(apiUrl("/recordings/watermark-settings"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ watermark: text, watermark_pos: pos }),
+      });
+      setToastMsg("Watermark settings saved.");
+      setTimeout(() => setToastMsg(""), 3000);
+    } catch (err) {
+      console.error("Failed to save watermark settings:", err);
+    }
+  }, []);
+
+  const handleWatermarkTextChange = (text) => {
+    setWatermarkText(text);
+    localStorage.setItem("miradorai_video_watermark", text);
+    saveWatermarkToBackend(text, watermarkPos);
+  };
+
+  const handleWatermarkPosChange = (pos) => {
+    setWatermarkPos(pos);
+    localStorage.setItem("miradorai_video_watermark_pos", pos);
+    saveWatermarkToBackend(watermarkText, pos);
+  };
 
   // Clock in header
   useEffect(() => {
@@ -83,21 +139,6 @@ export default function UserSettingsPage() {
       console.error("Audio playback error:", e);
     }
   };
-
-  const promoCards = [
-    {
-      title: "Stay informed, stay ahead",
-      desc: "Real-time alerts and background activity at your fingertips."
-    },
-    {
-      title: "Automated Surveillance",
-      desc: "Fast snapshot captures and synchronized storage management."
-    },
-    {
-      title: "Intelligent Workflows",
-      desc: "Smart search integration and streamlined system initialization."
-    }
-  ];
 
   return (
     <div className="us-page-shell">
@@ -197,37 +238,73 @@ export default function UserSettingsPage() {
           </div>
         </div>
 
-        {/* ── 2. Promo Info Card (Stay Informed) ── */}
-        <div className="us-card us-promo-card">
-          <div className="us-promo-card__content">
-            <div className="us-promo-card__text">
-              <div className="us-promo-card__title">{promoCards[activePromoTab].title}</div>
-              <div className="us-promo-card__desc">{promoCards[activePromoTab].desc}</div>
-              <div className="us-promo-card__pagination">
-                {promoCards.map((_, i) => (
-                  <div
-                    key={i}
-                    className={`us-dot ${activePromoTab === i ? 'us-dot--active' : ''}`}
-                    onClick={() => setActivePromoTab(i)}
-                  />
-                ))}
+        {/* ── 2. Video Watermark Card (Replaced Stay Informed promo) ── */}
+        <div className="us-card">
+          <div className="us-card__header">
+            <div className="us-card__icon-badge">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 20h9" />
+                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+              </svg>
+            </div>
+            <div className="us-card__titles">
+              <div className="us-card__title">Video Watermark</div>
+              <div className="us-card__subtitle">Create & configure watermark burned into video downloads & exports.</div>
+            </div>
+          </div>
+
+          <div className="us-card__body">
+            <div className="us-item-row">
+              <div className="us-item-row__left">
+                <span className="us-item-row__icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="4 7 4 4 20 4 20 7" />
+                    <line x1="9" y1="20" x2="15" y2="20" />
+                    <line x1="12" y1="4" x2="12" y2="20" />
+                  </svg>
+                </span>
+                <span className="us-item-row__label">
+                  Watermark Content
+                  <span className="us-item-row__info-icon" title="Text burned as a watermark onto all downloaded videos">ⓘ</span>
+                </span>
               </div>
+              <input
+                type="text"
+                placeholder="e.g. CONFIDENTIAL or MIRADOR VMS"
+                value={watermarkText}
+                onChange={(e) => handleWatermarkTextChange(e.target.value)}
+                className="us-field-input"
+                style={{ width: "220px" }}
+              />
             </div>
 
-            <div className="us-promo-card__art">
-              <svg className="us-promo-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                <circle cx="12" cy="8" r="1.5" />
-              </svg>
-              <div className="us-promo-soundwaves">
-                <div className="us-wave-bar" />
-                <div className="us-wave-bar" />
-                <div className="us-wave-bar" />
-                <div className="us-wave-bar" />
-                <div className="us-wave-bar" />
-                <div className="us-wave-bar" />
+            <div className="us-item-row">
+              <div className="us-item-row__left">
+                <span className="us-item-row__icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                    <line x1="9" y1="3" x2="9" y2="21" />
+                    <line x1="15" y1="3" x2="15" y2="21" />
+                    <line x1="3" y1="9" x2="21" y2="9" />
+                    <line x1="3" y1="15" x2="21" y2="15" />
+                  </svg>
+                </span>
+                <span className="us-item-row__label">
+                  Watermark Position
+                  <span className="us-item-row__info-icon" title="Placement of watermark on video frames">ⓘ</span>
+                </span>
               </div>
+              <select
+                value={watermarkPos}
+                onChange={(e) => handleWatermarkPosChange(e.target.value)}
+                className="us-field-input"
+                style={{ width: "220px", cursor: "pointer" }}
+              >
+                <option value="center">Center</option>
+                <option value="bottom-right">Bottom-Right</option>
+                <option value="bottom-center">Bottom-Center</option>
+                <option value="top-center">Top-Center</option>
+              </select>
             </div>
           </div>
         </div>
