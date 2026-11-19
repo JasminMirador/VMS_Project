@@ -7,7 +7,7 @@
 
   window.__ENV__ = {
     // --- Backend ---
-    API_BASE_URL: "",              // "" = same origin (Vite proxy in dev, nginx in prod)
+    API_BASE_URL: "http://localhost:8000",              // "" = same origin (Vite proxy in dev, nginx in prod)
     API_PREFIX: "/api",
     API_HOST: host,
     API_PORT: "8000",
@@ -16,7 +16,7 @@
 
     // --- Synopsis (same machine as backend) ---
     // Same-origin path; Vite (dev) or nginx (prod) forwards it to :8005
-    SYNOPSIS_BASE_URL: "/synopsis-api",
+    SYNOPSIS_BASE_URL: "http://localhost:8005",
     SYNOPSIS_PREFIX: "/a1/v1/synopsis",
 
     // --- MediaMTX / HLS ---

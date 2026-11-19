@@ -1,59 +1,30 @@
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 // import basicSsl from "@vitejs/plugin-basic-ssl";
-
-export default defineConfig(({ mode }) => {
-  // '' prefix = load ALL variables from .env, not only VITE_ ones
-  const env = loadEnv(mode, process.cwd(), "");
-
-  const API_HOST = env.VITE_API_HOST || env.API_HOST || "localhost";
-  const API_PORT = env.VITE_API_PORT || env.API_PORT || "8000";
-
-  const BACKEND_HTTP = `http://${API_HOST}:${API_PORT}`;
-  const BACKEND_WS   = `ws://${API_HOST}:${API_PORT}`;
-  const EXTERNAL_AI  = `http://${env.EXTERNAL_AI_HOST || "localhost"}:${env.EXTERNAL_AI_PORT || "8080"}`;
-  const MEDIAMTX     = `http://${env.MEDIAMTX_HOST || "localhost"}:${env.MEDIAMTX_PORT || "8889"}`;
-  const SYNOPSIS     = `http://${env.SYNOPSIS_HOST || API_HOST}:${env.SYNOPSIS_PORT || "8005"}`;
-
-  return {
-    plugins: [
-      react(),
-      // basicSsl()
-    ],
-    server: {
-      host: true,
-      allowedHosts: true,
-      proxy: {
-        "/api": {
-          target: BACKEND_HTTP,
-          changeOrigin: true,
-          secure: false,
-          xfwd: true,
-        },
-        "/external-ai-api": {
-          target: EXTERNAL_AI,
-          changeOrigin: true,
-          rewrite: (path) => path.replace(/^\/external-ai-api/, "/api"),
-          secure: false,
-        },
-        "/synopsis-api": {
-          target: SYNOPSIS,
-          changeOrigin: true,
-          secure: false,
-          rewrite: (path) => path.replace(/^\/synopsis-api/, ""),
-        },
-        "/whep": {
-          target: MEDIAMTX,
-          changeOrigin: true,
-          rewrite: (path) => path.replace(/^\/whep/, ""),
-          secure: false,
-        },
-        "/ws": {
-          target: BACKEND_WS,
-          ws: true,
-          changeOrigin: true,
-        },
-      },
+ 
+export default defineConfig({
+  plugins: [
+    react(),
+    // basicSsl()
+  ],
+server: {
+  host: true,
+  allowedHosts: true,
+  proxy: {
+    '/api': {
+      target: 'http://localhost:8000',
+      changeOrigin: true,
     },
-  };
+    '/ws': {
+      target: 'ws://localhost:8000',
+      ws: true,
+    },
+        '/synopsis-api': {
+      target: 'http://localhost:8005',
+      rewrite: (path) => path.replace(/^\/synopsis-api/, ''),
+      changeOrigin: true,
+    },
+  },
+}
+
 });

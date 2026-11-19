@@ -427,10 +427,10 @@ export function renderMapViewSnapshot(ctx, options = {}) {
 
       if (showHeatmap) {
         if (!online) {
-          grad.addColorStop(0, "rgba(100, 116, 139, 0.30)");
-          grad.addColorStop(0.65, "rgba(100, 116, 139, 0.15)");
-          grad.addColorStop(1, "rgba(100, 116, 139, 0.02)");
-          rayStrokeColor = "rgba(100, 116, 139, 0.30)";
+          grad.addColorStop(0, "rgba(226, 75, 74, 0.30)");
+          grad.addColorStop(0.65, "rgba(226, 75, 74, 0.15)");
+          grad.addColorStop(1, "rgba(226, 75, 74, 0.02)");
+          rayStrokeColor = "rgba(226, 75, 74, 0.30)";
         } else {
           // Translucent luminous emerald green coverage (keeps layout design underneath clearly visible)
           grad.addColorStop(0, "rgba(16, 185, 129, 0.38)");
@@ -441,10 +441,10 @@ export function renderMapViewSnapshot(ctx, options = {}) {
         }
       } else {
         if (!online) {
-          grad.addColorStop(0, "rgba(110, 110, 110, 0.45)");
-          grad.addColorStop(0.7, "rgba(110, 110, 110, 0.25)");
-          grad.addColorStop(1, "rgba(110, 110, 110, 0.04)");
-          rayStrokeColor = "rgba(110, 110, 110, 0.45)";
+          grad.addColorStop(0, "rgba(226, 75, 74, 0.45)");
+          grad.addColorStop(0.7, "rgba(226, 75, 74, 0.22)");
+          grad.addColorStop(1, "rgba(226, 75, 74, 0.04)");
+          rayStrokeColor = "rgba(226, 75, 74, 0.45)";
         } else {
           grad.addColorStop(0, `rgba(${rgb}, 0.68)`);
           grad.addColorStop(0.45, `rgba(${rgb}, 0.48)`);
@@ -482,8 +482,9 @@ export function renderMapViewSnapshot(ctx, options = {}) {
   markers.forEach((m, i) => {
     const cam = cameras.find(c => c.id === m.camId) || { status: "offline" };
     const online = cam.status === "online";
+    const isUnavailable = !online || cam.status === "disabled" || cam.status === "unavailable" || cam.status === "offline";
     const isHighlit = m.camId === highlightedCamId;
-    const col = online ? (isHighlit ? "#5aabf0" : "#1D9E75") : "#555";
+    const col = isUnavailable ? "#E24B4A" : (isHighlit ? "#5aabf0" : "#1D9E75");
     const R = 8;
     const angle = (m.direction || 0) * (Math.PI / 180);
     const type = getCamTypeFromName(cam?.name || cam?.model);
@@ -789,7 +790,7 @@ export function renderMapViewSnapshot(ctx, options = {}) {
     const hy = m.y + Math.sin(ang2) * (R + 9);
     ctx.beginPath();
     ctx.arc(hx, hy, 3, 0, Math.PI * 2);
-    ctx.fillStyle = online ? col : "#555";
+    ctx.fillStyle = online ? col : "#E24B4A";
     ctx.fill();
     ctx.strokeStyle = "rgba(255,255,255,0.30)";
     ctx.lineWidth = 1;

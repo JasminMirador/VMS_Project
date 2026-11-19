@@ -182,7 +182,7 @@ const ADMIN_ONLY_NAV = [
     items: [
       { label: "Topology Map", page: "topology-map", icon: ICONS.topology },
       { label: "Network Health", page: "network-health", icon: ICONS.networkHealth },
-      { label: "System Performance", page: "system-performance", icon: ICONS.systemPerformance },
+      // { label: "System Performance", page: "system-performance", icon: ICONS.systemPerformance },
     ],
   },
 ];
@@ -288,11 +288,11 @@ const SETTINGS_NAV = {
       icon: ICONS.backup
     },
 
-    {
-      label: "Viewing Stations",
-      page: "viewing-stations",
-      icon: ICONS.client
-    },
+    // {
+    //   label: "Viewing Stations",
+    //   page: "viewing-stations",
+    //   icon: ICONS.client
+    // },
   ],
 };
 
